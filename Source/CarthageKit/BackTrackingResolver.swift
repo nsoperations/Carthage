@@ -95,12 +95,12 @@ public final class BackTrackingResolver: ResolverProtocol {
 			}
 
 			result = .success(resolverResult.dependencySet.resolvedDependencies)
+        } catch let carthageError as CarthageError {
+            result = .failure(carthageError)
 		} catch let error {
-			let carthageError: CarthageError = (error as? CarthageError) ?? CarthageError.internalError(description: error.localizedDescription)
-
+			let carthageError = CarthageError.internalError(description: error.localizedDescription)
 			result = .failure(carthageError)
 		}
-
 		return SignalProducer(result: result)
 	}
 

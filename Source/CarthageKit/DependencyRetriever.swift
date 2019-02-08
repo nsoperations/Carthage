@@ -58,7 +58,7 @@ final class DependencyRetriever {
 		let pinnedDependency = PinnedDependency(dependency: dependency, pinnedVersion: version.pinnedVersion)
 		var result: [DependencyEntry] = try dependencyCache.object(
 			for: pinnedDependency,
-			byStoringDefault: try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()!.dematerialize()
+            byStoringDefault: try findDependenciesUncached(for: dependency, version: version)
 		)
 
 		// Sort according to relevance for faster processing: always process problematic dependencies first
@@ -131,18 +131,22 @@ final class DependencyRetriever {
 				pinnedVersionsProducer = versionsForDependency(dependency)
 			}
 
-			let concreteVersionsProducer = pinnedVersionsProducer.filterMap { pinnedVersion -> ConcreteVersion? in
-				let concreteVersion = ConcreteVersion(pinnedVersion: pinnedVersion)
-				versionSet.insert(concreteVersion)
-				return nil
-			}
-
-			_ = try concreteVersionsProducer.collect().first()!.dematerialize()
+            try pinnedVersionsProducer.reduce(into: versionSet) { (vs, pinnedVersion) in
+                let concreteVersion = ConcreteVersion(pinnedVersion: pinnedVersion)
+                vs.insert(concreteVersion)
+            }.wait().dematerialize()
 		}
 
 		versionSet.retainVersions(compatibleWith: versionSpecifier)
 		return versionSet
 	}
+
+    private func findDependenciesUncached(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyEntry] {
+        guard let result = try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()?.dematerialize() else {
+            throw DependencyRetrieverError.assertionFailure("Could not dematerialize dependencies for dependency: \(dependency) and version: \(version)")
+        }
+        return result
+    }
 
 	private func storeCachedConflict(for dependency: ConcreteVersionedDependency, conflictingWith conflictingDependency: ConcreteVersionedDependency? = nil, error: CarthageError) {
 		let key = PinnedDependency(dependency: dependency.dependency, pinnedVersion: dependency.concreteVersion.pinnedVersion)
@@ -157,6 +161,10 @@ final class DependencyRetriever {
 			addProblematicDependency(dependency.dependency)
 		}
 	}
+
+    enum DependencyRetrieverError: Error {
+        case assertionFailure(_ message: String)
+    }
 }
 
 final class DependencyConflict {
