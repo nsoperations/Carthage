@@ -1538,3 +1538,59 @@ public func cloneOrFetch(
 				}
 		}
 }
+
+// Diagnostic methods to be able to diagnose problems with the resolver with dependencies which cannot be tested 'live', e.g. for private repositories
+extension Project {
+	// Function which outputs all possible dependencies and versions of those dependencies to the repository specified
+	public func storeDependencies(to repository: LocalRepository, ignoreErrors: Bool = false, dependencyMappings: [Dependency: Dependency]? = nil, eventObserver: ((DiagnosticResolverEvent) -> Void)? = nil) -> SignalProducer<Cartfile, CarthageError> {
+		let resolver = DiagnosticResolver(
+			versionsForDependency: versions(for:),
+			dependenciesForDependency: dependencies(for:version:),
+			resolvedGitReference: resolvedGitReference,
+            localRepository: repository
+		)
+
+		resolver.dependencyMappings = dependencyMappings
+		resolver.ignoreErrors = ignoreErrors
+
+		if let observer = eventObserver {
+			resolver.diagnosticResolverEvents.observeValues(observer)
+		}
+
+		let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile()
+			.map(Optional.init)
+			.flatMapError { _ in .init(value: nil) }
+
+		return SignalProducer
+			.zip(loadCombinedCartfile(), resolvedCartfile)
+			.flatMap(.merge) { cartfile, resolvedCartfile -> SignalProducer<Cartfile, CarthageError> in
+				_ = resolver.resolve(
+					dependencies: cartfile.dependencies,
+					lastResolved: resolvedCartfile?.dependencies,
+					dependenciesToUpdate: nil
+				)
+
+				let mappedDependencies = Dictionary(uniqueKeysWithValues: cartfile.dependencies.map { dependency, versionSpecifier -> (Dependency, VersionSpecifier) in
+					let mappedDependency = dependencyMappings?[dependency] ?? dependency
+					return (mappedDependency, versionSpecifier)
+				})
+
+				let mappedCartfile = Cartfile(dependencies: mappedDependencies)
+				return SignalProducer(value: mappedCartfile)
+		}
+	}
+
+	// Updates dependencies by using the specified repository instead of 'live' lookup for dependencies and their versions
+	public func resolveUpdatedDependencies(
+		from repository: LocalRepository,
+		resolverType: ResolverProtocol.Type,
+		dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
+		let resolver = resolverType.init(
+			versionsForDependency: repository.versions(for:),
+			dependenciesForDependency: repository.dependencies(for:version:),
+			resolvedGitReference: repository.resolvedGitReference
+		)
+
+		return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
+	}
+}
