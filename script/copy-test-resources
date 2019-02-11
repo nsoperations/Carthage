@@ -1,0 +1,6 @@
+#!/bin/bash
+
+SOURCE_DIR="Tests/CarthageKitTests/Resources"
+TARGET_DIR="$BUILT_PRODUCTS_DIR/CarthageKitTests.xctest/Contents/Resources"
+
+cp -R "$SOURCE_DIR"/* "$TARGET_DIR"
