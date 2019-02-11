@@ -1,0 +1,18 @@
+[
+  {
+    "versionSpecifier" : "~> 4.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/Foundation.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/SwiftLint.git"
+      }
+    }
+  }
+]

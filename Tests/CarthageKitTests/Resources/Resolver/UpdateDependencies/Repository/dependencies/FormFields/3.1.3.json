@@ -1,0 +1,10 @@
+[
+  {
+    "versionSpecifier" : "~> 6.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/Core.git"
+      }
+    }
+  }
+]

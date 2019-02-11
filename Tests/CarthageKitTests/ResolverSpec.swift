@@ -563,6 +563,70 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
             }
         }
 
+        it("should correctly update subset of depedencies") {
+            guard let testCartfileURL = Bundle(for: ResolverBehavior.self).url(forResource: "Resolver/UpdateDependencies/Cartfile", withExtension: "") else {
+                fail("Could not load Resolver/ConflictingNames/Cartfile from resources")
+                return
+            }
+
+            guard let testResolvedCartfileURL = Bundle(for: ResolverBehavior.self).url(forResource: "Resolver/UpdateDependencies/Cartfile.resolved", withExtension: ""), let resolvedCartfileString = try? String(contentsOf: testResolvedCartfileURL, encoding: .utf8) else {
+                fail("Could not load Resolver/ConflictingNames/Cartfile.resolved from resources")
+                return
+            }
+
+            let projectDirectoryURL = testCartfileURL.deletingLastPathComponent()
+            let repositoryURL = projectDirectoryURL.appendingPathComponent("Repository")
+
+            let project = Project(directoryURL: projectDirectoryURL)
+            let repository = LocalRepository(directoryURL: repositoryURL)
+            let currentResolvedCartfile: ResolvedCartfile!
+            switch ResolvedCartfile.from(string: resolvedCartfileString) {
+            case .success(let resolvedCartFile):
+                currentResolvedCartfile = resolvedCartFile
+            case .failure(let error):
+                fail("Could not load Cartfile.resolved: \(error)")
+                return
+            }
+
+            let signalProducer = project.resolveUpdatedDependencies(from: repository,
+                                                                    resolverType: resolverType.self,
+                                                                    dependenciesToUpdate: ["WebtrekkAnalytics"])
+            do {
+                guard let resolvedCartfile: ResolvedCartfile = try signalProducer.first()?.dematerialize() else {
+                    fail("Could not load resolved cartfile")
+                    return
+                }
+
+                print(resolvedCartfile)
+
+                for dependency in resolvedCartfile.dependencies {
+                    let dependencyName = dependency.key.name
+                    let dependencyVersion = dependency.value
+                    switch dependencyName {
+                    case "WebtrekkAnalytics":
+                        expect(dependencyVersion.commitish) == "4.0.0"
+                    case "Core":
+                        expect(dependencyVersion.commitish) == "6.5.0"
+                    case "StyleKitV2":
+                        expect(dependencyVersion.commitish) == "4.1.2"
+                    case "Foundation":
+                        expect(dependencyVersion.commitish) == "4.1.0"
+                    case "webtrekk-ios-sdk":
+                        expect(dependencyVersion.commitish) == "4.12.4"
+                    case "SwiftLint":
+                        expect(dependencyVersion.commitish) == "1.3.0"
+                    case "BuildScripts":
+                        expect(dependencyVersion.commitish) == "1.0.12"
+                    default:
+                        expect(currentResolvedCartfile.dependencies[dependency.key]) == dependencyVersion
+                    }
+                }
+
+            } catch {
+                fail("Unexpected error thrown: \(error)")
+            }
+        }
+
         it("should fail on cyclic dependencies") {
             let db: DB = [
                 github1: [

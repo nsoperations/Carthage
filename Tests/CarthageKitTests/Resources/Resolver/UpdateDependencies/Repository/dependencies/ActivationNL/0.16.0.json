@@ -1,0 +1,42 @@
+[
+  {
+    "versionSpecifier" : "~> 1.0.5",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/SwiftLint.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 6.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/Core.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 4.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/StyleKitV2.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 4.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/Foundation.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 0.49.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/CommunicationNL.git"
+      }
+    }
+  }
+]

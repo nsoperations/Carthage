@@ -1,0 +1,43 @@
+[
+  {
+    "versionSpecifier" : "~> 1.3.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/SwiftLint.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 4.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/StyleKitV2.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.12",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/BuildScripts.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 6.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@git.com\/Communication.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "\"5.0.1\"",
+    "dependency" : {
+      "gitHub" : {
+        "repositoryOwner" : "onevcat",
+        "repositoryName" : "Kingfisher"
+      }
+    }
+  }
+]
