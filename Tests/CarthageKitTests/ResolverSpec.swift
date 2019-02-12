@@ -34,8 +34,8 @@ private func ==<A: Equatable, B: Equatable>(lhs: Expectation<[(A, B)]>, rhs: [(A
 class ResolverSpec: QuickSpec {
 	override func spec() {
 //        itBehavesLike(ResolverBehavior.self) { () in Resolver.self }
-//        itBehavesLike(ResolverBehavior.self) { () in NewResolver.self }
-		itBehavesLike(ResolverBehavior.self) { () in BackTrackingResolver.self }
+        itBehavesLike(ResolverBehavior.self) { () in NewResolver.self }
+//        itBehavesLike(ResolverBehavior.self) { () in BackTrackingResolver.self }
 	}
 }
 
@@ -590,7 +590,7 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
 
             let signalProducer = project.resolveUpdatedDependencies(from: repository,
                                                                     resolverType: resolverType.self,
-                                                                    dependenciesToUpdate: ["WebtrekkAnalytics"])
+                                                                    dependenciesToUpdate: ["WebtrekkAnalytics", "Transactions", "Cordova", "Products", "ActivationNL", "Push"])
             do {
                 guard let resolvedCartfile: ResolvedCartfile = try signalProducer.first()?.dematerialize() else {
                     fail("Could not load resolved cartfile")
