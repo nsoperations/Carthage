@@ -88,12 +88,15 @@ public final class BackTrackingResolver: ResolverProtocol {
 				try resolverResult.dependencySet.eliminateSameNamedDependencies(rootEntries: requiredDependencies)
 			case .rejected:
 				if let rejectionError = dependencySet.rejectionError {
+                    if case let .requiredVersionNotFound(dependency, _) = rejectionError, let dependencyNames = dependenciesToUpdate, !dependencyNames.contains(dependency.name) {
+                        //Convert to an unsatisfiable dependency list error
+                        throw CarthageError.unsatisfiableDependencyList(dependencyNames)
+                    }
 					throw rejectionError
 				} else {
-					throw CarthageError.unsatisfiableDependencyList(dependenciesToUpdate ?? dependencies.map { $0.key.name })
+                    throw CarthageError.internalError(description: "No dependency set was resolved and no resolver error was present. This should never happen.")
 				}
 			}
-
 			result = .success(resolverResult.dependencySet.resolvedDependencies)
         } catch let carthageError as CarthageError {
             result = .failure(carthageError)
@@ -122,7 +125,7 @@ public final class BackTrackingResolver: ResolverProtocol {
 		}
 
 		var result: ResolverEvaluation?
-		var lastRejectionError: CarthageError?
+		var firstRejectionError: CarthageError?
 		while result == nil {
 			// Keep iterating until there are no subsets to resolve anymore
 			if let subSet = try dependencySet.popSubSet() {
@@ -132,8 +135,8 @@ public final class BackTrackingResolver: ResolverProtocol {
 					if subSet === dependencySet {
 						result = (.rejected, subSet)
 					}
-					if subSet.rejectionError != nil {
-						lastRejectionError = subSet.rejectionError
+					if subSet.rejectionError != nil && firstRejectionError == nil {
+						firstRejectionError = subSet.rejectionError
 					}
 				case .accepted:
 					// Set contains all dependencies, we've got a winner
@@ -143,7 +146,7 @@ public final class BackTrackingResolver: ResolverProtocol {
 				// All done
 				result = (.rejected, dependencySet)
 				if dependencySet.rejectionError == nil {
-					dependencySet.rejectionError = lastRejectionError
+					dependencySet.rejectionError = firstRejectionError
 				}
 			}
 		}

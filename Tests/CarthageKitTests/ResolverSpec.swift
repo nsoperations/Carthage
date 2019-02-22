@@ -35,7 +35,7 @@ class ResolverSpec: QuickSpec {
 	override func spec() {
 //        itBehavesLike(ResolverBehavior.self) { () in Resolver.self }
 //        itBehavesLike(ResolverBehavior.self) { () in NewResolver.self }
-		itBehavesLike(ResolverBehavior.self) { () in BackTrackingResolver.self }
+        itBehavesLike(ResolverBehavior.self) { () in BackTrackingResolver.self }
 	}
 }
 
@@ -563,67 +563,219 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
             }
         }
 
-        it("should correctly update subset of depedencies") {
-            guard let testCartfileURL = Bundle(for: ResolverBehavior.self).url(forResource: "Resolver/UpdateDependencies/Cartfile", withExtension: "") else {
-                fail("Could not load Resolver/ConflictingNames/Cartfile from resources")
-                return
-            }
+        it("should correctly update subset of dependencies, ignoring unspecified transitive dependencies") {
+            let db: DB = [
+                github1: [
+                    .v1_0_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                    .v1_1_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                    .v2_0_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                ],
+                github2: [
+                    .v1_0_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                    .v1_1_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                    .v2_0_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                ],
+                github3: [
+                    .v1_0_0: [:],
+                    .v1_1_0: [:],
+                    .v2_0_0: [:],
+                ],
+                git1: [
+                    .v1_0_0: [ github3: .any ],
+                    .v1_1_0: [ github3: .any ],
+                    .v2_0_0: [ github3: .any ],
+                ],
+                git2: [
+                    .v1_0_0: [:],
+                    .v1_1_0: [:],
+                ],
+                ]
 
-            guard let testResolvedCartfileURL = Bundle(for: ResolverBehavior.self).url(forResource: "Resolver/UpdateDependencies/Cartfile.resolved", withExtension: ""), let resolvedCartfileString = try? String(contentsOf: testResolvedCartfileURL, encoding: .utf8) else {
-                fail("Could not load Resolver/ConflictingNames/Cartfile.resolved from resources")
-                return
-            }
+            let resolved = db.resolve(resolverType,
+                                      [ github1: .any,
+                                        git2: .any],
+                                      resolved: [ github1: .v1_0_0,
+                                                  github2: .v1_0_0,
+                                                  github3: .v1_0_0,
+                                                  git1: .v1_0_0,
+                                                  git2: .v1_0_0],
+                                      updating: [github1])
 
-            let projectDirectoryURL = testCartfileURL.deletingLastPathComponent()
-            let repositoryURL = projectDirectoryURL.appendingPathComponent("Repository")
-
-            let project = Project(directoryURL: projectDirectoryURL)
-            let repository = LocalRepository(directoryURL: repositoryURL)
-            let currentResolvedCartfile: ResolvedCartfile!
-            switch ResolvedCartfile.from(string: resolvedCartfileString) {
-            case .success(let resolvedCartFile):
-                currentResolvedCartfile = resolvedCartFile
+            // Github1 should be updated, including its transitive dependencies. Other dependencies should remain static.
+            switch resolved {
+            case .success(let value):
+                expect(value) == [
+                    github3: .v1_1_0,
+                    git1: .v1_1_0,
+                    github2: .v1_1_0,
+                    github1: .v2_0_0,
+                    git2: .v1_0_0
+                ]
             case .failure(let error):
-                fail("Could not load Cartfile.resolved: \(error)")
-                return
+                fail("Expected no error to occur: \(error)")
             }
+        }
 
-            let signalProducer = project.resolveUpdatedDependencies(from: repository,
-                                                                    resolverType: resolverType.self,
-                                                                    dependenciesToUpdate: ["WebtrekkAnalytics"])
-            do {
-                guard let resolvedCartfile: ResolvedCartfile = try signalProducer.first()?.dematerialize() else {
-                    fail("Could not load resolved cartfile")
-                    return
+        it("should correctly fail update subset of dependencies if no resolution exists with the specified dependencies to update") {
+            let db: DB = [
+                github1: [
+                    .v1_0_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                    .v1_1_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                    .v2_0_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                ],
+                github2: [
+                    .v1_0_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                    .v1_1_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                    .v2_0_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                ],
+                github3: [
+                    .v1_0_0: [:],
+                    .v1_1_0: [:],
+                    .v2_0_0: [:],
+                ],
+                git1: [
+                    .v1_0_0: [ github3: .any ],
+                    .v1_1_0: [ github3: .any ],
+                    .v2_0_0: [ github3: .any ],
+                ],
+                git2: [
+                    .v1_0_0: [:],
+                    .v1_1_0: [:],
+                    .v2_0_0: [:],
+                ],
+                ]
+
+            let resolved = db.resolve(resolverType,
+                                      [ github1: .any,
+                                        git2: .compatibleWith(.v2_0_0)],
+                                      resolved: [ github1: .v1_0_0,
+                                                  github2: .v1_0_0,
+                                                  github3: .v1_0_0,
+                                                  git1: .v1_0_0,
+                                                  git2: .v1_0_0],
+                                      updating: [github1])
+
+            // Github1 should be updated, including its transitive dependencies. Other dependencies should remain static.
+            switch resolved {
+            case .success(let value):
+                fail("Expected an error to occur, but got value: \(value)")
+            case .failure(let error):
+                // OK
+                if case let CarthageError.unsatisfiableDependencyList(dependencyList) = error {
+                    //OK
+                    expect(dependencyList) == [github1.name]
+                } else {
+                    fail("Got wrong type of error, expected unsatisfiableDependencyList but got: \(error)")
                 }
+            }
+        }
 
-                print(resolvedCartfile)
+        fit("should correctly fail update subset of dependencies if no resolution is possible because a required version does not exist") {
+            let db: DB = [
+                github1: [
+                    .v1_0_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                    .v1_1_0: [
+                        github2: .compatibleWith(.v1_0_0),
+                        github3: .compatibleWith(.v1_0_0),
+                    ],
+                    .v2_0_0: [
+                        github2: .compatibleWith(.v2_0_0),
+                        github3: .compatibleWith(.v3_0_0),
+                    ],
+                ],
+                github2: [
+                    .v1_0_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                    .v1_1_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                    .v2_0_0: [
+                        github3: .compatibleWith(.v1_0_0),
+                        git1: .compatibleWith(.v1_0_0),
+                    ],
+                ],
+                github3: [
+                    .v1_0_0: [:],
+                    .v1_1_0: [:],
+                    .v2_0_0: [:],
+                ],
+                git1: [
+                    .v1_0_0: [ github3: .any ],
+                    .v1_1_0: [ github3: .any ],
+                    .v2_0_0: [ github3: .any ],
+                ],
+                git2: [
+                    .v1_0_0: [:],
+                    .v1_1_0: [:],
+                    .v2_0_0: [:],
+                ],
+                ]
 
-                for dependency in resolvedCartfile.dependencies {
-                    let dependencyName = dependency.key.name
-                    let dependencyVersion = dependency.value
-                    switch dependencyName {
-                    case "WebtrekkAnalytics":
-                        expect(dependencyVersion.commitish) == "4.0.0"
-                    case "Core":
-                        expect(dependencyVersion.commitish) == "6.5.0"
-                    case "StyleKitV2":
-                        expect(dependencyVersion.commitish) == "4.1.2"
-                    case "Foundation":
-                        expect(dependencyVersion.commitish) == "4.1.0"
-                    case "webtrekk-ios-sdk":
-                        expect(dependencyVersion.commitish) == "4.12.4"
-                    case "SwiftLint":
-                        expect(dependencyVersion.commitish) == "1.3.0"
-                    case "BuildScripts":
-                        expect(dependencyVersion.commitish) == "1.0.12"
-                    default:
-                        expect(currentResolvedCartfile.dependencies[dependency.key]) == dependencyVersion
-                    }
+            let resolved = db.resolve(resolverType,
+                                      [ github1: .compatibleWith(.v2_0_0),
+                                        git2: .compatibleWith(.v1_0_0)],
+                                      resolved: [ github1: .v1_0_0,
+                                                  github2: .v1_0_0,
+                                                  github3: .v1_0_0,
+                                                  git1: .v1_0_0,
+                                                  git2: .v1_0_0],
+                                      updating: [github1])
+
+            // Github1 should be updated, including its transitive dependencies. Other dependencies should remain static.
+            switch resolved {
+            case .success(let value):
+                fail("Expected an error to occur, but got value: \(value)")
+            case .failure(let error):
+                // OK
+                if case let CarthageError.requiredVersionNotFound(dependency, versionSpecifier) = error {
+                    //OK
+                    expect(dependency) == github3
+                    expect(versionSpecifier) == .compatibleWith(.v3_0_0)
+                } else {
+                    fail("Got wrong type of error, expected requiredVersionNotFound but got: \(error)")
                 }
-
-            } catch {
-                fail("Unexpected error thrown: \(error)")
             }
         }
 
