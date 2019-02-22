@@ -1342,8 +1342,8 @@ func platformForFramework(_ frameworkURL: URL) -> SignalProducer<Platform, Carth
 
 			// Try to read what platfrom this binary is for. Attempt in order:
 			// 1. Read `DTSDKName` from Info.plist.
-			//    Some users are reporting that static frameworks don't have this key in the .plist,
-			//    so we fall back and check the binary of the executable itself.
+			//  Some users are reporting that static frameworks don't have this key in the .plist,
+			//  so we fall back and check the binary of the executable itself.
 			// 2. Read the LC_VERSION_<PLATFORM> from the framework's binary executable file
 
 			if let sdkNameFromBundle = bundle?.object(forInfoDictionaryKey: "DTSDKName") as? String {
@@ -1539,22 +1539,36 @@ public func cloneOrFetch(
 		}
 }
 
-// Diagnostic methods to be able to diagnose problems with the resolver with dependencies which cannot be tested 'live', e.g. for private repositories
+// Diagnostic methods to be able to diagnose problems with the resolver with dependencies
+// which cannot be tested 'live', e.g. for private repositories
 extension Project {
-	// Function which outputs all possible dependencies and versions of those dependencies to the repository specified
-    public func storeDependencies(to repository: LocalRepository, ignoreErrors: Bool = false, dependencyMappings: [Dependency: Dependency]? = nil, eventObserver: ((DiagnosticResolverEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
-		let resolver = DiagnosticResolver(
+
+	/// Stores all possible dependencies and versions of those dependencies in the specified local dependency store.
+	///
+	/// If ignoreErrors is true, failure for retrieving some of the transitive dependencies or their versions will not be fatal,
+	/// rather an empty collection is assumed.
+	///
+	/// Dependency mappings are used to anonymize dependencies to avoid disclosure of possible sensitive information.
+	/// Use key=source dependency and value=target dependency
+	///
+	/// Specify an event observer to be notified by events of the DependencyCrawler.
+	///
+	/// Upon success this method returns the mapped Cartfile and optionally ResolvedCartfile.
+	public func storeDependencies(to store: LocalDependencyStore,
+								  ignoreErrors: Bool = false,
+								  dependencyMappings: [Dependency: Dependency]? = nil,
+								  eventObserver: ((DependencyCrawlerEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
+		let crawler = DependencyCrawler(
 			versionsForDependency: versions(for:),
 			dependenciesForDependency: dependencies(for:version:),
 			resolvedGitReference: resolvedGitReference,
-            localRepository: repository
+			store: store,
+			mappings: dependencyMappings,
+			ignoreErrors: ignoreErrors
 		)
 
-		resolver.dependencyMappings = dependencyMappings
-		resolver.ignoreErrors = ignoreErrors
-
 		if let observer = eventObserver {
-			resolver.diagnosticResolverEvents.observeValues(observer)
+			crawler.events.observeValues(observer)
 		}
 
 		let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile()
@@ -1563,40 +1577,41 @@ extension Project {
 
 		return SignalProducer
 			.zip(loadCombinedCartfile(), resolvedCartfile)
-            .flatMap(.merge) { cartfile, resolvedCartfile -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> in
-				_ = resolver.resolve(
-					dependencies: cartfile.dependencies,
-					lastResolved: resolvedCartfile?.dependencies,
-					dependenciesToUpdate: nil
-				)
+			.flatMap(.merge) { cartfile, resolvedCartfile -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> in
+				let result = crawler.traverse(dependencies: cartfile.dependencies)
 
-                let mappedDependencies: [Dependency: VersionSpecifier] = Dictionary(uniqueKeysWithValues: cartfile.dependencies.map { dependency, versionSpecifier -> (Dependency, VersionSpecifier) in
+				if case .failure(let carthageError) = result {
+					return SignalProducer(error: carthageError)
+				}
+
+				let mappedDependencies: [Dependency: VersionSpecifier] = Dictionary(uniqueKeysWithValues: cartfile.dependencies.map { dependency, versionSpecifier -> (Dependency, VersionSpecifier) in
 					let mappedDependency = dependencyMappings?[dependency] ?? dependency
 					return (mappedDependency, versionSpecifier)
 				})
 
-                let mappedResolvedDependencies: [Dependency: PinnedVersion]? = resolvedCartfile.map {
-                    Dictionary(uniqueKeysWithValues: $0.dependencies.map { dependency, pinnedVersion -> (Dependency, PinnedVersion) in
-                        let mappedDependency = dependencyMappings?[dependency] ?? dependency
-                        return (mappedDependency, pinnedVersion)
-                    })
-                }
+				let mappedResolvedDependencies: [Dependency: PinnedVersion]? = resolvedCartfile.map {
+					Dictionary(uniqueKeysWithValues: $0.dependencies.map { dependency, pinnedVersion -> (Dependency, PinnedVersion) in
+						let mappedDependency = dependencyMappings?[dependency] ?? dependency
+						return (mappedDependency, pinnedVersion)
+					})
+				}
 
 				let mappedCartfile = Cartfile(dependencies: mappedDependencies)
-                let mappedResolvedCartfile = mappedResolvedDependencies.map{ ResolvedCartfile(dependencies: $0) }
+				let mappedResolvedCartfile = mappedResolvedDependencies.map { ResolvedCartfile(dependencies: $0) }
 				return SignalProducer(value: (mappedCartfile, mappedResolvedCartfile))
 		}
 	}
 
-	// Updates dependencies by using the specified repository instead of 'live' lookup for dependencies and their versions
+	/// Updates dependencies by using the specified local dependency store instead of 'live' lookup for dependencies and their versions
+	/// Returns a signal with the resulting ResolvedCartfile upon success or a CarthageError upon failure.
 	public func resolveUpdatedDependencies(
-		from repository: LocalRepository,
+		from store: LocalDependencyStore,
 		resolverType: ResolverProtocol.Type,
 		dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
 		let resolver = resolverType.init(
-			versionsForDependency: repository.versions(for:),
-			dependenciesForDependency: repository.dependencies(for:version:),
-			resolvedGitReference: repository.resolvedGitReference
+			versionsForDependency: store.versions(for:),
+			dependenciesForDependency: store.dependencies(for:version:),
+			resolvedGitReference: store.resolvedGitReference
 		)
 
 		return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
