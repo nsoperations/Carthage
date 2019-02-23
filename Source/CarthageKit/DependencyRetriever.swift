@@ -43,11 +43,6 @@ final class DependencyRetriever {
 			for: versionedDependency,
 			byStoringDefault: try findAllVersionsUncached(for: dependency, compatibleWith: versionSpecifier, isUpdatable: isUpdatable)
 		)
-
-		guard !isUpdatable || !concreteVersionSet.isEmpty else {
-			throw CarthageError.requiredVersionNotFound(dependency, versionSpecifier)
-		}
-
 		return concreteVersionSet
 	}
 
@@ -62,14 +57,14 @@ final class DependencyRetriever {
 		)
 
 		// Sort according to relevance for faster processing: always process problematic dependencies first
-		if !problematicDependencies.isEmpty {
-			result.sort { entry1, entry2 -> Bool in
-				let problemCount1 = problematicDependencyDictionary[entry1.key] ?? 0
-				let problemCount2 = problematicDependencyDictionary[entry2.key] ?? 0
-				return problemCount1 > problemCount2
+		result.sort { entry1, entry2 -> Bool in
+			let problemCount1 = problematicDependencyDictionary[entry1.key] ?? 0
+			let problemCount2 = problematicDependencyDictionary[entry2.key] ?? 0
+			if problemCount1 == problemCount2 {
+				return entry1.key < entry2.key
 			}
+			return problemCount1 > problemCount2
 		}
-
 		return result
 	}
 
@@ -145,7 +140,7 @@ final class DependencyRetriever {
         guard let result = try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()?.dematerialize() else {
             throw DependencyRetrieverError.assertionFailure("Could not dematerialize dependencies for dependency: \(dependency) and version: \(version)")
         }
-        return result
+		return result
     }
 
 	private func storeCachedConflict(for dependency: ConcreteVersionedDependency, conflictingWith conflictingDependency: ConcreteVersionedDependency? = nil, error: CarthageError) {

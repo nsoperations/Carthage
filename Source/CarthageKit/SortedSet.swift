@@ -17,6 +17,10 @@ struct SortedSet<T: Comparable>: Sequence, Collection {
 
 	public init() {
 	}
+	
+	public init<S>(_ elements: S) where S : Sequence, Element == S.Element {
+		storage = elements.sorted()
+	}
 
 	/**
 	Inserts an object at the correct insertion point to keep the set sorted,

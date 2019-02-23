@@ -17,7 +17,7 @@ final class DependencySet {
 	/**
 	The set of yet unresolved dependencies. For a complete dependency set this should be empty.
 	*/
-	public private(set) var unresolvedDependencies: Set<Dependency>
+	public private(set) var unresolvedDependencies: SortedSet<Dependency>
 
 	/**
 	The rejectionError describing the reason for rejection if any.
@@ -55,14 +55,14 @@ final class DependencySet {
 	public convenience init(requiredDependencies: [DependencyEntry],
 							updatableDependencyNames: Set<String>,
 							retriever: DependencyRetriever) throws {
-		self.init(unresolvedDependencies: Set(requiredDependencies.map { $0.key }),
+		self.init(unresolvedDependencies: SortedSet(requiredDependencies.map { $0.key }),
 				  updatableDependencyNames: updatableDependencyNames,
 				  contents: [Dependency: ConcreteVersionSet](),
 				  retriever: retriever)
 		try self.expand(parent: nil, with: requiredDependencies)
 	}
 
-	private init(unresolvedDependencies: Set<Dependency>,
+	private init(unresolvedDependencies: SortedSet<Dependency>,
 				 updatableDependencyNames: Set<String>,
 				 contents: [Dependency: ConcreteVersionSet],
 				 retriever: DependencyRetriever) {
@@ -136,6 +136,7 @@ final class DependencySet {
 	public func popSubSet() throws -> DependencySet? {
 		while !isComplete && !isRejected {
 			if let dependency = self.nextUnresolvedDependency {
+				print("Processing dependency: \(dependency)")
 				// Select the first version, which is also the most appropriate version (highest version corresponding with version specifier)
 				guard let versionSet = contents[dependency], let version = versionSet.first else {
 					// Empty version set for this dependency, so there's no more subsets to consider
@@ -268,7 +269,7 @@ final class DependencySet {
 	Returns a rejected copy of this set, which is basically an empty set with the rejectionError set.
 	*/
 	private func rejectedCopy(rejectionError: CarthageError) -> DependencySet {
-		let dependencySet = DependencySet(unresolvedDependencies: Set<Dependency>(),
+		let dependencySet = DependencySet(unresolvedDependencies: SortedSet<Dependency>(),
 										  updatableDependencyNames: Set<String>(),
 										  contents: [Dependency: ConcreteVersionSet](),
 										  retriever: self.retriever)
@@ -357,7 +358,12 @@ final class DependencySet {
 			let validVersions = try retriever.findAllVersions(for: transitiveDependency, compatibleWith: versionSpecifier, isUpdatable: isUpdatable)
 
 			if !setVersions(validVersions, for: transitiveDependency) {
-				let error = CarthageError.requiredVersionNotFound(transitiveDependency, versionSpecifier)
+				let error: CarthageError
+				if isUpdatable {
+					error = CarthageError.requiredVersionNotFound(transitiveDependency, versionSpecifier)
+				} else {
+					error = CarthageError.unsatisfiableDependencyList(Array(updatableDependencyNames))
+				}
 				reject(dependency: transitiveDependency, error: error, definingDependency: definingDependency)
 				return false
 			}

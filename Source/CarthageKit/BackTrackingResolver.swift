@@ -88,9 +88,8 @@ public final class BackTrackingResolver: ResolverProtocol {
 				try resolverResult.dependencySet.eliminateSameNamedDependencies(rootEntries: requiredDependencies)
 			case .rejected:
 				if let rejectionError = dependencySet.rejectionError {
-                    if case let .requiredVersionNotFound(dependency, _) = rejectionError, let dependencyNames = dependenciesToUpdate, !dependencyNames.contains(dependency.name) {
-                        //Convert to an unsatisfiable dependency list error
-                        throw CarthageError.unsatisfiableDependencyList(dependencyNames)
+                    if case .unsatisfiableDependencyList(_) = rejectionError {
+                        throw CarthageError.unsatisfiableDependencyList(dependenciesToUpdate ?? [])
                     }
 					throw rejectionError
 				} else {
