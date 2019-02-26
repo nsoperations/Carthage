@@ -1,6 +1,7 @@
 import Foundation
 import Result
 import Utility
+import BTree
 
 /**
 Wrapper around PinnedVersion/SementicVersion that can be ordered on relevance and avoids multiple invocations of the parsing logic for the Version from a string.
@@ -12,6 +13,8 @@ Semantic versions are first, ordered descending, then versions that do not compl
 struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
 	public let pinnedVersion: PinnedVersion
 	public let semanticVersion: Version?
+	private let hash: Int
+	private let isUpperBound: Bool
 
 	public init(string: String) {
 		self.init(pinnedVersion: PinnedVersion(string))
@@ -26,21 +29,27 @@ struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
 		default:
 			self.semanticVersion = nil
 		}
+		self.isUpperBound = false
+		self.hash = pinnedVersion.hashValue
 	}
 
-	public init(semanticVersion: Version) {
+	public init(semanticVersion: Version, isUpperBound: Bool = false) {
 		self.pinnedVersion = PinnedVersion(semanticVersion.description)
 		self.semanticVersion = semanticVersion
+		self.hash = pinnedVersion.hashValue
+		self.isUpperBound = isUpperBound
 	}
 
 	private static func compare(lhs: ConcreteVersion, rhs: ConcreteVersion) -> ComparisonResult {
 		let leftVersion = lhs.semanticVersion
 		let rightVersion = rhs.semanticVersion
-
-		if leftVersion != nil && rightVersion != nil {
-			let v1 = leftVersion!
-			let v2 = rightVersion!
-			return v1 < v2 ? .orderedDescending : v2 < v1 ? .orderedAscending : .orderedSame
+		
+		let sameResult = { () -> ComparisonResult in
+			lhs.isUpperBound == rhs.isUpperBound ? .orderedSame : lhs.isUpperBound ? .orderedDescending : .orderedAscending
+		}
+		
+		if let v1 = leftVersion, let v2 = rightVersion {
+			return v1 < v2 ? .orderedDescending : v2 < v1 ? .orderedAscending : sameResult()
 		} else if leftVersion != nil {
 			return .orderedAscending
 		} else if rightVersion != nil {
@@ -49,7 +58,7 @@ struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
 
 		let s1 = lhs.pinnedVersion.commitish
 		let s2 = rhs.pinnedVersion.commitish
-		return s1 < s2 ? .orderedAscending : s2 < s1 ? .orderedDescending : .orderedSame
+		return s1 < s2 ? .orderedAscending : s2 < s1 ? .orderedDescending : sameResult()
 	}
 
 	// All the comparison methods are intentionally defined inline (while the protocol only requires '<' and '==') to increase performance (requires 1 function call instead of 2 function calls this way).
@@ -80,7 +89,7 @@ struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
 	}
 
 	public var hashValue: Int {
-		return pinnedVersion.hashValue
+		return hash
 	}
 }
 
@@ -90,9 +99,16 @@ A Dependency with a concrete version.
 struct ConcreteVersionedDependency: Hashable {
 	public let dependency: Dependency
 	public let concreteVersion: ConcreteVersion
+	private let hash: Int
+	
+	init(dependency: Dependency, concreteVersion: ConcreteVersion) {
+		self.dependency = dependency
+		self.concreteVersion = concreteVersion
+		self.hash = 37 &* dependency.hashValue &+ concreteVersion.hashValue
+	}
 
 	public var hashValue: Int {
-		return 37 &* dependency.hashValue &+ concreteVersion.hashValue
+		return hash
 	}
 
 	public static func == (lhs: ConcreteVersionedDependency, rhs: ConcreteVersionedDependency) -> Bool {
@@ -136,25 +152,25 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 	// MARK: - Private properties
 
 	private var semanticVersions: SortedSet<ConcreteVersion>
-	private var nonVersions: SortedSet<ConcreteVersion>
+	private var nonSemanticVersions: SortedSet<ConcreteVersion>
 	private var preReleaseVersions: SortedSet<ConcreteVersion>
 
 	// MARK: - Initializers
 
 	public convenience init() {
 		self.init(semanticVersions: SortedSet<ConcreteVersion>(),
-				  nonVersions: SortedSet<ConcreteVersion>(),
+				  nonSemanticVersions: SortedSet<ConcreteVersion>(),
 				  preReleaseVersions: SortedSet<ConcreteVersion>(),
 				  definitions: [ConcreteVersionSetDefinition]())
 	}
 
 	private init(semanticVersions: SortedSet<ConcreteVersion>,
-				 nonVersions: SortedSet<ConcreteVersion>,
+				 nonSemanticVersions: SortedSet<ConcreteVersion>,
 				 preReleaseVersions: SortedSet<ConcreteVersion>,
 				 definitions: [ConcreteVersionSetDefinition],
 				 pinnedVersionSpecifier: VersionSpecifier? = nil) {
 		self.semanticVersions = semanticVersions
-		self.nonVersions = nonVersions
+		self.nonSemanticVersions = nonSemanticVersions
 		self.preReleaseVersions = preReleaseVersions
 		self.definitions = definitions
 		self.pinnedVersionSpecifier = pinnedVersionSpecifier
@@ -168,7 +184,7 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 	public var copy: ConcreteVersionSet {
 		return ConcreteVersionSet(
 			semanticVersions: semanticVersions,
-			nonVersions: nonVersions,
+			nonSemanticVersions: nonSemanticVersions,
 			preReleaseVersions: preReleaseVersions,
 			definitions: definitions,
 			pinnedVersionSpecifier: pinnedVersionSpecifier
@@ -179,21 +195,21 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 	Number of elements in the set.
 	*/
 	public var count: Int {
-		return semanticVersions.count + nonVersions.count + preReleaseVersions.count
+		return semanticVersions.count + nonSemanticVersions.count + preReleaseVersions.count
 	}
 
 	/**
 	Whether the set has elements or not.
 	*/
 	public var isEmpty: Bool {
-		return semanticVersions.isEmpty && nonVersions.isEmpty && preReleaseVersions.isEmpty
+		return semanticVersions.isEmpty && nonSemanticVersions.isEmpty && preReleaseVersions.isEmpty
 	}
 
 	/**
-	First version in the set.
+	Most relevant version in the set.
 	*/
 	public var first: ConcreteVersion? {
-		return self.semanticVersions.first ?? (self.preReleaseVersions.first ?? self.nonVersions.first)
+		return self.semanticVersions.first ?? (self.preReleaseVersions.first ?? self.nonSemanticVersions.first)
 	}
 
 	/**
@@ -210,12 +226,12 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 	public func insert(_ version: ConcreteVersion) -> Bool {
 		if let semanticVersion = version.semanticVersion {
 			if semanticVersion.isPreRelease {
-				return preReleaseVersions.insert(version)
+				return preReleaseVersions.insert(version).inserted
 			} else {
-				return semanticVersions.insert(version)
+				return semanticVersions.insert(version).inserted
 			}
 		} else {
-			return nonVersions.insert(version)
+			return nonSemanticVersions.insert(version).inserted
 		}
 	}
 
@@ -226,12 +242,12 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 	public func remove(_ version: ConcreteVersion) -> Bool {
 		if let semanticVersion = version.semanticVersion {
 			if semanticVersion.isPreRelease {
-				return preReleaseVersions.remove(version)
+				return preReleaseVersions.remove(version) != nil
 			} else {
-				return semanticVersions.remove(version)
+				return semanticVersions.remove(version) != nil
 			}
 		} else {
-			return nonVersions.remove(version)
+			return nonSemanticVersions.remove(version) != nil
 		}
 	}
 
@@ -247,10 +263,10 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 				preReleaseVersions.removeAll()
 				semanticVersions.removeAll(except: version)
 			}
-			nonVersions.removeAll()
+			nonSemanticVersions.removeAll()
 		} else {
 			semanticVersions.removeAll()
-			nonVersions.removeAll(except: version)
+			nonSemanticVersions.removeAll(except: version)
 			preReleaseVersions.removeAll(except: version)
 		}
 	}
@@ -261,9 +277,6 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 	public func retainVersions(compatibleWith versionSpecifier: VersionSpecifier) {
 		// This is an optimization to achieve O(log(N)) time complexity for this method instead of O(N)
 		// Should be kept in sync with implementation of VersionSpecifier (better to move it there)
-		var range: Range<Int>?
-		var preReleaseRange: Range<Int>?
-
 		switch versionSpecifier {
 		case .any:
 			preReleaseVersions.removeAll()
@@ -272,36 +285,26 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 			return
 		case .exactly(let requirement):
 			let fixedVersion = ConcreteVersion(semanticVersion: requirement)
-			range = self.range(for: semanticVersions, from: fixedVersion, to: fixedVersion)
-			preReleaseRange = self.range(for: preReleaseVersions, from: fixedVersion, to: fixedVersion)
+			semanticVersions.formIntersection(elementsIn: fixedVersion...fixedVersion)
+			preReleaseVersions.formIntersection(elementsIn: fixedVersion...fixedVersion)
 		case .atLeast(let requirement):
 			let lowerBound = ConcreteVersion(semanticVersion: requirement)
+			//We have to use the isUpperBound trick, because half open ranges from the left bound are not supported by SortedSet.
 			let preReleaseUpperBound = ConcreteVersion(semanticVersion:
-				Version(requirement.major, requirement.minor, requirement.patch + 1))
-			range = self.range(for: semanticVersions, from: lowerBound, to: nil)
-			// Prerelease versions require exactly the same numeric components (major/minor/patch)
-			preReleaseRange = self.range(for: preReleaseVersions, from: lowerBound, to: preReleaseUpperBound)
+				Version(requirement.major, requirement.minor, requirement.patch + 1), isUpperBound: true)
+			//Bounds are reversed because the versions are sorted in reverse order
+			semanticVersions.formPrefix(through: lowerBound)
+			preReleaseVersions.formIntersection(elementsIn: preReleaseUpperBound...lowerBound)
 		case .compatibleWith(let requirement):
 			let lowerBound = ConcreteVersion(semanticVersion: requirement)
 			let upperBound = requirement.major > 0 ?
-				ConcreteVersion(semanticVersion: Version(requirement.major + 1, 0, 0)) :
-				ConcreteVersion(semanticVersion: Version(0, requirement.minor + 1, 0))
+				ConcreteVersion(semanticVersion: Version(requirement.major + 1, 0, 0), isUpperBound: true) :
+				ConcreteVersion(semanticVersion: Version(0, requirement.minor + 1, 0), isUpperBound: true)
 			let preReleaseUpperBound = ConcreteVersion(semanticVersion:
-				Version(requirement.major, requirement.minor, requirement.patch + 1))
-			range = self.range(for: semanticVersions, from: lowerBound, to: upperBound)
-			preReleaseRange = self.range(for: preReleaseVersions, from: lowerBound, to: preReleaseUpperBound)
-		}
-
-		if let nonNilRange = range {
-			semanticVersions.retain(range: nonNilRange)
-		} else {
-			semanticVersions.removeAll()
-		}
-
-		if let nonNilRange = preReleaseRange {
-			preReleaseVersions.retain(range: nonNilRange)
-		} else {
-			preReleaseVersions.removeAll()
+				Version(requirement.major, requirement.minor, requirement.patch + 1), isUpperBound: true)
+			//Bounds are reversed because the versions are sorted in reverse order
+			semanticVersions.formIntersection(elementsIn: upperBound...lowerBound)
+			preReleaseVersions.formIntersection(elementsIn: preReleaseUpperBound...lowerBound)
 		}
 	}
 
@@ -342,7 +345,7 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 			}
 			if ret == nil && iteratingPreReleaseVersions {
 				iteratingPreReleaseVersions = false
-				currentIterator = versionSet.nonVersions.makeIterator()
+				currentIterator = versionSet.nonSemanticVersions.makeIterator()
 				ret = currentIterator.next()
 			}
 			return ret
@@ -364,41 +367,15 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
 		s += "]"
 		return s
 	}
+}
 
-	// MARK: - Private methods
-
-	private func range(for versions: SortedSet<ConcreteVersion>, from lowerBound: ConcreteVersion, to upperBound: ConcreteVersion?) -> Range<Int>? {
-		var lowerIndex = 0
-		let upperIndex: Int
-		let fixed = lowerBound == upperBound
-
-		switch versions.search(lowerBound) {
-		case .notFound(let i):
-			upperIndex = i
-			if fixed {
-				lowerIndex = i
-			}
-
-		case .found(let i):
-			upperIndex = i + 1
-			if fixed {
-				lowerIndex = i
-			}
-		}
-
-		if !fixed, let definedUpperBound = upperBound {
-			switch versions.search(definedUpperBound) {
-			case .notFound(let i):
-				lowerIndex = i
-			case .found(let i):
-				lowerIndex = i + 1
-			}
-		}
-
-		if upperIndex > lowerIndex {
-			return lowerIndex..<upperIndex
-		} else {
-			return nil
-		}
+extension SortedSet {
+	fileprivate mutating func removeAll(except element: Element) {
+		self.removeAll()
+		self.insert(element)
+	}
+	
+	fileprivate mutating func formPrefix(through upperBound: Element) {
+		self = self.prefix(through: upperBound)
 	}
 }

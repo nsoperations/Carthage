@@ -1,4 +1,5 @@
 import Foundation
+import BTree
 
 typealias DependencyEntry = (key: Dependency, value: VersionSpecifier)
 

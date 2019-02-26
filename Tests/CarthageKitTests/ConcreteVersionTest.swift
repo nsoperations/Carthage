@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import Utility
+import BTree
 @testable import CarthageKit
 
 class ConcreteVersionTest: XCTestCase {
@@ -28,7 +29,7 @@ class ConcreteVersionTest: XCTestCase {
 		
 		for versionString in shuffledVersions {
 			let pinnedVersion = PinnedVersion(versionString)
-			XCTAssertTrue(set.insert(ConcreteVersion(pinnedVersion: pinnedVersion)))
+			XCTAssertTrue(set.insert(ConcreteVersion(pinnedVersion: pinnedVersion)).inserted)
 		}
 		
 		let orderedVersions = Array(set).map { return $0.pinnedVersion.commitish }
