@@ -137,7 +137,6 @@ final class DependencySet {
 	public func popSubSet() throws -> DependencySet? {
 		while !isComplete && !isRejected {
 			if let dependency = self.nextUnresolvedDependency {
-				print("Processing dependency: \(dependency)")
 				// Select the first version, which is also the most appropriate version (highest version corresponding with version specifier)
 				guard let versionSet = contents[dependency], let version = versionSet.first else {
 					// Empty version set for this dependency, so there's no more subsets to consider
