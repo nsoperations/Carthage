@@ -12,7 +12,6 @@ public struct UpdateCommand: CommandProtocol {
 		public let buildAfterUpdate: Bool
 		public let isVerbose: Bool
 		public let logPath: String?
-		public let useNewResolver: Bool
 		public let buildOptions: CarthageKit.BuildOptions
 		public let checkoutOptions: CheckoutCommand.Options
 		public let dependenciesToUpdate: [String]?
@@ -47,7 +46,6 @@ public struct UpdateCommand: CommandProtocol {
 		             buildAfterUpdate: Bool,
 		             isVerbose: Bool,
 		             logPath: String?,
-		             useNewResolver: Bool,
 		             buildOptions: BuildOptions,
 		             checkoutOptions: CheckoutCommand.Options
 		) {
@@ -55,7 +53,6 @@ public struct UpdateCommand: CommandProtocol {
 			self.buildAfterUpdate = buildAfterUpdate
 			self.isVerbose = isVerbose
 			self.logPath = logPath
-			self.useNewResolver = useNewResolver
 			self.buildOptions = buildOptions
 			self.checkoutOptions = checkoutOptions
 			self.dependenciesToUpdate = checkoutOptions.dependenciesToCheckout
@@ -63,17 +60,21 @@ public struct UpdateCommand: CommandProtocol {
 
 		public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
 			let buildDescription = "skip the building of dependencies after updating\n(ignored if --no-checkout option is present)"
-
 			let dependenciesUsage = "the dependency names to update, checkout and build"
+			let option1 = Option(key: "checkout", defaultValue: true, usage: "skip the checking out of dependencies after updating")
+			let option2 = Option(key: "build", defaultValue: true, usage: buildDescription)
+			let option3 = Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline (ignored if --no-build option is present)")
+			let option4 = Option<String?>(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
+			let buildOptions = BuildOptions.evaluate(mode, addendum: "\n(ignored if --no-build option is present)")
+			let checkoutOptions = CheckoutCommand.Options.evaluate(mode, dependenciesUsage: dependenciesUsage)
 
 			return curry(self.init)
-				<*> mode <| Option(key: "checkout", defaultValue: true, usage: "skip the checking out of dependencies after updating")
-				<*> mode <| Option(key: "build", defaultValue: true, usage: buildDescription)
-				<*> mode <| Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline (ignored if --no-build option is present)")
-				<*> mode <| Option(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
-				<*> mode <| Option(key: "new-resolver", defaultValue: false, usage: "use the new resolver codeline when calculating dependencies. Default is false")
-				<*> BuildOptions.evaluate(mode, addendum: "\n(ignored if --no-build option is present)")
-				<*> CheckoutCommand.Options.evaluate(mode, dependenciesUsage: dependenciesUsage)
+				<*> mode <| option1
+				<*> mode <| option2
+				<*> mode <| option3
+				<*> mode <| option4
+				<*> buildOptions
+				<*> checkoutOptions
 		}
 
 		/// Attempts to load the project referenced by the options, and configure it
@@ -108,7 +109,8 @@ public struct UpdateCommand: CommandProtocol {
 				}
 
 				let updateDependencies = project.updateDependencies(
-					shouldCheckout: options.checkoutAfterUpdate, useNewResolver: options.useNewResolver, buildOptions: options.buildOptions,
+					shouldCheckout: options.checkoutAfterUpdate,
+					buildOptions: options.buildOptions,
 					dependenciesToUpdate: options.dependenciesToUpdate
 				)
 

@@ -2,6 +2,15 @@
   "object": {
     "pins": [
       {
+        "package": "BTree",
+        "repositoryURL": "https://github.com/werner77/BTree.git",
+        "state": {
+          "branch": "bugfix/fix-package-description",
+          "revision": "b91a927d02fba25e582d2f71c0ba4381e5efdfae",
+          "version": null
+        }
+      },
+      {
         "package": "Commandant",
         "repositoryURL": "https://github.com/Carthage/Commandant.git",
         "state": {

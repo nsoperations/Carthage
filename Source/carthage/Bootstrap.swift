@@ -19,7 +19,6 @@ public struct BootstrapCommand: CommandProtocol {
 					carthage.println(formatting.bullets + "No Cartfile.resolved found, updating dependencies")
 					return project.updateDependencies(
 						shouldCheckout: options.checkoutAfterUpdate,
-						useNewResolver: options.useNewResolver,
 						buildOptions: options.buildOptions)
 				}
 
