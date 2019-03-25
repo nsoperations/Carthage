@@ -18,7 +18,6 @@ Carthage builds your dependencies and provides you with binary frameworks, but y
 	- [Running a project that uses Carthage](#running-a-project-that-uses-carthage)
 	- [Adding frameworks to unit tests or a framework](#adding-frameworks-to-unit-tests-or-a-framework)
 	- [Upgrading frameworks](#upgrading-frameworks)
-		- [Experimental Resolver](#experimental-resolver)
 	- [Nested dependencies](#nested-dependencies)
 	- [Using submodules for dependencies](#using-submodules-for-dependencies)
 	- [Automatically rebuilding dependencies](#automatically-rebuilding-dependencies)
@@ -190,17 +189,6 @@ or
 ```
 carthage update Box Result
 ```
-
-##### Experimental Resolver
-
-A rewrite of the logic for upgrading frameworks was done with the aim of increasing speed and reducing memory usage. It is currently an opt-in feature. It can be used by passing `--new-resolver` to the update command, e.g.,
-
-```
-carthage update --new-resolver Box
-```
-
-If you are experiencing performance problems during updates, please give the new resolver a try
-
 
 ### Nested dependencies
 
