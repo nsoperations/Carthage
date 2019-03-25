@@ -2,19 +2,15 @@ import Foundation
 import Result
 import ReactiveSwift
 
-/**
-Signals for DependencyCrawler events
-*/
+/// DependencyCrawler events
 public enum DependencyCrawlerEvent {
 	case foundVersions(versions: [PinnedVersion], dependency: Dependency, versionSpecifier: VersionSpecifier)
 	case foundTransitiveDependencies(transitiveDependencies: [(Dependency, VersionSpecifier)], dependency: Dependency, version: PinnedVersion)
-	case failedRetrievingTransitiveDependencies(error: Error, dependency: Dependency, version: PinnedVersion)
-	case failedRetrievingVersions(error: Error, dependency: Dependency, versionSpeficier: VersionSpecifier)
+	case failedRetrievingTransitiveDependencies(error: CarthageError, dependency: Dependency, version: PinnedVersion)
+	case failedRetrievingVersions(error: CarthageError, dependency: Dependency, versionSpecifier: VersionSpecifier)
 }
 
-/**
-Class which logs all dependencies it encounters and stores them in the specified local store to be able to support subsequent offline test cases.
-*/
+/// Class which logs all dependencies it encounters and stores them in the specified local store to be able to support subsequent offline test cases.
 public final class DependencyCrawler {
 	private let store: LocalDependencyStore
 	private let versionsForDependency: (Dependency) -> SignalProducer<PinnedVersion, CarthageError>
@@ -22,11 +18,11 @@ public final class DependencyCrawler {
 	private let dependenciesForDependency: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
 	private let ignoreErrors: Bool
 
-	// Specify mappings to anonymize private dependencies (which may not be disclosed as part of the diagnostics)
+	/// Specify mappings to anonymize private dependencies (which may not be disclosed as part of the diagnostics)
 	private var dependencyMappings: [Dependency: Dependency]?
 	private let eventPublisher: Signal<DependencyCrawlerEvent, NoError>.Observer
 
-	/// DependencyCrawlerEvent
+	/// DependencyCrawler events signal
 	public let events: Signal<DependencyCrawlerEvent, NoError>
 
 	private enum DependencyCrawlerError: Error {
@@ -34,22 +30,21 @@ public final class DependencyCrawler {
 		case dependencyRetrievalFailure(message: String)
 	}
 
-	/**
-	Initializes with implementations for retrieving the versions, transitive dependencies and git references.
-
-	Uses the supplied local dependency store to store the encountered dependencies.
-
-	Optional mappings may be specified to anonymize the encountered dependencies (thereby removing sensitive information).
-
-	If ignoreErrors is true, any error during retrieval of the dependencies will not be fatal but will result in an empty array instead.
-	*/
+	/// Initializes with implementations for retrieving the versions, transitive dependencies and git references.
+	///
+	/// Uses the supplied local dependency store to store the encountered dependencies.
+	///
+	/// Optional mappings may be specified to anonymize the encountered dependencies (thereby removing sensitive information).
+	///
+	/// If ignoreErrors is true, any error during retrieval of the dependencies will not be fatal but will result in an empty array instead.
 	public init(
-			versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
-			dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
-			resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>,
-			store: LocalDependencyStore,
-			mappings: [Dependency: Dependency]? = nil,
-			ignoreErrors: Bool = false) {
+		versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
+		dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
+		resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>,
+		store: LocalDependencyStore,
+		mappings: [Dependency: Dependency]? = nil,
+		ignoreErrors: Bool = false
+		) {
 		self.versionsForDependency = versionsForDependency
 		self.dependenciesForDependency = dependenciesForDependency
 		self.resolvedGitReference = resolvedGitReference
@@ -62,13 +57,11 @@ public final class DependencyCrawler {
 		eventPublisher = observer
 	}
 
-	/**
-	Recursively traverses the supplied dependencies taking into account their compatibleWith version specifiers.
-
-	Stores all dependencies in the LocalDependencyStore.
-
-	Returns a dictionary of all encountered dependencies with as value a set of all their encountered versions.
-	*/
+	/// Recursively traverses the supplied dependencies taking into account their compatibleWith version specifiers.
+	///
+	/// Stores all dependencies in the LocalDependencyStore.
+	///
+	/// Returns a dictionary of all encountered dependencies with as value a set of all their encountered versions.
 	public func traverse(dependencies: [Dependency: VersionSpecifier]) -> Result<[Dependency: Set<PinnedVersion>], CarthageError> {
 		let result: Result<[Dependency: Set<PinnedVersion>], CarthageError>
 		do {
@@ -128,12 +121,12 @@ public final class DependencyCrawler {
 				}
 
 				guard let pinnedVersions: [PinnedVersion] = try pinnedVersionsProducer.collect().first()?.dematerialize() else {
-					throw DependencyCrawlerError.versionRetrievalFailure(message: "Could not collect versions for dependency: \(dependency) and versionSpeficier: \(versionSpecifier)")
+					throw DependencyCrawlerError.versionRetrievalFailure(message: "Could not collect versions for dependency: \(dependency) and versionSpecifier: \(versionSpecifier)")
 				}
 				cachedVersionSets[dependency] = pinnedVersions
 
 				let storedDependency = self.dependencyMappings?[dependency] ?? dependency
-				try store.storePinnedVersions(pinnedVersions, for: storedDependency, gitReference: gitReference)
+				try store.storePinnedVersions(pinnedVersions, for: storedDependency, gitReference: gitReference).dematerialize()
 
 				versionSet = pinnedVersions
 			}
@@ -147,10 +140,10 @@ public final class DependencyCrawler {
 			)
 
 			return filteredVersionSet
-		} catch let error {
+		} catch let error as CarthageError {
 
 			eventPublisher.send(value:
-				.failedRetrievingVersions(error: error, dependency: dependency, versionSpeficier: versionSpecifier)
+				.failedRetrievingVersions(error: error, dependency: dependency, versionSpecifier: versionSpecifier)
 			)
 
 			if ignoreErrors {
@@ -172,14 +165,14 @@ public final class DependencyCrawler {
 				let storedTransitiveDependency = self.dependencyMappings?[transitiveDependency] ?? transitiveDependency
 				return (storedTransitiveDependency, versionSpecifier)
 			}
-			try store.storeTransitiveDependencies(storedTransitiveDependencies, for: storedDependency, version: version)
+			try store.storeTransitiveDependencies(storedTransitiveDependencies, for: storedDependency, version: version).dematerialize()
 
 			eventPublisher.send(value:
 				.foundTransitiveDependencies(transitiveDependencies: transitiveDependencies, dependency: dependency, version: version)
 			)
 
 			return transitiveDependencies
-		} catch let error {
+		} catch let error as CarthageError {
 
 			eventPublisher.send(value:
 				.failedRetrievingTransitiveDependencies(error: error, dependency: dependency, version: version)
@@ -197,21 +190,10 @@ public final class DependencyCrawler {
 private struct PinnedDependency: Hashable {
 	public let dependency: Dependency
 	public let pinnedVersion: PinnedVersion
-	private let hash: Int
-
+	
 	init(dependency: Dependency, pinnedVersion: PinnedVersion) {
 		self.dependency = dependency
 		self.pinnedVersion = pinnedVersion
-		// Pre-compute hash for efficiency
-		self.hash = 37 &* dependency.hashValue &+ pinnedVersion.hashValue
-	}
-
-	public var hashValue: Int {
-		return hash
-	}
-
-	public static func == (lhs: PinnedDependency, rhs: PinnedDependency) -> Bool {
-		return lhs.pinnedVersion == rhs.pinnedVersion && lhs.dependency == rhs.dependency
 	}
 }
 
