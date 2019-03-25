@@ -53,32 +53,6 @@ public enum ProjectEvent {
 	case buildingUncached(Dependency)
 }
 
-public enum ResolverType {
-	case normal, new, fast
-
-	public var resolverClass: ResolverProtocol.Type {
-		switch self {
-		case .normal:
-			return Resolver.self
-		case .new:
-			return NewResolver.self
-		case .fast:
-			return BackTrackingResolver.self
-		}
-	}
-
-	public static func from(resolverClass: ResolverProtocol.Type) -> ResolverType? {
-		if resolverClass == Resolver.self {
-			return .normal
-		} else if resolverClass == NewResolver.self {
-			return .new
-		} else if resolverClass == BackTrackingResolver.self {
-			return .fast
-		}
-		return nil
-	}
-}
-
 extension ProjectEvent: Equatable {
 	public static func == (lhs: ProjectEvent, rhs: ProjectEvent) -> Bool {
 		switch (lhs, rhs) {
@@ -513,8 +487,8 @@ public final class Project { // swiftlint:disable:this type_body_length
 	///
 	/// This will fetch dependency repositories as necessary, but will not check
 	/// them out into the project's working directory.
-	public func outdatedDependencies(_ includeNestedDependencies: Bool, resolverType: ResolverType = .new, resolver: ResolverProtocol? = nil) -> SignalProducer<[OutdatedDependency], CarthageError> {
-		let resolverClass = resolverType.resolverClass
+	public func outdatedDependencies(_ includeNestedDependencies: Bool, resolver: ResolverProtocol? = nil) -> SignalProducer<[OutdatedDependency], CarthageError> {
+		let resolverClass = BackTrackingResolver.self
 		let dependencies: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
 		if includeNestedDependencies {
 			dependencies = self.dependencies(for:version:)
@@ -572,11 +546,10 @@ public final class Project { // swiftlint:disable:this type_body_length
 	/// directory checkouts if the given parameter is true.
 	public func updateDependencies(
 		shouldCheckout: Bool = true,
-		resolverType: ResolverType = .normal,
 		buildOptions: BuildOptions,
 		dependenciesToUpdate: [String]? = nil
 	) -> SignalProducer<(), CarthageError> {
-		let resolverClass = resolverType.resolverClass
+		let resolverClass = BackTrackingResolver.self
 		let resolver = resolverClass.init(
 			versionsForDependency: versions(for:),
 			dependenciesForDependency: dependencies(for:version:),

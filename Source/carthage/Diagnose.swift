@@ -105,7 +105,7 @@ public struct DiagnoseCommand: CommandProtocol {
 	}
 
 	private func writeCartfile(_ cartfile: Cartfile, to directory: URL) -> Result<URL, CarthageError> {
-		return Result(attempt: { () -> (URL) in
+		return Result(catching: { () -> (URL) in
 			let cartfileURL = Cartfile.url(in: directory)
 			try cartfile.description.write(to: cartfileURL, atomically: true, encoding: .utf8)
 			return cartfileURL
@@ -113,7 +113,7 @@ public struct DiagnoseCommand: CommandProtocol {
 	}
 
 	private func writeResolvedCartfile(_ cartfile: ResolvedCartfile, to directory: URL) -> Result<URL, CarthageError> {
-		return Result(attempt: { () -> (URL) in
+		return Result(catching: { () -> (URL) in
 			let cartfileURL = ResolvedCartfile.url(in: directory)
 			try cartfile.description.write(to: cartfileURL, atomically: true, encoding: .utf8)
 			return cartfileURL

@@ -641,7 +641,7 @@ class ProjectSpec: QuickSpec {
 				}
 				let project = Project(directoryURL: directoryURL)
 
-				guard let result = project.outdatedDependencies(false, resolverType: .normal, resolver: db.resolver()).single() else {
+				guard let result = project.outdatedDependencies(false, resolver: db.resolver()).single() else {
 					fail("Expected result to not be nil")
                     return
                                 }

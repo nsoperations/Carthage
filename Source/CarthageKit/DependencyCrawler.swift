@@ -120,13 +120,13 @@ public final class DependencyCrawler {
 					pinnedVersionsProducer = versionsForDependency(dependency)
 				}
 
-				guard let pinnedVersions: [PinnedVersion] = try pinnedVersionsProducer.collect().first()?.dematerialize() else {
+				guard let pinnedVersions: [PinnedVersion] = try pinnedVersionsProducer.collect().first()?.get() else {
 					throw DependencyCrawlerError.versionRetrievalFailure(message: "Could not collect versions for dependency: \(dependency) and versionSpecifier: \(versionSpecifier)")
 				}
 				cachedVersionSets[dependency] = pinnedVersions
 
 				let storedDependency = self.dependencyMappings?[dependency] ?? dependency
-				try store.storePinnedVersions(pinnedVersions, for: storedDependency, gitReference: gitReference).dematerialize()
+				try store.storePinnedVersions(pinnedVersions, for: storedDependency, gitReference: gitReference).get()
 
 				versionSet = pinnedVersions
 			}
@@ -156,7 +156,7 @@ public final class DependencyCrawler {
 
 	private func findDependencies(for dependency: Dependency, version: PinnedVersion) throws -> [(Dependency, VersionSpecifier)] {
 		do {
-			guard let transitiveDependencies: [(Dependency, VersionSpecifier)] = try dependenciesForDependency(dependency, version).collect().first()?.dematerialize() else {
+			guard let transitiveDependencies: [(Dependency, VersionSpecifier)] = try dependenciesForDependency(dependency, version).collect().first()?.get() else {
 				throw DependencyCrawlerError.dependencyRetrievalFailure(message: "Could not find transitive dependencies for dependency: \(dependency), version: \(version)")
 			}
 
@@ -165,7 +165,7 @@ public final class DependencyCrawler {
 				let storedTransitiveDependency = self.dependencyMappings?[transitiveDependency] ?? transitiveDependency
 				return (storedTransitiveDependency, versionSpecifier)
 			}
-			try store.storeTransitiveDependencies(storedTransitiveDependencies, for: storedDependency, version: version).dematerialize()
+			try store.storeTransitiveDependencies(storedTransitiveDependencies, for: storedDependency, version: version).get()
 
 			eventPublisher.send(value:
 				.foundTransitiveDependencies(transitiveDependencies: transitiveDependencies, dependency: dependency, version: version)

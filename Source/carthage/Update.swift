@@ -12,8 +12,6 @@ public struct UpdateCommand: CommandProtocol {
 		public let buildAfterUpdate: Bool
 		public let isVerbose: Bool
 		public let logPath: String?
-		public let useNewResolver: Bool
-		public let useFastResolver: Bool
 		public let buildOptions: CarthageKit.BuildOptions
 		public let checkoutOptions: CheckoutCommand.Options
 		public let dependenciesToUpdate: [String]?
@@ -48,8 +46,6 @@ public struct UpdateCommand: CommandProtocol {
 		             buildAfterUpdate: Bool,
 		             isVerbose: Bool,
 		             logPath: String?,
-		             useNewResolver: Bool,
-		             useFastResolver: Bool,
 		             buildOptions: BuildOptions,
 		             checkoutOptions: CheckoutCommand.Options
 		) {
@@ -57,8 +53,6 @@ public struct UpdateCommand: CommandProtocol {
 			self.buildAfterUpdate = buildAfterUpdate
 			self.isVerbose = isVerbose
 			self.logPath = logPath
-			self.useNewResolver = useNewResolver
-			self.useFastResolver = useFastResolver
 			self.buildOptions = buildOptions
 			self.checkoutOptions = checkoutOptions
 			self.dependenciesToUpdate = checkoutOptions.dependenciesToCheckout
@@ -71,8 +65,6 @@ public struct UpdateCommand: CommandProtocol {
 			let option2 = Option(key: "build", defaultValue: true, usage: buildDescription)
 			let option3 = Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline (ignored if --no-build option is present)")
 			let option4 = Option<String?>(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
-			let option5 = Option(key: "new-resolver", defaultValue: false, usage: "use the new resolver codeline when calculating dependencies. Default is false")
-			let option6 = Option(key: "fast-resolver", defaultValue: false, usage: "use the fast resolver codeline when calculating dependencies. Default is false")
 			let buildOptions = BuildOptions.evaluate(mode, addendum: "\n(ignored if --no-build option is present)")
 			let checkoutOptions = CheckoutCommand.Options.evaluate(mode, dependenciesUsage: dependenciesUsage)
 
@@ -81,8 +73,6 @@ public struct UpdateCommand: CommandProtocol {
 				<*> mode <| option2
 				<*> mode <| option3
 				<*> mode <| option4
-				<*> mode <| option5
-				<*> mode <| option6
 				<*> buildOptions
 				<*> checkoutOptions
 		}
@@ -120,7 +110,6 @@ public struct UpdateCommand: CommandProtocol {
 
 				let updateDependencies = project.updateDependencies(
 					shouldCheckout: options.checkoutAfterUpdate,
-					resolverType: options.useFastResolver ? .fast : options.useNewResolver ? .new : .normal,
 					buildOptions: options.buildOptions,
 					dependenciesToUpdate: options.dependenciesToUpdate
 				)

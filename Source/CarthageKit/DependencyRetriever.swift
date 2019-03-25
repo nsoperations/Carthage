@@ -129,7 +129,7 @@ final class DependencyRetriever {
             try pinnedVersionsProducer.reduce(into: versionSet) { (vs, pinnedVersion) in
                 let concreteVersion = ConcreteVersion(pinnedVersion: pinnedVersion)
                 vs.insert(concreteVersion)
-            }.wait().dematerialize()
+            }.wait().get()
 		}
 
 		versionSet.retainVersions(compatibleWith: versionSpecifier)
@@ -137,7 +137,7 @@ final class DependencyRetriever {
 	}
 
     private func findDependenciesUncached(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyEntry] {
-        guard let result = try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()?.dematerialize() else {
+        guard let result = try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()?.get() else {
             throw DependencyRetrieverError.assertionFailure("Could not dematerialize dependencies for dependency: \(dependency) and version: \(version)")
         }
 		return result

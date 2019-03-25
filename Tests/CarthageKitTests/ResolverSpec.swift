@@ -33,8 +33,6 @@ private func ==<A: Equatable, B: Equatable>(lhs: Expectation<[(A, B)]>, rhs: [(A
 
 class ResolverSpec: QuickSpec {
 	override func spec() {
-//        itBehavesLike(ResolverBehavior.self) { () in Resolver.self }
-//        itBehavesLike(ResolverBehavior.self) { () in NewResolver.self }
         itBehavesLike(ResolverBehavior.self) { () in BackTrackingResolver.self }
 	}
 }
@@ -266,85 +264,83 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
 				expect(resolved.error).notTo(beNil())
 			}
 			
-			// Only the new resolver and fast resolvers pass the following tests.
-			if resolverType == NewResolver.self || resolverType == BackTrackingResolver.self {
-				it("should resolve a subset when given specific dependencies that have constraints") {
-					let db: DB = [
-						github1: [
-							.v1_0_0: [
-								github2: .compatibleWith(.v1_0_0),
-							],
-							.v1_1_0: [
-								github2: .compatibleWith(.v1_0_0),
-							],
-							.v2_0_0: [
-								github2: .compatibleWith(.v2_0_0),
-							],
-						],
-						github2: [
-							.v1_0_0: [ github3: .compatibleWith(.v1_0_0) ],
-							.v1_1_0: [ github3: .compatibleWith(.v1_0_0) ],
-							.v2_0_0: [:],
-						],
-						github3: [
-							.v1_0_0: [:],
-							.v1_1_0: [:],
-							.v1_2_0: [:],
-						],
-						]
-					
-					let resolved = db.resolve(resolverType,
-											  [ github1: .any ],
-											  resolved: [ github1: .v1_0_0, github2: .v1_0_0, github3: .v1_0_0 ],
-											  updating: [ github2 ]
-					)
-					
-					switch resolved {
-					case .success(let value):
-						expect(value) == [
-							github3: .v1_2_0,
-							github2: .v1_1_0,
-							github1: .v1_0_0,
-						]
-					case .failure(let error):
-						fail("Expected no error to occur: \(error)")
-					}
-				}
-				
-				
-				it("should fail when the only valid graph is not in the specified dependencies") {
-					let db: DB = [
-						github1: [
-							.v1_0_0: [
-								github2: .compatibleWith(.v1_0_0),
-							],
-							.v1_1_0: [
-								github2: .compatibleWith(.v1_0_0),
-							],
-							.v2_0_0: [
-								github2: .compatibleWith(.v2_0_0),
-							],
-						],
-						github2: [
-							.v1_0_0: [ github3: .compatibleWith(.v1_0_0) ],
-							.v1_1_0: [ github3: .compatibleWith(.v1_0_0) ],
-							.v2_0_0: [:],
-						],
-						github3: [
-							.v1_0_0: [:],
-							.v1_1_0: [:],
-							.v1_2_0: [:],
-						],
-						]
-					let resolved = db.resolve(resolverType,
-											  [ github1: .exactly(.v2_0_0) ],
-											  resolved: [ github1: .v1_0_0, github2: .v1_0_0, github3: .v1_0_0 ],
-											  updating: [ github2 ]
-					)
-					expect(resolved.value).to(beNil())
-					expect(resolved.error).notTo(beNil())
-				}
-			}
+            it("should resolve a subset when given specific dependencies that have constraints") {
+                let db: DB = [
+                    github1: [
+                        .v1_0_0: [
+                            github2: .compatibleWith(.v1_0_0),
+                        ],
+                        .v1_1_0: [
+                            github2: .compatibleWith(.v1_0_0),
+                        ],
+                        .v2_0_0: [
+                            github2: .compatibleWith(.v2_0_0),
+                        ],
+                    ],
+                    github2: [
+                        .v1_0_0: [ github3: .compatibleWith(.v1_0_0) ],
+                        .v1_1_0: [ github3: .compatibleWith(.v1_0_0) ],
+                        .v2_0_0: [:],
+                    ],
+                    github3: [
+                        .v1_0_0: [:],
+                        .v1_1_0: [:],
+                        .v1_2_0: [:],
+                    ],
+                    ]
+
+                let resolved = db.resolve(resolverType,
+                                          [ github1: .any ],
+                                          resolved: [ github1: .v1_0_0, github2: .v1_0_0, github3: .v1_0_0 ],
+                                          updating: [ github2 ]
+                )
+
+                switch resolved {
+                case .success(let value):
+                    expect(value) == [
+                        github3: .v1_2_0,
+                        github2: .v1_1_0,
+                        github1: .v1_0_0,
+                    ]
+                case .failure(let error):
+                    fail("Expected no error to occur: \(error)")
+                }
+            }
+
+
+            it("should fail when the only valid graph is not in the specified dependencies") {
+                let db: DB = [
+                    github1: [
+                        .v1_0_0: [
+                            github2: .compatibleWith(.v1_0_0),
+                        ],
+                        .v1_1_0: [
+                            github2: .compatibleWith(.v1_0_0),
+                        ],
+                        .v2_0_0: [
+                            github2: .compatibleWith(.v2_0_0),
+                        ],
+                    ],
+                    github2: [
+                        .v1_0_0: [ github3: .compatibleWith(.v1_0_0) ],
+                        .v1_1_0: [ github3: .compatibleWith(.v1_0_0) ],
+                        .v2_0_0: [:],
+                    ],
+                    github3: [
+                        .v1_0_0: [:],
+                        .v1_1_0: [:],
+                        .v1_2_0: [:],
+                    ],
+                    ]
+                let resolved = db.resolve(resolverType,
+                                          [ github1: .exactly(.v2_0_0) ],
+                                          resolved: [ github1: .v1_0_0, github2: .v1_0_0, github3: .v1_0_0 ],
+                                          updating: [ github2 ]
+                )
+                expect(resolved.value).to(beNil())
+                expect(resolved.error).notTo(beNil())
+            }
+
 			
 			it("should resolve a Cartfile whose dependency is specified by both a branch name and a SHA which is the HEAD of that branch") {
 				let branch = "development"
@@ -474,7 +470,7 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
                                                                     resolverType: resolverType.self,
                                                                     dependenciesToUpdate: nil)
             do {
-                _ = try signalProducer.first()?.dematerialize()
+                _ = try signalProducer.first()?.get()
                 fail("Expected incompatibility error to be thrown")
             } catch {
                 print("Caught error: \(error)")
@@ -504,7 +500,7 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
                                                                     resolverType: resolverType.self,
                                                                     dependenciesToUpdate: nil)
             do {
-                guard let resolvedCartfile = try signalProducer.first()?.dematerialize() else {
+                guard let resolvedCartfile = try signalProducer.first()?.get() else {
                     fail("Could not load resolved cartfile")
                     return
                 }
@@ -516,7 +512,7 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
                 }
 
                 //Should not throw an error
-                guard let _ = try project.buildOrderForResolvedCartfile(resolvedCartfile).first()?.dematerialize() else {
+                guard let _ = try project.buildOrderForResolvedCartfile(resolvedCartfile).first()?.get() else {
                     fail("Could not determine build order for resolved cartfile")
                     return
                 }
@@ -541,7 +537,7 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
                                                                     resolverType: resolverType.self,
                                                                     dependenciesToUpdate: nil)
             do {
-                guard let resolvedCartfile = try signalProducer.first()?.dematerialize() else {
+                guard let resolvedCartfile = try signalProducer.first()?.get() else {
                     fail("Could not load resolved cartfile")
                     return
                 }
@@ -553,7 +549,7 @@ class ResolverBehavior: Behavior<ResolverProtocol.Type> {
                 }
 
                 //Should not throw an error
-                guard let _ = try project.buildOrderForResolvedCartfile(resolvedCartfile).first()?.dematerialize() else {
+                guard let _ = try project.buildOrderForResolvedCartfile(resolvedCartfile).first()?.get() else {
                     fail("Could not determine build order for resolved cartfile")
                     return
                 }

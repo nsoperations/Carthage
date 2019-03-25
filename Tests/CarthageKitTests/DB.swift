@@ -66,7 +66,7 @@ internal struct DB {
 		}
 	}
 
-	func resolver(_ resolverType: ResolverProtocol.Type = Resolver.self) -> ResolverProtocol {
+	func resolver(_ resolverType: ResolverProtocol.Type = BackTrackingResolver.self) -> ResolverProtocol {
 		return resolverType.init(
 			versionsForDependency: self.versions(for:),
 			dependenciesForDependency: self.dependencies(for:version:),
