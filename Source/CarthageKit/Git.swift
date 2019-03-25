@@ -49,7 +49,10 @@ public func launchGitTask(
 ) -> SignalProducer<String, CarthageError> {
 	// See https://github.com/Carthage/Carthage/issues/219.
 	var updatedEnvironment = environment ?? ProcessInfo.processInfo.environment
+	// Error rather than prompt for credentials
 	updatedEnvironment["GIT_TERMINAL_PROMPT"] = "0"
+	// Error rather than prompt to resolve ssh errors (such as missing known_hosts entry)
+	updatedEnvironment["GIT_SSH_COMMAND"] = "ssh -oBatchMode=yes"
 
 	let taskDescription = Task("/usr/bin/env", arguments: [ "git" ] + arguments, workingDirectoryPath: repositoryFileURL?.path, environment: updatedEnvironment)
 
@@ -161,7 +164,7 @@ public func checkoutRepositoryToDirectory(
 			return .success(environment)
 	}
 	.attempt { _ in
-		Result(attempt: { try FileManager.default.createDirectory(at: workingDirectoryURL, withIntermediateDirectories: true) })
+		Result(catching: { try FileManager.default.createDirectory(at: workingDirectoryURL, withIntermediateDirectories: true) })
 			.mapError {
 				CarthageError.repositoryCheckoutFailed(
 					workingDirectoryURL: workingDirectoryURL,
@@ -269,16 +272,18 @@ private func parseConfigEntries(_ contents: String, keyPrefix: String = "", keyS
 	}
 }
 
-/// Git’s representation of file system objects at a path relative to the repository root.
+/// Lists the contents of a git tree object at a given path relative to the repository root.
+/// It can be used in a bare repository.
 ///
-/// - parameter path: Path separators at the end of `path` have significance of outputting directory contents.
-///                   Thankfully, multiple contiguous path separators seem to have no adverse effects.
 /// - note: Previously, `path` was recursed through — now, just iterated.
 internal func list(treeish: String, atPath path: String, inRepository repositoryURL: URL) -> SignalProducer<String, CarthageError> {
+	// git ls-tree treats "dir/" and "dir" differently. We make sure the path has an ending slash here.
+	// Thankfully, multiple successive slashes are considered to be the same as one slash.
+	let directoryPath = path.appending("/")
 	return launchGitTask(
 			// `ls-tree`, because `ls-files` returns no output (for all instances I’ve seen) on bare repos.
 			// flag “-z” enables output separated by the nul character (`\0`).
-			[ "ls-tree", "-z", "--full-name", "--name-only", treeish, path ],
+			[ "ls-tree", "-z", "--full-name", "--name-only", treeish, directoryPath ],
 			repositoryFileURL: repositoryURL
 		)
 		.flatMap(.merge) { (output: String) -> SignalProducer<String, CarthageError> in

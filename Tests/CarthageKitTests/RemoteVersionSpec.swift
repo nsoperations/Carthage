@@ -5,6 +5,7 @@ import ReactiveSwift
 import Tentacle
 import Utility
 import XCTest
+import SPMUtility
 
 import struct Foundation.URL
 
