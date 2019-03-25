@@ -3,11 +3,11 @@
     "pins": [
       {
         "package": "BTree",
-        "repositoryURL": "https://github.com/attaswift/BTree.git",
+        "repositoryURL": "https://github.com/werner77/BTree.git",
         "state": {
-          "branch": null,
-          "revision": "83435371ef3c6d98107f5b562a5870a3dfca6243",
-          "version": "4.1.0"
+          "branch": "bugfix/fix-package-description",
+          "revision": "b91a927d02fba25e582d2f71c0ba4381e5efdfae",
+          "version": null
         }
       },
       {
