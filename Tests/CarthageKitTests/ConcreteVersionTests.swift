@@ -4,7 +4,7 @@ import SPMUtility
 import BTree
 @testable import CarthageKit
 
-class ConcreteVersionTest: XCTestCase {
+class ConcreteVersionTests: XCTestCase {
 	
 	func testConcreteVersionOrdering() {
 		let versions = [

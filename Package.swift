@@ -17,7 +17,6 @@ let package = Package(
         .package(url: "https://github.com/mdiep/Tentacle.git", from: "0.12.0"),
         .package(url: "https://github.com/thoughtbot/Curry.git", from: "4.0.2"),
         .package(url: "https://github.com/werner77/BTree.git", .branch("bugfix/fix-package-description")),
-        .package(url: "https://github.com/Quick/Quick.git", from: "1.3.1"),
         .package(url: "https://github.com/Quick/Nimble.git", from: "7.3.0"),
         .package(url: "https://github.com/apple/swift-package-manager.git", .revision("swift-DEVELOPMENT-SNAPSHOT-2019-03-04-a")),
     ],
@@ -28,7 +27,7 @@ let package = Package(
         ),
         .testTarget(
             name: "XCDBLDTests",
-            dependencies: ["XCDBLD", "Quick", "Nimble"]
+            dependencies: ["XCDBLD", "Nimble"]
         ),
         .target(
             name: "CarthageKit",
@@ -36,7 +35,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CarthageKitTests",
-            dependencies: ["CarthageKit", "Quick", "Nimble"],
+            dependencies: ["CarthageKit", "Nimble"],
             exclude: ["Resources/FakeOldObjc.framework"]
         ),
         .target(
