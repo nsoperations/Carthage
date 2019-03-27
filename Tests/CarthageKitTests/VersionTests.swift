@@ -51,7 +51,7 @@ func testIntersection(_ lhs: VersionSpecifier, _ rhs: VersionSpecifier, expected
 	}
 }
 
-class VersionSpecifierTests1: XCTestCase {
+class VersionSpecifierIsSatisfiedByTests: XCTestCase {
 	
 	let v0_1_0 = PinnedVersion("0.1.0")
 	let v0_1_0_pre23 = PinnedVersion("0.1.0-pre23")
@@ -201,7 +201,7 @@ class VersionSpecifierTests1: XCTestCase {
 	}
 }
 
-class VersionSpecifierTests2: XCTestCase {
+class VersionSpecifierIntersectionTests: XCTestCase {
 	let v0_1_0 = Version(0, 1, 0)
 	let v0_1_1 = Version(0, 1, 1)
 	let v0_2_0 = Version(0, 2, 0)

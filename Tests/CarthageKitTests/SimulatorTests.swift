@@ -13,7 +13,7 @@ class SimulatorTests: XCTestCase {
 		return try? Data(contentsOf: url)
 	}
 	
-	func testShouldBeParsed1() {
+	func testShouldBeParsedXcode10OrLower() {
 		let decoder = JSONDecoder()
 		guard let data = loadJSON(for: "Simulators/availables") else {
 			fail("Could not load json from Simulators/availables")
@@ -33,7 +33,7 @@ class SimulatorTests: XCTestCase {
 		expect(unavailableSimulator.isAvailable).to(beFalse())
 	}
 	
-	func testShouldBeParsed2() {
+	func testShouldBeParsedXcode10_1Beta() {
 		let decoder = JSONDecoder()
 		guard let data = loadJSON(for: "Simulators/availables-xcode101-beta") else {
 			fail("Could not load json for Simulators/availables-xcode101-beta")
@@ -53,7 +53,7 @@ class SimulatorTests: XCTestCase {
 		expect(unavailableSimulator.isAvailable).to(beFalse())
 	}
 	
-	func testShouldBeParsed3() {
+	func testShouldBeParsedXcode10_1() {
 		let decoder = JSONDecoder()
 		guard let data = loadJSON(for: "Simulators/availables-xcode101") else {
 			fail("Could not load json for Simulators/availables-xcode101-beta")
@@ -73,7 +73,7 @@ class SimulatorTests: XCTestCase {
 		expect(unavailableSimulator.isAvailable).to(beFalse())
 	}
 	
-	func testShouldBeParsed4() {
+	func testShouldBeParsedXcode10_2Beta() {
 		let decoder = JSONDecoder()
 		guard let data = loadJSON(for: "Simulators/availables-xcode102-beta") else {
 			fail("Could not load json for Simulators/availables-xcode102-beta")
@@ -93,7 +93,7 @@ class SimulatorTests: XCTestCase {
 		expect(unavailableSimulator.isAvailable).to(beFalse())
 	}
 	
-	func testShouldReturnTheFirstSimulatorOfTheLatestVersion() {
+	func testShouldReturnTheFirstSimulatorOfTheLatestVersionXcode10OrLower() {
 		guard let data = loadJSON(for: "Simulators/availables") else {
 			fail("Could not load json for Simulators/availables")
 			return
@@ -112,7 +112,7 @@ class SimulatorTests: XCTestCase {
 		expect(tvSimulator).to(beNil())
 	}
 	
-	func testShouldReturnTheFirstSimulatorOfTheLatestVersion1() {
+	func testShouldReturnTheFirstSimulatorOfTheLatestVersionXcode10_1Beta() {
 		guard let data = loadJSON(for: "Simulators/availables-xcode101-beta") else {
 			fail("Could not load json for Simulators/availables-xcode101-beta")
 			return
@@ -131,7 +131,7 @@ class SimulatorTests: XCTestCase {
 		expect(tvSimulator).to(beNil())
 	}
 	
-	func testShouldReturnTheFirstSimulatorOfTheLatestVersion2() {
+	func testShouldReturnTheFirstSimulatorOfTheLatestVersionXcode10_1() {
 		guard let data = loadJSON(for: "Simulators/availables-xcode101") else {
 			fail("Could not load json for Simulators/availables-xcode101")
 			return
@@ -150,7 +150,7 @@ class SimulatorTests: XCTestCase {
 		expect(tvSimulator).to(beNil())
 	}
 	
-	func testShouldReturnTheFirstSimulatorOfTheLatestVersion3() {
+	func testShouldReturnTheFirstSimulatorOfTheLatestVersionWhenTheLatestInstalledSimulatorIsUnavailable() {
 		guard let data = loadJSON(for: "Simulators/availables-xcode102-with-unavailable-latest-simulators") else {
 			fail("Could not load json for Simulators/availables-xcode102-with-unavailable-latest-simulators")
 			return
@@ -171,7 +171,7 @@ class SimulatorTests: XCTestCase {
 		expect(tvSimulator.name).to(equal("Apple TV"))
 	}
 	
-	func testShouldReturnTheFirstSimulatorOfTheLatestVersion4() {
+	func testShouldReturnTheFirstSimulatorOfTheLatestVersionXcode10_2Beta() {
 		guard let data = loadJSON(for: "Simulators/availables-xcode102-beta") else {
 			fail("Could not load json for Simulators/availables-xcode102-beta")
 			return
@@ -190,7 +190,7 @@ class SimulatorTests: XCTestCase {
 		expect(tvSimulator).to(beNil())
 	}
 	
-	func testShouldReturnNil() {
+	func testShouldReturnNilWhenNoSimulatorsAvailable() {
 		guard let data = loadJSON(for: "Simulators/unavailable") else {
 			fail("Could not load data for Simulators/unavailable")
 			return
@@ -198,23 +198,22 @@ class SimulatorTests: XCTestCase {
 		expect(selectAvailableSimulator(of: .watchSimulator, from: data)).to(beNil())
 	}
 	
-	
-	func testShouldReturnThePlatformVersion1() {
+	func testShouldReturnThePlatformVersionWhenThePlatformNameIsPresent() {
 		let platformVersion = parsePlatformVersion(for: "iOS", from: "iOS 12.1")
 		expect(platformVersion).to(equal("iOS 12.1"))
 	}
 	
-	func testShouldReturnThePlatformVersion2() {
+	func testShouldReturnThePlatformVersionWhenTheIdentifierHasAPrefix() {
 		let platformVersion = parsePlatformVersion(for: "iOS", from: "com.apple.CoreSimulator.SimRuntime.iOS-12-1")
 		expect(platformVersion).to(equal("iOS 12.1"))
 	}
 	
-	func testShouldReturnNil1() {
+	func testShouldReturnNilWhenThePlatformNameIsMissing() {
 		let platformVersion = parsePlatformVersion(for: "iOS", from: "watchOS 5.2")
 		expect(platformVersion).to(beNil())
 	}
 	
-	func testShouldReturnNil2() {
+	func testShouldReturnNilWhenTheIdentifierHasAPrefix() {
 		let platformVersion = parsePlatformVersion(for: "iOS", from: "com.apple.CoreSimulator.SimRuntime.watchOS-5-2")
 		expect(platformVersion).to(beNil())
 	}
