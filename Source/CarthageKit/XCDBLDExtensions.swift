@@ -56,7 +56,7 @@ extension ProjectLocator {
 
     /// Sends each scheme found in the receiver.
     public func schemes() -> SignalProducer<Scheme, CarthageError> {
-        let task = xcodebuildTask("-list", BuildArguments(project: self))
+        let task = xcodeBuild.task("-list", BuildArguments(project: self))
 
         return task.launch()
             .ignoreTaskData()

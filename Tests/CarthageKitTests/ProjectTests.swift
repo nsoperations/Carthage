@@ -14,7 +14,18 @@ private enum ProjectTestsError: Error {
     case assertion(message: String)
 }
 
+private class XcodeBuildMock: XcodeBuildProtocol {
+
+    func task(_ tasks: [String], _ buildArguments: BuildArguments) -> Task {
+
+        print(buildArguments.arguments)
+
+        return Task("/usr/bin/xcrun", arguments: ["xcodebuild", "-version"])
+    }
+}
+
 class ProjectBuildTests: XCTestCase {
+    var originalXcodeBuild: XcodeBuildProtocol!
     var directoryURL: URL!
     var buildDirectoryURL: URL!
     var noSharedSchemesDirectoryURL: URL!
@@ -53,6 +64,9 @@ class ProjectBuildTests: XCTestCase {
     }
 
     override func setUp() {
+        originalXcodeBuild = xcodeBuild
+        xcodeBuild = XcodeBuildMock()
+
         guard let directoryURL = Bundle(for: type(of: self)).url(forResource: "DependencyTest", withExtension: nil) else {
             fail("Could not load DependencyTest from resources")
             return
@@ -74,6 +88,10 @@ class ProjectBuildTests: XCTestCase {
             _ = cloneOrFetch(dependency: .git(GitURL(urlPath)), preferHTTPS: false)
                 .wait()
         }
+    }
+
+    override func tearDown() {
+        xcodeBuild = originalXcodeBuild
     }
 
     func testShouldBuildFrameworksInTheCorrectOrder() {

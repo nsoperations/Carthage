@@ -6,6 +6,30 @@ import ReactiveSwift
 import ReactiveTask
 import XCDBLD
 
+protocol XcodeBuildProtocol {
+
+    /// Creates a task description for executing `xcodebuild` with the given
+    /// arguments.
+    func task(_ tasks: [String], _ buildArguments: BuildArguments) -> Task
+}
+
+extension XcodeBuildProtocol {
+    /// Creates a task description for executing `xcodebuild` with the given
+    /// arguments.
+    func task(_ task: String, _ buildArguments: BuildArguments) -> Task {
+        return self.task([task], buildArguments)
+    }
+}
+
+internal var xcodeBuild: XcodeBuildProtocol = XcodeBuild()
+
+final class XcodeBuild: XcodeBuildProtocol {
+
+    func task(_ tasks: [String], _ buildArguments: BuildArguments) -> Task {
+        return Task("/usr/bin/xcrun", arguments: buildArguments.arguments + tasks)
+    }
+}
+
 /// Emits the currect Swift version
 internal func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
     return determineSwiftVersion(usingToolchain: toolchain).replayLazily(upTo: 1)
@@ -145,18 +169,6 @@ internal func checkFrameworkCompatibility(_ frameworkURL: URL, usingToolchain to
     } else {
         return SignalProducer(value: frameworkURL)
     }
-}
-
-/// Creates a task description for executing `xcodebuild` with the given
-/// arguments.
-public func xcodebuildTask(_ tasks: [String], _ buildArguments: BuildArguments) -> Task {
-    return Task("/usr/bin/xcrun", arguments: buildArguments.arguments + tasks)
-}
-
-/// Creates a task description for executing `xcodebuild` with the given
-/// arguments.
-public func xcodebuildTask(_ task: String, _ buildArguments: BuildArguments) -> Task {
-    return xcodebuildTask([task], buildArguments)
 }
 
 /// Finds schemes of projects or workspaces, which Carthage should build, found
@@ -811,7 +823,7 @@ private func build(sdk: SDK, with buildArgs: BuildArguments, in workingDirectory
                         return result
                     }()
 
-                    var buildScheme = xcodebuildTask(actions, argsForBuilding)
+                    var buildScheme = xcodeBuild.task(actions, argsForBuilding)
                     buildScheme.workingDirectoryPath = workingDirectoryURL.path
 
                     return buildScheme.launch()
