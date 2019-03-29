@@ -71,7 +71,7 @@ class ProjectBuildTests: XCTestCase {
         let sourceRepoUrl = directoryURL.appendingPathComponent("SourceRepos")
         for repo in ["TestFramework1", "TestFramework2", "TestFramework3"] {
             let urlPath = sourceRepoUrl.appendingPathComponent(repo).path
-            _ = cloneOrFetch(dependency: .git(GitURL(urlPath)), preferHTTPS: false)
+            _ = ProjectDependencyRetriever.cloneOrFetch(dependency: .git(GitURL(urlPath)), preferHTTPS: false)
                 .wait()
         }
     }
@@ -451,7 +451,7 @@ class ProjectGitOperationsTests: XCTestCase {
     }
 
     func cloneOrFetch(commitish: String? = nil) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
-        return CarthageKit.cloneOrFetch(dependency: dependency, preferHTTPS: false, destinationURL: cacheDirectoryURL, commitish: commitish)
+        return CarthageKit.ProjectDependencyRetriever.cloneOrFetch(dependency: dependency, preferHTTPS: false, destinationURL: cacheDirectoryURL, commitish: commitish)
     }
 
     func assertProjectEvent(commitish: String? = nil, clearFetchTime: Bool = true, action: @escaping (ProjectEvent?) -> Void) {
@@ -545,7 +545,7 @@ class ProjectFrameworkDefinitionTests: XCTestCase {
 
     func testShouldReturnDefinition() {
         let binary = BinaryURL(url: testDefinitionURL, resolvedDescription: testDefinitionURL.description)
-        let actualDefinition = project.downloadBinaryFrameworkDefinition(binary: binary).first()?.value
+        let actualDefinition = project.dependencyRetriever.downloadBinaryFrameworkDefinition(binary: binary).first()?.value
 
         let expectedBinaryProject = BinaryProject(versions: [
             PinnedVersion("1.0"): URL(string: "https://my.domain.com/release/1.0.0/framework.zip")!,
@@ -557,7 +557,7 @@ class ProjectFrameworkDefinitionTests: XCTestCase {
     func testShouldReturnReadFailedIfUnableToDownload() {
         let url = URL(string: "file:///thisfiledoesnotexist.json")!
         let binary = BinaryURL(url: url, resolvedDescription: testDefinitionURL.description)
-        let actualError = project.downloadBinaryFrameworkDefinition(binary: binary).first()?.error
+        let actualError = project.dependencyRetriever.downloadBinaryFrameworkDefinition(binary: binary).first()?.error
 
         switch actualError {
         case .some(.readFailed):
@@ -575,7 +575,7 @@ class ProjectFrameworkDefinitionTests: XCTestCase {
         }
         let binary = BinaryURL(url: invalidDependencyURL, resolvedDescription: invalidDependencyURL.description)
 
-        let actualError = project.downloadBinaryFrameworkDefinition(binary: binary).first()?.error
+        let actualError = project.dependencyRetriever.downloadBinaryFrameworkDefinition(binary: binary).first()?.error
 
         switch actualError {
         case .some(CarthageError.invalidBinaryJSON(invalidDependencyURL, BinaryJSONError.invalidJSON)):
@@ -591,7 +591,7 @@ class ProjectFrameworkDefinitionTests: XCTestCase {
         project.projectEvents.observeValues { events.append($0) }
 
         let binary = BinaryURL(url: testDefinitionURL, resolvedDescription: testDefinitionURL.description)
-        _ = project.downloadBinaryFrameworkDefinition(binary: binary).first()
+        _ = project.dependencyRetriever.downloadBinaryFrameworkDefinition(binary: binary).first()
 
         expect(events) == [.downloadingBinaryFrameworkDefinition(.binary(binary), testDefinitionURL)]
     }
@@ -725,7 +725,7 @@ class ProjectMiscTests: XCTestCase {
             return
         }
 
-        let result = project.transitiveDependencies(["Moya"], resolvedCartfile: resolvedCartfileValue).single()
+        let result = project.dependencyRetriever.transitiveDependencies(["Moya"], resolvedCartfile: resolvedCartfileValue).single()
 
         expect(result?.value).to(contain("Alamofire"))
         expect(result?.value).to(contain("ReactiveSwift"))
