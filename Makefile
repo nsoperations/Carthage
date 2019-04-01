@@ -24,6 +24,8 @@ RM_SAFELY := $(ZSH_COMMAND) '[[ ! $${1:?} =~ "^[[:space:]]+\$$" ]] && [[ $${1:A}
 VERSION_STRING=$(shell git describe --abbrev=0 --tags)
 DISTRIBUTION_PLIST=Source/carthage/Distribution.plist
 
+TEST_FILTER:=
+
 RM=rm -f
 MKDIR=mkdir -p
 SUDO=sudo
@@ -42,7 +44,11 @@ test:
 	$(CP) -R Tests/CarthageKitTests/Resources ./.build/debug/CarthagePackageTests.xctest/Contents
 	$(CP) Tests/CarthageKitTests/fixtures/CartfilePrivateOnly.zip ./.build/debug/CarthagePackageTests.xctest/Contents/Resources
 	script/copy-fixtures ./.build/debug/CarthagePackageTests.xctest/Contents/Resources
-	swift test --skip-build
+	@if [ "$(TEST_FILTER)" == "" ]; then\
+		swift test --skip-build;\
+	else\
+		swift test --skip-build --filter "$(TEST_FILTER)";\
+    	fi	
 
 installables:
 	swift build $(SWIFT_BUILD_FLAGS)
