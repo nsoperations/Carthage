@@ -9,7 +9,7 @@ OUTPUT_PACKAGE=Carthage.pkg
 CARTHAGE_EXECUTABLE=./.build/release/carthage
 BINARIES_FOLDER=/usr/local/bin
 
-SWIFT_BUILD_FLAGS=--configuration release
+SWIFT_BUILD_FLAGS=--disable-sandbox --configuration release
 
 SWIFT_STATIC_STDLIB_SHOULD_BE_FLAGGED:=$(shell test -d $$(dirname $$(xcrun --find swift))/../lib/swift_static/macosx && echo should_be_flagged)
 ifeq ($(SWIFT_STATIC_STDLIB_SHOULD_BE_FLAGGED), should_be_flagged)
