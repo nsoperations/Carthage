@@ -16,5 +16,5 @@ for fixture in "carthage-fixtures-ReactiveCocoaLayout-master" "CartfileOnly" "Ca
 do
     rm -Rf "$destination/__MACOSX"
     rm -Rf "$destination/$fixture"
-	unzip -q -d "$destination" "$current/../Tests/CarthageKitTests/fixtures/$fixture"
+    unzip -q -d "$destination" "$current/../Tests/CarthageKitTests/fixtures/$fixture"
 done

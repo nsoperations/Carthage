@@ -82,3 +82,4 @@ xcconfig: .build/libSwiftPM.xcconfig
 
 xcodeproj: xcconfig
 	 swift package generate-xcodeproj --xcconfig-overrides .build/libSwiftPM.xcconfig
+	 script/add-copy-test-resources-phase.rb

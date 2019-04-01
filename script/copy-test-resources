@@ -1,9 +1,8 @@
-#!/bin/bash -x
+#!/bin/bash -e
 
-SOURCE_DIR="Tests/CarthageKitTests/Resources"
-TARGET_DIR="$BUILT_PRODUCTS_DIR/CarthageKitTests.xctest/Contents/Resources"
+TARGET_DIR="$1/Contents/Resources"
 
 mkdir -p "$TARGET_DIR"
-
-cp -R "$SOURCE_DIR"/* "$TARGET_DIR"
-
+cp -R Tests/CarthageKitTests/Resources/* "$TARGET_DIR"
+cp Tests/CarthageKitTests/fixtures/CartfilePrivateOnly.zip "$TARGET_DIR"
+script/copy-fixtures "$TARGET_DIR"
