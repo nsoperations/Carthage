@@ -146,9 +146,8 @@ public final class ProjectDependencyRetriever {
 
     /// Attempts to resolve a Git reference to a version.
     public func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError> {
-        let repositoryURL = ProjectDependencyRetriever.repositoryFileURL(for: dependency)
         return cloneOrFetchDependency(dependency, commitish: reference)
-            .flatMap(.concat) { _ in
+            .flatMap(.concat) { repositoryURL in
                 return resolveTagInRepository(repositoryURL, reference)
                     .map { _ in
                         // If the reference is an exact tag, resolves it to the tag.
@@ -372,6 +371,7 @@ public final class ProjectDependencyRetriever {
         return SignalProducer {
             Result(at: destinationURL, attempt: {
                 try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
+                try obtainLock(repositoryURL: repositoryURL)
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
             })
             }
@@ -420,7 +420,17 @@ public final class ProjectDependencyRetriever {
                             )
                         }
                 }
-        }
+            }.on(terminated: {
+                ProjectDependencyRetriever.releaseLock(repositoryURL: repositoryURL)
+            })
+    }
+    
+    private static func obtainLock(repositoryURL: URL) throws {
+        //shlock -f lockfile
+    }
+    
+    private static func releaseLock(repositoryURL: URL) {
+        //rm -f lockfile
     }
 
     /// Creates symlink between the dependency checkouts and the root checkouts
@@ -504,7 +514,7 @@ public final class ProjectDependencyRetriever {
 
     /// Returns the file URL at which the given project's repository will be
     /// located.
-    private static func repositoryFileURL(for dependency: Dependency, baseURL: URL = Constants.Dependency.repositoriesURL) -> URL {
+    private static func repositoryFileURL(for dependency: Dependency, baseURL: URL) -> URL {
         return baseURL.appendingPathComponent(dependency.name, isDirectory: true)
     }
 
