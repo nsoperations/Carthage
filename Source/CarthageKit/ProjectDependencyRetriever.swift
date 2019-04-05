@@ -63,7 +63,6 @@ public final class ProjectDependencyRetriever {
             .startOnQueue(cloneOrFetchQueue)
     }
 
-
     /// Produces the sub dependencies of the given dependency. Uses the checked out directory if able
     public func dependencySet(for dependency: Dependency, version: PinnedVersion, mapping: ((Dependency) -> Dependency)? = nil) -> SignalProducer<Set<Dependency>, CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: true)
@@ -369,8 +368,8 @@ public final class ProjectDependencyRetriever {
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
         let fileManager = FileManager.default
         let repositoryURL = repositoryFileURL(for: dependency, baseURL: destinationURL)
-        var lockFileURL: URL? = nil
-        
+        var lockFileURL: URL?
+
         return SignalProducer {
             Result(at: destinationURL, attempt: {
                 try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
@@ -435,7 +434,7 @@ public final class ProjectDependencyRetriever {
                 }
             })
     }
-    
+
     private static func obtainLock(repositoryURL: URL, timeout: Int) -> SignalProducer<URL, CarthageError> {
         //shlock -f lockfile
         let repositoryParentURL = repositoryURL.deletingLastPathComponent()
@@ -444,14 +443,14 @@ public final class ProjectDependencyRetriever {
         let processId = String(ProcessInfo.processInfo.processIdentifier)
         let taskDescription = Task("/usr/bin/shlock", arguments: ["-f", lockFileURL.path, "-p", processId])
         let retryInterval = 1
-        let retryCount = timeout == 0 ? Int.max : timeout/retryInterval
+        let retryCount = timeout == 0 ? Int.max : timeout / retryInterval
         return taskDescription.launch()
             .ignoreTaskData()
             .retry(upTo: retryCount, interval: TimeInterval(retryInterval), on: QueueScheduler(qos: .default))
             .mapError { _ in return .lockError(url: repositoryURL, timeout: timeout) }
             .map { _ in return lockFileURL }
     }
-    
+
     private static func releaseLock(lockFileURL: URL) {
         _ = try? FileManager.default.removeItem(at: lockFileURL)
     }

@@ -38,45 +38,26 @@ class GitHubTests: XCTestCase {
 	}
 	
 	func testShouldParseOwnerNameForm() {
-		let identifier = "ReactiveCocoa/ReactiveSwift"
-		let result = Repository.fromIdentifier(identifier)
-		expect(result.value?.0) == Server.dotCom
-		expect(result.value?.1) == Repository(owner: "ReactiveCocoa", name: "ReactiveSwift")
-		expect(result.error).to(beNil())
+        let identifier = "ReactiveCocoa/ReactiveSwift"
+        let result = Repository.fromIdentifier(identifier)
+        expect(result.value?.0) == Server.dotCom
+        expect(result.value?.1) == Repository(owner: "ReactiveCocoa", name: "ReactiveSwift")
+        expect(result.error).to(beNil())
 	}
 	
 	func testShouldRejectGitProtocol() {
-		let identifier = "git://git@some_host/some_owner/some_repo.git"
-		let expected = ScannableError(message: "invalid GitHub repository identifier \"\(identifier)\"")
-		let result = Repository.fromIdentifier(identifier)
-		expect(result.value).to(beNil())
-		expect(result.error) == expected
+        let identifier = "git://git@some_host/some_owner/some_repo.git"
+        let expected = ScannableError(message: "invalid GitHub repository identifier \"\(identifier)\"")
+        let result = Repository.fromIdentifier(identifier)
+        expect(result.value).to(beNil())
+        expect(result.error) == expected
 	}
 	
 	func testShouldRejectSshProtocol() {
-		let identifier = "ssh://git@some_host/some_owner/some_repo.git"
-		let expected = ScannableError(message: "invalid GitHub repository identifier \"\(identifier)\"")
-		let result = Repository.fromIdentifier(identifier)
-		expect(result.value).to(beNil())
-		expect(result.error) == expected
-	}
-	
-	
-	func testShouldForwardTheAuthorizationHeader() {
-		let response = redirectURLResponse(location: insideGitHubRedirectURL)
-		let newRequest = URLRequest(url: insideGitHubRedirectURL)
-		
-		subject.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: newRequest, completionHandler: { redirectedRequest in
-			expect(redirectedRequest?.value(forHTTPHeaderField: "Authorization")) == self.authToken
-		})
-	}
-	
-	func testShouldNotForwardTheAuthorizationHeader() {
-		let response = redirectURLResponse(location: outsideGitHubRedirectURL)
-		let newRequest = URLRequest(url: outsideGitHubRedirectURL)
-		
-		subject.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: newRequest, completionHandler: { redirectedRequest in
-			expect(redirectedRequest?.value(forHTTPHeaderField: "Authorization")).to(beNil())
-		})
+        let identifier = "ssh://git@some_host/some_owner/some_repo.git"
+        let expected = ScannableError(message: "invalid GitHub repository identifier \"\(identifier)\"")
+        let result = Repository.fromIdentifier(identifier)
+        expect(result.value).to(beNil())
+        expect(result.error) == expected
 	}
 }
