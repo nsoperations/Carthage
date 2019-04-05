@@ -3,6 +3,9 @@ import Result
 
 /// A struct including all constants.
 public struct Constants {
+    /// Default timeout for lock operations
+    public static let defaultLockTimeout = 120
+    
     /// Carthage's bundle identifier.
     public static let bundleIdentifier: String = "org.carthage.CarthageKit"
 

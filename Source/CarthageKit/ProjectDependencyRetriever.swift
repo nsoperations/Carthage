@@ -33,7 +33,7 @@ public final class ProjectDependencyRetriever {
 
     let projectEventsObserver: Signal<ProjectEvent, NoError>.Observer?
     var preferHTTPS = true
-    var lockTimeout: Int = 120
+    var lockTimeout: Int = Constants.defaultLockTimeout
     var useSubmodules = false
     let directoryURL: URL
 
@@ -362,7 +362,7 @@ public final class ProjectDependencyRetriever {
     public static func cloneOrFetch(
         dependency: Dependency,
         preferHTTPS: Bool,
-        lockTimeout: Int,
+        lockTimeout: Int = Constants.defaultLockTimeout,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {

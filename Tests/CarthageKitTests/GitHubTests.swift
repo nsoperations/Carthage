@@ -11,13 +11,11 @@ class GitHubTests: XCTestCase {
 	var outsideGitHubRedirectURL: URL!
 	var task: URLSessionDataTask!
 	var authToken: String!
-	var subject: GitHubURLSessionDelegate!
 	var session: URLSession!
 	var requestURL: URL!
 	var request: URLRequest!
 	
 	override func setUp() {
-		subject = GitHubURLSessionDelegate()
 		session = URLSession(configuration: .default)
 		requestURL = URL(string: "https://api.github.com/some_api_endpoint")!
 		insideGitHubRedirectURL = URL(string: "https://api.github.com/some_redirected_api_endpoint")!
