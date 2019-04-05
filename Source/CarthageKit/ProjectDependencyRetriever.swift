@@ -147,7 +147,7 @@ public final class ProjectDependencyRetriever {
     /// Attempts to resolve a Git reference to a version.
     public func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError> {
         return cloneOrFetchDependency(dependency, commitish: reference)
-            .flatMap(.concat) { repositoryURL in
+            .flatMap(.concat) { (repositoryURL: URL) -> SignalProducer<PinnedVersion, CarthageError> in
                 return resolveTagInRepository(repositoryURL, reference)
                     .map { _ in
                         // If the reference is an exact tag, resolves it to the tag.
@@ -238,6 +238,7 @@ public final class ProjectDependencyRetriever {
         fromRepository repository: Repository,
         client: Client
         ) -> SignalProducer<URL, CarthageError> {
+        var lockFileURL: URL? = nil
         return client.execute(repository.release(forTag: pinnedVersion.commitish))
             .map { _, release in release }
             .filter { release in
@@ -247,13 +248,13 @@ public final class ProjectDependencyRetriever {
                 switch error {
                 case .doesNotExist:
                     return .empty
-
+                    
                 case let .apiError(_, _, error):
                     // Log the GitHub API request failure, not to error out,
                     // because that should not be fatal error.
                     self.projectEventsObserver?.send(value: .skippedDownloadingBinaries(dependency, error.message))
                     return .empty
-
+                    
                 default:
                     return SignalProducer(error: .gitHubAPIRequestFailed(error))
                 }
@@ -269,9 +270,14 @@ public final class ProjectDependencyRetriever {
                         }
                         return Constants.Project.binaryAssetContentTypes.contains(asset.contentType)
                     }
-                    .flatMap(.concat) { asset -> SignalProducer<URL, CarthageError> in
-                        let fileURL = self.fileURLToCachedBinary(dependency, release, asset)
-
+                    .flatMap(.concat) { asset -> SignalProducer<(URL, Release.Asset), CarthageError> in
+                        let fileURL = self.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: Constants.Dependency.assetsURL)
+                        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout).map { lockedFileURL in
+                            lockFileURL = lockedFileURL
+                            return (fileURL, asset)
+                        }
+                    }
+                    .flatMap(.concat) { (fileURL, asset) -> SignalProducer<URL, CarthageError> in
                         if FileManager.default.fileExists(atPath: fileURL.path) {
                             return SignalProducer(value: fileURL)
                         } else {
@@ -280,25 +286,39 @@ public final class ProjectDependencyRetriever {
                                 .flatMap(.concat) { downloadURL in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
                         }
                 }
-        }
+            }
+            .on(terminated: {
+                if let lockFileURL = lockFileURL {
+                    ProjectDependencyRetriever.releaseLock(lockFileURL: lockFileURL)
+                }
+            })
     }
 
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
     public func downloadBinary(dependency: Dependency, version: Version, url: URL) -> SignalProducer<URL, CarthageError> {
         let fileName = url.lastPathComponent
-        let fileURL = fileURLToCachedBinaryDependency(dependency, version, fileName)
-
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            return SignalProducer(value: fileURL)
-        } else {
-            return URLSession.shared.reactive.download(with: URLRequest(url: url))
-                .on(started: {
-                    self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, version.description))
-                })
-                .mapError { CarthageError.readFailed(url, $0 as NSError) }
-                .flatMap(.concat) { downloadURL, _ in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
-        }
+        let fileURL = fileURLToCachedBinaryDependency(dependency: dependency, semanticVersion: version, fileName: fileName, baseURL: Constants.Dependency.assetsURL)
+        var lockFileURL: URL? = nil
+        
+        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout)
+            .flatMap(.merge) { (lockedFileURL: URL) -> SignalProducer<URL, CarthageError> in
+                lockFileURL = lockedFileURL
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    return SignalProducer(value: fileURL)
+                } else {
+                    return URLSession.shared.reactive.download(with: URLRequest(url: url))
+                        .on(started: {
+                            self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, version.description))
+                        })
+                        .mapError { CarthageError.readFailed(url, $0 as NSError) }
+                        .flatMap(.concat) { downloadURL, _ in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
+                }
+            }.on(terminated: {
+                if let lockFileURL = lockFileURL {
+                    ProjectDependencyRetriever.releaseLock(lockFileURL: lockFileURL)
+                }
+            })
     }
 
     /// Checks out the given dependency into its intended working directory,
@@ -370,15 +390,7 @@ public final class ProjectDependencyRetriever {
         let repositoryURL = repositoryFileURL(for: dependency, baseURL: destinationURL)
         var lockFileURL: URL?
 
-        return SignalProducer {
-            Result(at: destinationURL, attempt: {
-                try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
-                return repositoryURL
-            })
-            }
-            .flatMap(.merge) { (repositoryURL: URL) -> SignalProducer<URL, CarthageError> in
-                return ProjectDependencyRetriever.obtainLock(repositoryURL: repositoryURL, timeout: lockTimeout)
-            }
+        return ProjectDependencyRetriever.obtainLock(fileURL: repositoryURL, timeout: lockTimeout)
             .map { fileURL in
                 lockFileURL = fileURL
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
@@ -435,20 +447,30 @@ public final class ProjectDependencyRetriever {
             })
     }
 
-    private static func obtainLock(repositoryURL: URL, timeout: Int) -> SignalProducer<URL, CarthageError> {
+    private static func obtainLock(fileURL: URL, timeout: Int) -> SignalProducer<URL, CarthageError> {
         //shlock -f lockfile
-        let repositoryParentURL = repositoryURL.deletingLastPathComponent()
-        let repositoryName = repositoryURL.lastPathComponent
-        let lockFileURL = repositoryParentURL.appendingPathComponent(".\(repositoryName).lock")
+        let parentURL = fileURL.deletingLastPathComponent()
+        let fileName = fileURL.lastPathComponent
+        let lockFileURL = parentURL.appendingPathComponent(".\(fileName).lock")
         let processId = String(ProcessInfo.processInfo.processIdentifier)
         let taskDescription = Task("/usr/bin/shlock", arguments: ["-f", lockFileURL.path, "-p", processId])
         let retryInterval = 1
         let retryCount = timeout == 0 ? Int.max : timeout / retryInterval
-        return taskDescription.launch()
-            .ignoreTaskData()
-            .retry(upTo: retryCount, interval: TimeInterval(retryInterval), on: QueueScheduler(qos: .default))
-            .mapError { _ in return .lockError(url: repositoryURL, timeout: timeout) }
-            .map { _ in return lockFileURL }
+        return SignalProducer(value: parentURL)
+            .attempt {
+                Result(at: $0, attempt: {
+                    try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true)
+                })
+            }
+            .flatMap(.merge) { _ in
+                return taskDescription.launch()
+                    .ignoreTaskData()
+                    .retry(upTo: retryCount, interval: TimeInterval(retryInterval), on: QueueScheduler(qos: .default))
+                    .mapError { _ in return .lockError(url: fileURL, timeout: timeout) }
+                    .map { _ in
+                        return lockFileURL
+                }
+        }
     }
 
     private static func releaseLock(lockFileURL: URL) {
@@ -579,15 +601,15 @@ public final class ProjectDependencyRetriever {
 
     /// Constructs a file URL to where the binary corresponding to the given
     /// arguments should live.
-    private func fileURLToCachedBinary(_ dependency: Dependency, _ release: Release, _ asset: Release.Asset) -> URL {
+    private func fileURLToCachedBinary(dependency: Dependency, release: Release, asset: Release.Asset, baseURL: URL) -> URL {
         // ~/Library/Caches/org.carthage.CarthageKit/binaries/ReactiveCocoa/v2.3.1/1234-ReactiveCocoa.framework.zip
-        return Constants.Dependency.assetsURL.appendingPathComponent("\(dependency.name)/\(release.tag)/\(asset.id)-\(asset.name)", isDirectory: false)
+        return baseURL.appendingPathComponent("\(dependency.name)/\(release.tag)/\(asset.id)-\(asset.name)", isDirectory: false)
     }
 
     /// Constructs a file URL to where the binary only framework download should be cached
-    private func fileURLToCachedBinaryDependency(_ dependency: Dependency, _ semanticVersion: Version, _ fileName: String) -> URL {
+    private func fileURLToCachedBinaryDependency(dependency: Dependency, semanticVersion: Version, fileName: String, baseURL: URL) -> URL {
         // ~/Library/Caches/org.carthage.CarthageKit/binaries/MyBinaryProjectFramework/2.3.1/MyBinaryProject.framework.zip
-        return Constants.Dependency.assetsURL.appendingPathComponent("\(dependency.name)/\(semanticVersion)/\(fileName)")
+        return baseURL.appendingPathComponent("\(dependency.name)/\(semanticVersion)/\(fileName)")
     }
 
 }
