@@ -33,6 +33,7 @@ public final class ProjectDependencyRetriever {
 
     let projectEventsObserver: Signal<ProjectEvent, NoError>.Observer?
     var preferHTTPS = true
+    var lockTimeout: Int = 120
     var useSubmodules = false
     let directoryURL: URL
 
@@ -51,7 +52,7 @@ public final class ProjectDependencyRetriever {
     /// Returns a signal which will send the URL to the repository's folder on
     /// disk once cloning or fetching has completed.
     public func cloneOrFetchDependency(_ dependency: Dependency, commitish: String? = nil) -> SignalProducer<URL, CarthageError> {
-        return ProjectDependencyRetriever.cloneOrFetch(dependency: dependency, preferHTTPS: self.preferHTTPS, commitish: commitish)
+        return ProjectDependencyRetriever.cloneOrFetch(dependency: dependency, preferHTTPS: self.preferHTTPS, lockTimeout: self.lockTimeout, commitish: commitish)
             .on(value: { event, _ in
                 if let event = event {
                     self.projectEventsObserver?.send(value: event)
@@ -362,18 +363,26 @@ public final class ProjectDependencyRetriever {
     public static func cloneOrFetch(
         dependency: Dependency,
         preferHTTPS: Bool,
+        lockTimeout: Int,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
         let fileManager = FileManager.default
         let repositoryURL = repositoryFileURL(for: dependency, baseURL: destinationURL)
-
+        var lockFileURL: URL? = nil
+        
         return SignalProducer {
             Result(at: destinationURL, attempt: {
                 try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
-                try obtainLock(repositoryURL: repositoryURL)
-                return dependency.gitURL(preferHTTPS: preferHTTPS)!
+                return repositoryURL
             })
+            }
+            .flatMap(.merge) { (repositoryURL: URL) -> SignalProducer<URL, CarthageError> in
+                return ProjectDependencyRetriever.obtainLock(repositoryURL: repositoryURL, timeout: lockTimeout)
+            }
+            .map { fileURL in
+                lockFileURL = fileURL
+                return dependency.gitURL(preferHTTPS: preferHTTPS)!
             }
             .flatMap(.merge) { (remoteURL: GitURL) -> SignalProducer<(ProjectEvent?, URL), CarthageError> in
                 return isGitRepository(repositoryURL)
@@ -421,16 +430,30 @@ public final class ProjectDependencyRetriever {
                         }
                 }
             }.on(terminated: {
-                ProjectDependencyRetriever.releaseLock(repositoryURL: repositoryURL)
+                if let lockFileURL = lockFileURL {
+                    ProjectDependencyRetriever.releaseLock(lockFileURL: lockFileURL)
+                }
             })
     }
     
-    private static func obtainLock(repositoryURL: URL) throws {
+    private static func obtainLock(repositoryURL: URL, timeout: Int) -> SignalProducer<URL, CarthageError> {
         //shlock -f lockfile
+        let repositoryParentURL = repositoryURL.deletingLastPathComponent()
+        let repositoryName = repositoryURL.lastPathComponent
+        let lockFileURL = repositoryParentURL.appendingPathComponent(".\(repositoryName).lock")
+        let processId = String(ProcessInfo.processInfo.processIdentifier)
+        let taskDescription = Task("/usr/bin/shlock", arguments: ["-f", lockFileURL.path, "-p", processId])
+        let retryInterval = 1
+        let retryCount = timeout == 0 ? Int.max : timeout/retryInterval
+        return taskDescription.launch()
+            .ignoreTaskData()
+            .retry(upTo: retryCount, interval: TimeInterval(retryInterval), on: QueueScheduler(qos: .default))
+            .mapError { _ in return .lockError(url: repositoryURL, timeout: timeout) }
+            .map { _ in return lockFileURL }
     }
     
-    private static func releaseLock(repositoryURL: URL) {
-        //rm -f lockfile
+    private static func releaseLock(lockFileURL: URL) {
+        _ = try? FileManager.default.removeItem(at: lockFileURL)
     }
 
     /// Creates symlink between the dependency checkouts and the root checkouts

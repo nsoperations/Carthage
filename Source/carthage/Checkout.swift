@@ -10,18 +10,21 @@ public struct CheckoutCommand: CommandProtocol {
     public struct Options: OptionsProtocol {
         public let useSSH: Bool
         public let useSubmodules: Bool
+        public let lockTimeout: Int
         public let colorOptions: ColorOptions
         public let directoryPath: String
         public let dependenciesToCheckout: [String]?
 
         private init(useSSH: Bool,
                      useSubmodules: Bool,
+                     lockTimeout: Int,
                      colorOptions: ColorOptions,
                      directoryPath: String,
                      dependenciesToCheckout: [String]?
             ) {
             self.useSSH = useSSH
             self.useSubmodules = useSubmodules
+            self.lockTimeout = lockTimeout
             self.colorOptions = colorOptions
             self.directoryPath = directoryPath
             self.dependenciesToCheckout = dependenciesToCheckout
@@ -35,6 +38,7 @@ public struct CheckoutCommand: CommandProtocol {
             return curry(self.init)
                 <*> mode <| Option(key: "use-ssh", defaultValue: false, usage: "use SSH for downloading GitHub repositories")
                 <*> mode <| Option(key: "use-submodules", defaultValue: false, usage: "add dependencies as Git submodules")
+                <*> mode <| Option(key: "lock-timeout", defaultValue: 120, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to 120")
                 <*> ColorOptions.evaluate(mode)
                 <*> mode <| Option(key: "project-directory", defaultValue: FileManager.default.currentDirectoryPath, usage: "the directory containing the Carthage project")
                 <*> (mode <| Argument(defaultValue: [], usage: dependenciesUsage, usageParameter: "dependency names")).map { $0.isEmpty ? nil : $0 }
@@ -47,6 +51,7 @@ public struct CheckoutCommand: CommandProtocol {
             let project = Project(directoryURL: directoryURL)
             project.preferHTTPS = !self.useSSH
             project.useSubmodules = self.useSubmodules
+            project.lockTimeout = self.lockTimeout
 
             var eventSink = ProjectEventSink(colorOptions: colorOptions)
             project.projectEvents.observeValues { eventSink.put($0) }

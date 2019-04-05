@@ -108,6 +108,17 @@ public final class Project { // swiftlint:disable:this type_body_length
             return self.dependencyRetriever.preferHTTPS
         }
     }
+    
+    /// Timeout for waiting for a lock on the checkout cache for git operations (in case of concurrent usage of different carthage commands)
+    public var lockTimeout: Int {
+        set {
+            self.dependencyRetriever.lockTimeout = newValue
+        }
+        
+        get {
+            return self.dependencyRetriever.lockTimeout
+        }
+    }
 
     /// Whether to use submodules for dependencies, or just check out their
     /// working directories.

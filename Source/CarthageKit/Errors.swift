@@ -89,7 +89,7 @@ public enum CarthageError: Error {
     case buildFailed(TaskError, log: URL?)
 
     case unknownFrameworkSwiftVersion(String)
-
+    
     /// An error occurred while shelling out.
     case taskError(TaskError)
 
@@ -98,6 +98,8 @@ public enum CarthageError: Error {
 
     /// Cartfile.resolved contains incompatible versions
     case invalidResolvedCartfile([CompatibilityInfo])
+    
+    case lockError(url: URL, timeout: Int)
 }
 
 extension CarthageError {
@@ -187,6 +189,9 @@ extension CarthageError: Equatable {
 
         case let (.internalError(left), .internalError(right)):
             return left == right
+            
+        case let (.lockError(left, leftTimeout), .lockError(right, rightTimeout)):
+            return left == right && leftTimeout == rightTimeout
 
         default:
             return false
@@ -370,6 +375,8 @@ extension CarthageError: CustomStringConvertible {
                 }
                 .joined(separator: "\n")
             return message
+        case let .lockError(url, timeout):
+            return "Failed to get lock within timeout of \(timeout)s for directory: \(url.path)"
         }
     }
 }
