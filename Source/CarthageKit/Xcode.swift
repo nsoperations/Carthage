@@ -83,16 +83,16 @@ internal func dSYMSwiftVersion(_ dSYMURL: URL) -> SignalProducer<String, SwiftVe
     // Check the .debug_info section left from the compiler in the dSYM.
     let task = Task("/usr/bin/xcrun", arguments: ["dwarfdump", "--arch=\(arch)", "--debug-info", dSYMURL.path])
 
-    //	$ dwarfdump --debug-info Carthage/Build/iOS/Swiftz.framework.dSYM
-    //		----------------------------------------------------------------------
-    //	File: Carthage/Build/iOS/Swiftz.framework.dSYM/Contents/Resources/DWARF/Swiftz (i386)
-    //	----------------------------------------------------------------------
-    //	.debug_info contents:
+    //    $ dwarfdump --debug-info Carthage/Build/iOS/Swiftz.framework.dSYM
+    //        ----------------------------------------------------------------------
+    //    File: Carthage/Build/iOS/Swiftz.framework.dSYM/Contents/Resources/DWARF/Swiftz (i386)
+    //    ----------------------------------------------------------------------
+    //    .debug_info contents:
     //
-    //	0x00000000: Compile Unit: length = 0x000000ac  version = 0x0004  abbr_offset = 0x00000000  addr_size = 0x04  (next CU at 0x000000b0)
+    //    0x00000000: Compile Unit: length = 0x000000ac  version = 0x0004  abbr_offset = 0x00000000  addr_size = 0x04  (next CU at 0x000000b0)
     //
-    //	0x0000000b: TAG_compile_unit [1] *
-    //	AT_producer( "Apple Swift version 4.1.2 effective-3.3.2 (swiftlang-902.0.54 clang-902.0.39.2) -emit-object /Users/Tommaso/<redacted>
+    //    0x0000000b: TAG_compile_unit [1] *
+    //    AT_producer( "Apple Swift version 4.1.2 effective-3.3.2 (swiftlang-902.0.54 clang-902.0.39.2) -emit-object /Users/Tommaso/<redacted>
 
     let versions: [String]?  = task.launch(standardInput: nil)
         .ignoreTaskData()
@@ -362,10 +362,16 @@ private func mergeSwiftHeaderFiles(_ simulatorExecutableURL: URL,
     precondition(deviceExecutableURL.isFileURL)
     precondition(executableOutputURL.isFileURL)
 
+    let includeTargetConditionals = """
+                                    #ifndef TARGET_OS_SIMULATOR
+                                    #include <TargetConditionals.h>
+                                    #endif\n
+                                    """
     let conditionalPrefix = "#if TARGET_OS_SIMULATOR\n"
     let conditionalElse = "\n#else\n"
-    let conditionalSuffix = "\n#endif"
+    let conditionalSuffix = "\n#endif\n"
 
+    let includeTargetConditionalsContents = includeTargetConditionals.data(using: .utf8)!
     let conditionalPrefixContents = conditionalPrefix.data(using: .utf8)!
     let conditionalElseContents = conditionalElse.data(using: .utf8)!
     let conditionalSuffixContents = conditionalSuffix.data(using: .utf8)!
@@ -378,6 +384,7 @@ private func mergeSwiftHeaderFiles(_ simulatorExecutableURL: URL,
 
     var fileContents = Data()
 
+    fileContents.append(includeTargetConditionalsContents)
     fileContents.append(conditionalPrefixContents)
     fileContents.append(simulatorHeaderContents)
     fileContents.append(conditionalElseContents)

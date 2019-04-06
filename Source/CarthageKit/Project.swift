@@ -222,7 +222,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         tryCheckoutDirectory: Bool
         ) -> SignalProducer<CompatibilityInfo.Requirements, CarthageError> {
         return SignalProducer(resolvedCartfile.dependencies)
-            .flatMap(.concurrent(limit: 4)) { (arg) -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
+            .flatMap(.concurrent(limit: 4)) { arg -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
                 let (dependency, pinnedVersion) = arg
                 return self.dependencyRetriever.dependencies(for: dependency, version: pinnedVersion, tryCheckoutDirectory: tryCheckoutDirectory)
                     .map { (dependency, $0) }
@@ -639,7 +639,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild)
             }
-            .flatMap(.concat) { (arg) -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, Bool?), CarthageError> in
+            .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, Bool?), CarthageError> in
                 let (dependency, version) = arg
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),

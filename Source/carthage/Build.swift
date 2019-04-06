@@ -292,7 +292,7 @@ extension BuildPlatform: ArgumentProtocol {
         "watchOS": .watchOS, "watchsimulator": .watchOS,
         "tvOS": .tvOS, "tvsimulator": .tvOS, "appletvos": .tvOS, "appletvsimulator": .tvOS,
         "all": .all,
-        ]
+    ]
 
     public static func from(string: String) -> BuildPlatform? {
         let tokens = string.split()
