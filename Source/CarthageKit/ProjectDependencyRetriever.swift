@@ -238,7 +238,7 @@ public final class ProjectDependencyRetriever {
         fromRepository repository: Repository,
         client: Client
         ) -> SignalProducer<URL, CarthageError> {
-        var lockFileURL: URL? = nil
+        var lock: Lock? = nil
         return client.execute(repository.release(forTag: pinnedVersion.commitish))
             .map { _, release in release }
             .filter { release in
@@ -272,8 +272,8 @@ public final class ProjectDependencyRetriever {
                     }
                     .flatMap(.concat) { asset -> SignalProducer<(URL, Release.Asset), CarthageError> in
                         let fileURL = self.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: Constants.Dependency.assetsURL)
-                        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout).map { lockedFileURL in
-                            lockFileURL = lockedFileURL
+                        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout).map { urlLock in
+                            lock = urlLock
                             return (fileURL, asset)
                         }
                     }
@@ -288,9 +288,7 @@ public final class ProjectDependencyRetriever {
                 }
             }
             .on(terminated: {
-                if let lockFileURL = lockFileURL {
-                    ProjectDependencyRetriever.releaseLock(lockFileURL: lockFileURL)
-                }
+                lock?.unlock()
             })
     }
 
@@ -299,11 +297,11 @@ public final class ProjectDependencyRetriever {
     public func downloadBinary(dependency: Dependency, version: Version, url: URL) -> SignalProducer<URL, CarthageError> {
         let fileName = url.lastPathComponent
         let fileURL = fileURLToCachedBinaryDependency(dependency: dependency, semanticVersion: version, fileName: fileName, baseURL: Constants.Dependency.assetsURL)
-        var lockFileURL: URL? = nil
+        var lock: Lock? = nil
         
         return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout)
-            .flatMap(.merge) { (lockedFileURL: URL) -> SignalProducer<URL, CarthageError> in
-                lockFileURL = lockedFileURL
+            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URL, CarthageError> in
+                lock = urlLock
                 if FileManager.default.fileExists(atPath: fileURL.path) {
                     return SignalProducer(value: fileURL)
                 } else {
@@ -315,9 +313,7 @@ public final class ProjectDependencyRetriever {
                         .flatMap(.concat) { downloadURL, _ in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
                 }
             }.on(terminated: {
-                if let lockFileURL = lockFileURL {
-                    ProjectDependencyRetriever.releaseLock(lockFileURL: lockFileURL)
-                }
+                lock?.unlock()
             })
     }
 
@@ -388,11 +384,11 @@ public final class ProjectDependencyRetriever {
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
         let fileManager = FileManager.default
         let repositoryURL = repositoryFileURL(for: dependency, baseURL: destinationURL)
-        var lockFileURL: URL?
+        var lock: Lock?
 
         return ProjectDependencyRetriever.obtainLock(fileURL: repositoryURL, timeout: lockTimeout)
-            .map { fileURL in
-                lockFileURL = fileURL
+            .map { urlLock in
+                lock = urlLock
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
             }
             .flatMap(.merge) { (remoteURL: GitURL) -> SignalProducer<(ProjectEvent?, URL), CarthageError> in
@@ -441,36 +437,18 @@ public final class ProjectDependencyRetriever {
                         }
                 }
             }.on(terminated: {
-                if let lockFileURL = lockFileURL {
-                    ProjectDependencyRetriever.releaseLock(lockFileURL: lockFileURL)
-                }
+                lock?.unlock()
             })
     }
 
-    private static func obtainLock(fileURL: URL, timeout: Int) -> SignalProducer<URL, CarthageError> {
-        //shlock -f lockfile
-        let parentURL = fileURL.deletingLastPathComponent()
-        let fileName = fileURL.lastPathComponent
-        let lockFileURL = parentURL.appendingPathComponent(".\(fileName).lock")
-        let processId = String(ProcessInfo.processInfo.processIdentifier)
-        let taskDescription = Task("/usr/bin/shlock", arguments: ["-f", lockFileURL.path, "-p", processId])
-        let retryInterval = 1
-        let retryCount = timeout == 0 ? Int.max : timeout / retryInterval
-        return SignalProducer(value: parentURL)
-            .attempt {
-                Result(at: $0, attempt: {
-                    try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true)
-                })
+    private static func obtainLock(fileURL: URL, timeout: Int) -> SignalProducer<URLLock, CarthageError> {
+        return SignalProducer({ () -> Result<URLLock, CarthageError> in
+            let lock = URLLock(url: fileURL)
+            guard lock.lock(timeout: TimeInterval(timeout)) else {
+                return .failure(CarthageError.lockError(url: fileURL, timeout: timeout))
             }
-            .flatMap(.merge) { _ in
-                return taskDescription.launch()
-                    .ignoreTaskData()
-                    .retry(upTo: retryCount, interval: TimeInterval(retryInterval), on: QueueScheduler(qos: .default))
-                    .mapError { _ in return .lockError(url: fileURL, timeout: timeout) }
-                    .map { _ in
-                        return lockFileURL
-                }
-        }
+            return .success(lock)
+        })
     }
 
     private static func releaseLock(lockFileURL: URL) {
