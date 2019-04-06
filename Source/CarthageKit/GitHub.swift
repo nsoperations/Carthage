@@ -166,24 +166,6 @@ extension URLSession {
     public static var proxiedSession: URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.connectionProxyDictionary = Proxy.default.connectionProxyDictionary
-
-        let delegate = GitHubURLSessionDelegate()
-        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: OperationQueue.current)
-    }
-}
-
-internal final class GitHubURLSessionDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        var newRequest = request
-
-        if let originalRequest = task.originalRequest {
-            if originalRequest.url?.host == request.url?.host {
-                if let auth = originalRequest.value(forHTTPHeaderField: "Authorization") {
-                    newRequest.setValue(auth, forHTTPHeaderField: "Authorization")
-                }
-            }
-        }
-
-        completionHandler(newRequest)
+        return URLSession(configuration: configuration)
     }
 }

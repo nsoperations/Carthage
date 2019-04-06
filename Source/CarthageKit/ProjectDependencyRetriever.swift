@@ -62,7 +62,6 @@ public final class ProjectDependencyRetriever {
             .startOnQueue(cloneOrFetchQueue)
     }
 
-
     /// Produces the sub dependencies of the given dependency. Uses the checked out directory if able
     public func dependencySet(for dependency: Dependency, version: PinnedVersion, mapping: ((Dependency) -> Dependency)? = nil) -> SignalProducer<Set<Dependency>, CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: true)
