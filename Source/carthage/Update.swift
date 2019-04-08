@@ -26,6 +26,7 @@ public struct UpdateCommand: CommandProtocol {
                 directoryPath: checkoutOptions.directoryPath,
                 logPath: logPath,
                 archive: false,
+                lockTimeout: checkoutOptions.lockTimeout,
                 dependenciesToBuild: dependenciesToUpdate
             )
         }

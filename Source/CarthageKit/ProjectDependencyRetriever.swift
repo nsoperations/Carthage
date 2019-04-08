@@ -148,6 +148,7 @@ public final class ProjectDependencyRetriever {
     public func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError> {
         return cloneOrFetchDependency(dependency, commitish: reference)
             .flatMap(.concat) { (repositoryURL: URL) -> SignalProducer<PinnedVersion, CarthageError> in
+                print ("Resolving tag")
                 return resolveTagInRepository(repositoryURL, reference)
                     .map { _ in
                         // If the reference is an exact tag, resolves it to the tag.
@@ -278,6 +279,7 @@ public final class ProjectDependencyRetriever {
                         }
                     }
                     .flatMap(.concat) { (fileURL, asset) -> SignalProducer<URL, CarthageError> in
+                        print("Performing download operation for url: \(fileURL)")
                         if FileManager.default.fileExists(atPath: fileURL.path) {
                             return SignalProducer(value: fileURL)
                         } else {
@@ -302,6 +304,7 @@ public final class ProjectDependencyRetriever {
         return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URL, CarthageError> in
                 lock = urlLock
+                print("Checking binary for fileURL: \(fileURL)")
                 if FileManager.default.fileExists(atPath: fileURL.path) {
                     return SignalProducer(value: fileURL)
                 } else {
@@ -389,6 +392,7 @@ public final class ProjectDependencyRetriever {
         return ProjectDependencyRetriever.obtainLock(fileURL: repositoryURL, timeout: lockTimeout)
             .map { urlLock in
                 lock = urlLock
+                print("Performing git operation on: \(repositoryURL)")
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
             }
             .flatMap(.merge) { (remoteURL: GitURL) -> SignalProducer<(ProjectEvent?, URL), CarthageError> in
@@ -444,15 +448,11 @@ public final class ProjectDependencyRetriever {
     private static func obtainLock(fileURL: URL, timeout: Int) -> SignalProducer<URLLock, CarthageError> {
         return SignalProducer({ () -> Result<URLLock, CarthageError> in
             let lock = URLLock(url: fileURL)
-            guard lock.lock(timeout: TimeInterval(timeout)) else {
+            guard lock.lock(timeout: timeout <= 0 ? TimeInterval(Int.max) : TimeInterval(timeout)) else {
                 return .failure(CarthageError.lockError(url: fileURL, timeout: timeout))
             }
             return .success(lock)
         })
-    }
-
-    private static func releaseLock(lockFileURL: URL) {
-        _ = try? FileManager.default.removeItem(at: lockFileURL)
     }
 
     /// Creates symlink between the dependency checkouts and the root checkouts

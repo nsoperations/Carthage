@@ -15,7 +15,7 @@ public struct FetchCommand: CommandProtocol {
         public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
             return curry(self.init)
                 <*> ColorOptions.evaluate(mode)
-                <*> mode <| Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to 120")
+                <*> mode <| Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to \(Constants.defaultLockTimeout)")
                 <*> mode <| Argument(usage: "the Git repository that should be cloned or fetched")
         }
     }

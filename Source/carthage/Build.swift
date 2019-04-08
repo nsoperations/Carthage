@@ -36,6 +36,7 @@ public struct BuildCommand: CommandProtocol {
         public let directoryPath: String
         public let logPath: String?
         public let archive: Bool
+        public let lockTimeout: Int
         public let dependenciesToBuild: [String]?
 
         /// If `archive` is true, this will be a producer that will archive
@@ -60,6 +61,7 @@ public struct BuildCommand: CommandProtocol {
                 <*> mode <| Option(key: "project-directory", defaultValue: FileManager.default.currentDirectoryPath, usage: "the directory containing the Carthage project")
                 <*> mode <| Option(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
                 <*> mode <| Option(key: "archive", defaultValue: false, usage: "archive built frameworks from the current project (implies --no-skip-current)")
+                <*> mode <| Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to \(Constants.defaultLockTimeout)")
                 <*> (mode <| Argument(defaultValue: [], usage: "the dependency names to build", usageParameter: "dependency names")).map { $0.isEmpty ? nil : $0 }
         }
     }
@@ -126,6 +128,7 @@ public struct BuildCommand: CommandProtocol {
         let shouldBuildCurrentProject =  !options.skipCurrent || options.archive
 
         let project = Project(directoryURL: directoryURL)
+        project.lockTimeout = options.lockTimeout
         var eventSink = ProjectEventSink(colorOptions: options.colorOptions)
         project.projectEvents.observeValues { eventSink.put($0) }
 

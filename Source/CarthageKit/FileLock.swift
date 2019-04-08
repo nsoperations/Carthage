@@ -42,7 +42,7 @@ extension Lock {
 /// If the instance of this class holding the lock is released from memory, the lock will automatically be removed.
 final class FileLock: Lock {
     
-    private let retryInterval = 1.0
+    private static let retryInterval = 1.0
     let lockFileURL: URL
     
     init(lockFileURL: URL) {
@@ -65,13 +65,16 @@ final class FileLock: Lock {
             task.launch()
             task.waitUntilExit()
             if task.terminationStatus == 0 {
+                print("Locked file at url: \(lockFileURL)")
                 return true
             }
             if timeoutDate.map({ $0.timeIntervalSinceNow <= 0 }) ?? true {
                 break
             }
-            Thread.sleep(forTimeInterval: retryInterval)
+            print("Waiting for lock on file at url: \(lockFileURL)")
+            Thread.sleep(forTimeInterval: FileLock.retryInterval)
         }
+        print("Could not lock file at url: \(lockFileURL)")
         return false
     }
     
@@ -93,6 +96,7 @@ final class FileLock: Lock {
     func unlock() -> Bool {
         do {
             try FileManager.default.removeItem(at: self.lockFileURL)
+            print("Unlocked file: \(self.lockFileURL)")
             return true
         } catch {
             return false
@@ -106,6 +110,8 @@ final class FileLock: Lock {
 
 /// Class which protects a specific URL for reading/writing using a FileLock. The FileLock uses a lock file which is stored in the specified lockFileDirectory.
 final class URLLock: Lock {
+
+    /// Default strategy for constructing a lock file URL from the URL to protect.
     static let defaultLockFileNamingStrategy: (URL) -> URL = { (url) -> URL in
         let parentURL = url.deletingLastPathComponent()
         let fileName = url.lastPathComponent
@@ -113,11 +119,15 @@ final class URLLock: Lock {
     }
     
     let url: URL
-    let fileLock: FileLock
+    private let fileLock: FileLock
     
-    init(url: URL, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
+    convenience init(url: URL, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
+        self.init(url: url, lockFileURL: lockFileNamingStrategy(url))
+    }
+
+    init(url: URL, lockFileURL: URL) {
         self.url = url
-        self.fileLock = FileLock(lockFileURL: lockFileNamingStrategy(url))
+        self.fileLock = FileLock(lockFileURL: lockFileURL)
     }
     
     func lock(timeoutDate: Date?) -> Bool {
