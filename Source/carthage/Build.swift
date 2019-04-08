@@ -16,13 +16,19 @@ extension BuildOptions: OptionsProtocol {
         var platformUsage = "the platforms to build for (one of 'all', 'macOS', 'iOS', 'watchOS', 'tvOS', or comma-separated values of the formers except for 'all')"
         platformUsage += addendum
 
+        let option1 = Option(key: "configuration", defaultValue: "Release", usage: "the Xcode configuration to build" + addendum)
+        let option2 = Option<String?>(key: "toolchain", defaultValue: nil, usage: "the toolchain to build with")
+        let option3 = Option<String?>(key: "derived-data", defaultValue: nil, usage: "path to the custom derived data folder")
+        let option4 = Option(key: "cache-builds", defaultValue: false, usage: "use cached builds when possible")
+        let option5 = Option(key: "use-binaries", defaultValue: true, usage: "don't use downloaded binaries when possible")
+
         return curry(self.init)
-            <*> mode <| Option(key: "configuration", defaultValue: "Release", usage: "the Xcode configuration to build" + addendum)
+            <*> mode <| option1
             <*> (mode <| Option<BuildPlatform>(key: "platform", defaultValue: .all, usage: platformUsage)).map { $0.platforms }
-            <*> mode <| Option<String?>(key: "toolchain", defaultValue: nil, usage: "the toolchain to build with")
-            <*> mode <| Option<String?>(key: "derived-data", defaultValue: nil, usage: "path to the custom derived data folder")
-            <*> mode <| Option(key: "cache-builds", defaultValue: false, usage: "use cached builds when possible")
-            <*> mode <| Option(key: "use-binaries", defaultValue: true, usage: "don't use downloaded binaries when possible")
+            <*> mode <| option2
+            <*> mode <| option3
+            <*> mode <| option4
+            <*> mode <| option5
     }
 }
 
@@ -53,15 +59,23 @@ public struct BuildCommand: CommandProtocol {
         }
 
         public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
+
+            let option1 = Option(key: "skip-current", defaultValue: true, usage: "don't skip building the Carthage project (in addition to its dependencies)")
+            let option2 = Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline")
+            let option3 = Option(key: "project-directory", defaultValue: FileManager.default.currentDirectoryPath, usage: "the directory containing the Carthage project")
+            let option4 = Option<String?>(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
+            let option5 = Option(key: "archive", defaultValue: false, usage: "archive built frameworks from the current project (implies --no-skip-current)")
+            let option6 = Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to \(Constants.defaultLockTimeout)")
+
             return curry(self.init)
                 <*> BuildOptions.evaluate(mode)
-                <*> mode <| Option(key: "skip-current", defaultValue: true, usage: "don't skip building the Carthage project (in addition to its dependencies)")
+                <*> mode <| option1
                 <*> ColorOptions.evaluate(mode)
-                <*> mode <| Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline")
-                <*> mode <| Option(key: "project-directory", defaultValue: FileManager.default.currentDirectoryPath, usage: "the directory containing the Carthage project")
-                <*> mode <| Option(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
-                <*> mode <| Option(key: "archive", defaultValue: false, usage: "archive built frameworks from the current project (implies --no-skip-current)")
-                <*> mode <| Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to \(Constants.defaultLockTimeout)")
+                <*> mode <| option2
+                <*> mode <| option3
+                <*> mode <| option4
+                <*> mode <| option5
+                <*> mode <| option6
                 <*> (mode <| Argument(defaultValue: [], usage: "the dependency names to build", usageParameter: "dependency names")).map { $0.isEmpty ? nil : $0 }
         }
     }

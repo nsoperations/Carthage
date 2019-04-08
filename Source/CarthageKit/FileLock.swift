@@ -65,16 +65,13 @@ final class FileLock: Lock {
             task.launch()
             task.waitUntilExit()
             if task.terminationStatus == 0 {
-                print("Locked file at url: \(lockFileURL)")
                 return true
             }
             if timeoutDate.map({ $0.timeIntervalSinceNow <= 0 }) ?? true {
                 break
             }
-            print("Waiting for lock on file at url: \(lockFileURL)")
             Thread.sleep(forTimeInterval: FileLock.retryInterval)
         }
-        print("Could not lock file at url: \(lockFileURL)")
         return false
     }
     
@@ -96,7 +93,6 @@ final class FileLock: Lock {
     func unlock() -> Bool {
         do {
             try FileManager.default.removeItem(at: self.lockFileURL)
-            print("Unlocked file: \(self.lockFileURL)")
             return true
         } catch {
             return false
