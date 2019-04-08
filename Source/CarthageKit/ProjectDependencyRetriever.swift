@@ -33,6 +33,7 @@ public final class ProjectDependencyRetriever {
 
     let projectEventsObserver: Signal<ProjectEvent, NoError>.Observer?
     var preferHTTPS = true
+    var lockTimeout: Int = Constants.defaultLockTimeout
     var useSubmodules = false
     let directoryURL: URL
 
@@ -51,15 +52,14 @@ public final class ProjectDependencyRetriever {
     /// Returns a signal which will send the URL to the repository's folder on
     /// disk once cloning or fetching has completed.
     public func cloneOrFetchDependency(_ dependency: Dependency, commitish: String? = nil) -> SignalProducer<URL, CarthageError> {
-        return ProjectDependencyRetriever.cloneOrFetch(dependency: dependency, preferHTTPS: self.preferHTTPS, commitish: commitish)
-            .on(value: { event, _ in
-                if let event = event {
-                    self.projectEventsObserver?.send(value: event)
-                }
+        var lock: Lock?
+        return cloneOrFetchDependencyLocked(dependency, commitish: commitish)
+            .map { urlLock in
+                lock = urlLock
+                return urlLock.url }
+            .on(terminated: {
+                lock?.unlock()
             })
-            .map { _, url in url }
-            .take(last: 1)
-            .startOnQueue(cloneOrFetchQueue)
     }
 
     /// Produces the sub dependencies of the given dependency. Uses the checked out directory if able
@@ -86,12 +86,17 @@ public final class ProjectDependencyRetriever {
         switch dependency {
         case .git, .gitHub:
             let revision = version.commitish
-            let cartfileFetch: SignalProducer<Cartfile, CarthageError> = cloneOrFetchDependency(dependency, commitish: revision)
-                .flatMap(.concat) { repositoryURL in
-                    return contentsOfFileInRepository(repositoryURL, Constants.Project.cartfilePath, revision: revision)
+            var lock: Lock?
+            let cartfileFetch: SignalProducer<Cartfile, CarthageError> = cloneOrFetchDependencyLocked(dependency, commitish: revision)
+                .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
+                    lock = urlLock
+                    return contentsOfFileInRepository(urlLock.url, Constants.Project.cartfilePath, revision: revision)
                 }
                 .flatMapError { _ in .empty }
                 .attemptMap(Cartfile.from(string:))
+                .on(terminated: {
+                    lock?.unlock()
+                })
 
             let cartfileSource: SignalProducer<Cartfile, CarthageError>
             if tryCheckoutDirectory {
@@ -145,9 +150,11 @@ public final class ProjectDependencyRetriever {
 
     /// Attempts to resolve a Git reference to a version.
     public func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError> {
-        let repositoryURL = ProjectDependencyRetriever.repositoryFileURL(for: dependency)
-        return cloneOrFetchDependency(dependency, commitish: reference)
-            .flatMap(.concat) { _ in
+        var lock: Lock?
+        return cloneOrFetchDependencyLocked(dependency, commitish: reference)
+            .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<PinnedVersion, CarthageError> in
+                lock = urlLock
+                let repositoryURL = urlLock.url
                 return resolveTagInRepository(repositoryURL, reference)
                     .map { _ in
                         // If the reference is an exact tag, resolves it to the tag.
@@ -157,7 +164,9 @@ public final class ProjectDependencyRetriever {
                         return resolveReferenceInRepository(repositoryURL, reference)
                             .map(PinnedVersion.init)
                 }
-        }
+            }.on(terminated: {
+                lock?.unlock()
+            })
     }
 
     /// Sends all versions available for the given project.
@@ -169,9 +178,15 @@ public final class ProjectDependencyRetriever {
 
         switch dependency {
         case .git, .gitHub:
-            fetchVersions = cloneOrFetchDependency(dependency)
-                .flatMap(.merge) { repositoryURL in listTags(repositoryURL) }
+            var lock: Lock?
+            fetchVersions = cloneOrFetchDependencyLocked(dependency)
+                .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
+                    lock = urlLock
+                    return listTags(urlLock.url) }
                 .map { PinnedVersion($0) }
+                .on(terminated: {
+                    lock?.unlock()
+                })
 
         case let .binary(binary):
             fetchVersions = downloadBinaryFrameworkDefinition(binary: binary)
@@ -238,6 +253,7 @@ public final class ProjectDependencyRetriever {
         fromRepository repository: Repository,
         client: Client
         ) -> SignalProducer<URL, CarthageError> {
+        var lock: Lock? = nil
         return client.execute(repository.release(forTag: pinnedVersion.commitish))
             .map { _, release in release }
             .filter { release in
@@ -247,13 +263,13 @@ public final class ProjectDependencyRetriever {
                 switch error {
                 case .doesNotExist:
                     return .empty
-
+                    
                 case let .apiError(_, _, error):
                     // Log the GitHub API request failure, not to error out,
                     // because that should not be fatal error.
                     self.projectEventsObserver?.send(value: .skippedDownloadingBinaries(dependency, error.message))
                     return .empty
-
+                    
                 default:
                     return SignalProducer(error: .gitHubAPIRequestFailed(error))
                 }
@@ -269,9 +285,14 @@ public final class ProjectDependencyRetriever {
                         }
                         return Constants.Project.binaryAssetContentTypes.contains(asset.contentType)
                     }
-                    .flatMap(.concat) { asset -> SignalProducer<URL, CarthageError> in
-                        let fileURL = self.fileURLToCachedBinary(dependency, release, asset)
-
+                    .flatMap(.concat) { asset -> SignalProducer<(URL, Release.Asset), CarthageError> in
+                        let fileURL = self.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: Constants.Dependency.assetsURL)
+                        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout).map { urlLock in
+                            lock = urlLock
+                            return (fileURL, asset)
+                        }
+                    }
+                    .flatMap(.concat) { (fileURL, asset) -> SignalProducer<URL, CarthageError> in
                         if FileManager.default.fileExists(atPath: fileURL.path) {
                             return SignalProducer(value: fileURL)
                         } else {
@@ -280,25 +301,35 @@ public final class ProjectDependencyRetriever {
                                 .flatMap(.concat) { downloadURL in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
                         }
                 }
-        }
+            }
+            .on(terminated: {
+                lock?.unlock()
+            })
     }
 
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
     public func downloadBinary(dependency: Dependency, version: Version, url: URL) -> SignalProducer<URL, CarthageError> {
         let fileName = url.lastPathComponent
-        let fileURL = fileURLToCachedBinaryDependency(dependency, version, fileName)
-
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            return SignalProducer(value: fileURL)
-        } else {
-            return URLSession.shared.reactive.download(with: URLRequest(url: url))
-                .on(started: {
-                    self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, version.description))
-                })
-                .mapError { CarthageError.readFailed(url, $0 as NSError) }
-                .flatMap(.concat) { downloadURL, _ in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
-        }
+        let fileURL = fileURLToCachedBinaryDependency(dependency: dependency, semanticVersion: version, fileName: fileName, baseURL: Constants.Dependency.assetsURL)
+        var lock: Lock? = nil
+        
+        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout)
+            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URL, CarthageError> in
+                lock = urlLock
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    return SignalProducer(value: fileURL)
+                } else {
+                    return URLSession.shared.reactive.download(with: URLRequest(url: url))
+                        .on(started: {
+                            self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, version.description))
+                        })
+                        .mapError { CarthageError.readFailed(url, $0 as NSError) }
+                        .flatMap(.concat) { downloadURL, _ in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
+                }
+            }.on(terminated: {
+                lock?.unlock()
+            })
     }
 
     /// Checks out the given dependency into its intended working directory,
@@ -309,8 +340,11 @@ public final class ProjectDependencyRetriever {
         submodulesByPath: [String: Submodule]
         ) -> SignalProducer<(), CarthageError> {
         let revision = version.commitish
-        return cloneOrFetchDependency(dependency, commitish: revision)
-            .flatMap(.merge) { repositoryURL -> SignalProducer<(), CarthageError> in
+        var lock: Lock?
+        return cloneOrFetchDependencyLocked(dependency, commitish: revision)
+            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<(), CarthageError> in
+                lock = urlLock
+                let repositoryURL = urlLock.url
                 let workingDirectoryURL = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
 
                 /// The submodule for an already existing submodule at dependency project’s path
@@ -349,6 +383,8 @@ public final class ProjectDependencyRetriever {
             }
             .on(started: {
                 self.projectEventsObserver?.send(value: .checkingOut(dependency, revision))
+            }, terminated: {
+                lock?.unlock()
             })
     }
 
@@ -362,31 +398,54 @@ public final class ProjectDependencyRetriever {
     public static func cloneOrFetch(
         dependency: Dependency,
         preferHTTPS: Bool,
+        lockTimeout: Int = Constants.defaultLockTimeout,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
+        var lock: Lock?
+        return cloneOrFetchLocked(dependency: dependency, preferHTTPS: preferHTTPS, lockTimeout: lockTimeout, destinationURL: destinationURL, commitish: commitish)
+            .map { (projectEvent, urlLock) in
+                lock = urlLock
+                return (projectEvent, urlLock.url) }
+            .on(terminated: {
+                lock?.unlock()
+            })
+    }
+
+    private static func cloneOrFetchLocked(
+        dependency: Dependency,
+        preferHTTPS: Bool,
+        lockTimeout: Int = Constants.defaultLockTimeout,
+        destinationURL: URL = Constants.Dependency.repositoriesURL,
+        commitish: String? = nil
+        ) -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> {
         let fileManager = FileManager.default
         let repositoryURL = repositoryFileURL(for: dependency, baseURL: destinationURL)
+        var lock: URLLock?
 
-        return SignalProducer {
-            Result(at: destinationURL, attempt: {
-                try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
+        return ProjectDependencyRetriever.obtainLock(fileURL: repositoryURL, timeout: lockTimeout)
+            .map { urlLock in
+                lock = urlLock
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
-            })
             }
-            .flatMap(.merge) { (remoteURL: GitURL) -> SignalProducer<(ProjectEvent?, URL), CarthageError> in
+            .flatMap(.merge) { (remoteURL: GitURL) -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+
+                guard let urlLock = lock else {
+                    fatalError("Lock should be not nil at this point")
+                }
+
                 return isGitRepository(repositoryURL)
-                    .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URL), CarthageError> in
+                    .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                         if isRepository {
-                            let fetchProducer: () -> SignalProducer<(ProjectEvent?, URL), CarthageError> = {
+                            let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
                                 guard FetchCache.needsFetch(forURL: remoteURL) else {
-                                    return SignalProducer(value: (nil, repositoryURL))
+                                    return SignalProducer(value: (nil, urlLock))
                                 }
 
-                                return SignalProducer(value: (.fetching(dependency), repositoryURL))
+                                return SignalProducer(value: (.fetching(dependency), urlLock))
                                     .concat(
                                         fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
-                                            .then(SignalProducer<(ProjectEvent?, URL), CarthageError>.empty)
+                                            .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
                                 )
                             }
 
@@ -396,12 +455,12 @@ public final class ProjectDependencyRetriever {
                                     branchExistsInRepository(repositoryURL, pattern: commitish),
                                     commitExistsInRepository(repositoryURL, revision: commitish)
                                     )
-                                    .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URL), CarthageError> in
+                                    .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                                         // If the given commitish is a branch, we should fetch.
                                         if branchExists || !commitExists {
                                             return fetchProducer()
                                         } else {
-                                            return SignalProducer(value: (nil, repositoryURL))
+                                            return SignalProducer(value: (nil, urlLock))
                                         }
                                 }
                             } else {
@@ -412,14 +471,40 @@ public final class ProjectDependencyRetriever {
                             // (Could happen if the process is killed during a previous directory creation)
                             // So we remove it, then clone
                             _ = try? fileManager.removeItem(at: repositoryURL)
-                            return SignalProducer(value: (.cloning(dependency), repositoryURL))
+                            return SignalProducer(value: (.cloning(dependency), urlLock))
                                 .concat(
                                     cloneRepository(remoteURL, repositoryURL)
-                                        .then(SignalProducer<(ProjectEvent?, URL), CarthageError>.empty)
+                                        .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
                             )
                         }
                 }
-        }
+            }.on(failed: { (_) in
+                lock?.unlock()
+            }, interrupted: {
+                lock?.unlock()
+            })
+    }
+
+    private func cloneOrFetchDependencyLocked(_ dependency: Dependency, commitish: String? = nil) -> SignalProducer<URLLock, CarthageError> {
+        return ProjectDependencyRetriever.cloneOrFetchLocked(dependency: dependency, preferHTTPS: self.preferHTTPS, lockTimeout: self.lockTimeout, commitish: commitish)
+            .on(value: { event, _ in
+                if let event = event {
+                    self.projectEventsObserver?.send(value: event)
+                }
+            })
+            .map { _, urlLock in urlLock }
+            .take(last: 1)
+            .startOnQueue(cloneOrFetchQueue)
+    }
+
+    private static func obtainLock(fileURL: URL, timeout: Int) -> SignalProducer<URLLock, CarthageError> {
+        return SignalProducer({ () -> Result<URLLock, CarthageError> in
+            let lock = URLLock(url: fileURL)
+            guard lock.lock(timeout: timeout <= 0 ? TimeInterval(Int.max) : TimeInterval(timeout)) else {
+                return .failure(CarthageError.lockError(url: fileURL, timeout: timeout))
+            }
+            return .success(lock)
+        })
     }
 
     /// Creates symlink between the dependency checkouts and the root checkouts
@@ -503,7 +588,7 @@ public final class ProjectDependencyRetriever {
 
     /// Returns the file URL at which the given project's repository will be
     /// located.
-    private static func repositoryFileURL(for dependency: Dependency, baseURL: URL = Constants.Dependency.repositoriesURL) -> URL {
+    private static func repositoryFileURL(for dependency: Dependency, baseURL: URL) -> URL {
         return baseURL.appendingPathComponent(dependency.name, isDirectory: true)
     }
 
@@ -546,15 +631,15 @@ public final class ProjectDependencyRetriever {
 
     /// Constructs a file URL to where the binary corresponding to the given
     /// arguments should live.
-    private func fileURLToCachedBinary(_ dependency: Dependency, _ release: Release, _ asset: Release.Asset) -> URL {
+    private func fileURLToCachedBinary(dependency: Dependency, release: Release, asset: Release.Asset, baseURL: URL) -> URL {
         // ~/Library/Caches/org.carthage.CarthageKit/binaries/ReactiveCocoa/v2.3.1/1234-ReactiveCocoa.framework.zip
-        return Constants.Dependency.assetsURL.appendingPathComponent("\(dependency.name)/\(release.tag)/\(asset.id)-\(asset.name)", isDirectory: false)
+        return baseURL.appendingPathComponent("\(dependency.name)/\(release.tag)/\(asset.id)-\(asset.name)", isDirectory: false)
     }
 
     /// Constructs a file URL to where the binary only framework download should be cached
-    private func fileURLToCachedBinaryDependency(_ dependency: Dependency, _ semanticVersion: Version, _ fileName: String) -> URL {
+    private func fileURLToCachedBinaryDependency(dependency: Dependency, semanticVersion: Version, fileName: String, baseURL: URL) -> URL {
         // ~/Library/Caches/org.carthage.CarthageKit/binaries/MyBinaryProjectFramework/2.3.1/MyBinaryProject.framework.zip
-        return Constants.Dependency.assetsURL.appendingPathComponent("\(dependency.name)/\(semanticVersion)/\(fileName)")
+        return baseURL.appendingPathComponent("\(dependency.name)/\(semanticVersion)/\(fileName)")
     }
 
 }
