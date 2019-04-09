@@ -99,7 +99,7 @@ public enum CarthageError: Error {
     /// Cartfile.resolved contains incompatible versions
     case invalidResolvedCartfile([CompatibilityInfo])
 
-    case lockError(url: URL, timeout: Int)
+    case lockError(url: URL, timeout: Int?)
 }
 
 extension CarthageError {

@@ -405,148 +405,6 @@ public final class Project { // swiftlint:disable:this type_body_length
             .then(shouldCheckout ? checkoutResolvedDependencies(dependenciesToUpdate, buildOptions: buildOptions) : .empty)
     }
 
-    /// Unzips the file at the given URL and copies the frameworks, DSYM and
-    /// bcsymbolmap files into the corresponding folders for the project. This
-    /// step will also check framework compatibility and create a version file
-    /// for the given frameworks.
-    ///
-    /// Sends the temporary URL of the unzipped directory
-    private func unarchiveAndCopyBinaryFrameworks(
-        zipFile: URL,
-        projectName: String,
-        pinnedVersion: PinnedVersion,
-        toolchain: String?
-        ) -> SignalProducer<URL, CarthageError> {
-
-        var lock: Lock?
-        return URLLock.lockReactive(url: zipFile, timeout: self.lockTimeout)
-            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URL, CarthageError> in
-                lock = urlLock
-                return SignalProducer<URL, CarthageError>(value: urlLock.url)
-                    .flatMap(.concat, unarchive(archive:))
-                    .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
-                        return frameworksInDirectory(directoryURL)
-                            .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
-                                return checkFrameworkCompatibility(url, usingToolchain: toolchain)
-                                    .mapError { error in CarthageError.internalError(description: error.description) }
-                            }
-                            .flatMap(.merge, self.copyFrameworkToBuildFolder)
-                            .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
-                                return self.copyDSYMToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL)
-                                    .then(self.copyBCSymbolMapsToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL))
-                                    .then(SignalProducer(value: frameworkURL))
-                            }
-                            .collect()
-                            .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
-                                return self.createVersionFilesForFrameworks(
-                                    frameworkURLs,
-                                    fromDirectoryURL: directoryURL,
-                                    projectName: projectName,
-                                    commitish: pinnedVersion.commitish
-                                )
-                            }
-                            .then(SignalProducer<URL, CarthageError>(value: directoryURL))
-                }
-            }
-            .on(terminated: {
-                lock?.unlock()
-            })
-    }
-
-    /// Removes the file located at the given URL
-    ///
-    /// Sends empty value on successful removal
-    private func removeItem(at url: URL) -> SignalProducer<(), CarthageError> {
-        return SignalProducer {
-            Result(at: url, attempt: FileManager.default.removeItem(at:))
-        }
-    }
-
-    /// Installs binaries and debug symbols for the given project, if available.
-    ///
-    /// Sends a boolean indicating whether binaries were installed.
-    private func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, toolchain: String?) -> SignalProducer<Bool, CarthageError> {
-        switch dependency {
-        case let .gitHub(server, repository):
-            let client = Client(server: server)
-            return dependencyRetriever.downloadMatchingBinaries(for: dependency, pinnedVersion: pinnedVersion, fromRepository: repository, client: client)
-                .flatMapError { error -> SignalProducer<URL, CarthageError> in
-                    if !client.isAuthenticated {
-                        return SignalProducer(error: error)
-                    }
-                    return self.dependencyRetriever.downloadMatchingBinaries(
-                        for: dependency,
-                        pinnedVersion: pinnedVersion,
-                        fromRepository: repository,
-                        client: Client(server: server, isAuthenticated: false)
-                    )
-                }
-                .flatMap(.concat) {
-                    return self.unarchiveAndCopyBinaryFrameworks(zipFile: $0, projectName: dependency.name, pinnedVersion: pinnedVersion, toolchain: toolchain)
-                }
-                .flatMap(.concat) { self.removeItem(at: $0) }
-                .map { true }
-                .flatMapError { error in
-                    self.projectEventsObserver.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
-                    return SignalProducer(value: false)
-                }
-                .concat(value: false)
-                .take(first: 1)
-
-        case .git, .binary:
-            return SignalProducer(value: false)
-        }
-    }
-
-    /// Copies the framework at the given URL into the current project's build
-    /// folder.
-    ///
-    /// Sends the URL to the framework after copying.
-    private func copyFrameworkToBuildFolder(_ frameworkURL: URL) -> SignalProducer<URL, CarthageError> {
-        return platformForFramework(frameworkURL)
-            .flatMap(.merge) { platform -> SignalProducer<URL, CarthageError> in
-                let platformFolderURL = self.directoryURL.appendingPathComponent(platform.relativePath, isDirectory: true)
-                return SignalProducer(value: frameworkURL)
-                    .copyFileURLsIntoDirectory(platformFolderURL)
-        }
-    }
-
-    /// Copies the DSYM matching the given framework and contained within the
-    /// given directory URL to the directory that the framework resides within.
-    ///
-    /// If no dSYM is found for the given framework, completes with no values.
-    ///
-    /// Sends the URL of the dSYM after copying.
-    public func copyDSYMToBuildFolderForFramework(_ frameworkURL: URL, fromDirectoryURL directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-        let destinationDirectoryURL = frameworkURL.deletingLastPathComponent()
-        return dSYMForFramework(frameworkURL, inDirectoryURL: directoryURL)
-            .copyFileURLsIntoDirectory(destinationDirectoryURL)
-    }
-
-    /// Copies any *.bcsymbolmap files matching the given framework and contained
-    /// within the given directory URL to the directory that the framework
-    /// resides within.
-    ///
-    /// If no bcsymbolmap files are found for the given framework, completes with
-    /// no values.
-    ///
-    /// Sends the URLs of the bcsymbolmap files after copying.
-    public func copyBCSymbolMapsToBuildFolderForFramework(_ frameworkURL: URL, fromDirectoryURL directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-        let destinationDirectoryURL = frameworkURL.deletingLastPathComponent()
-        return BCSymbolMapsForFramework(frameworkURL, inDirectoryURL: directoryURL)
-            .copyFileURLsIntoDirectory(destinationDirectoryURL)
-    }
-
-    /// Creates a .version file for all of the provided frameworks.
-    public func createVersionFilesForFrameworks(
-        _ frameworkURLs: [URL],
-        fromDirectoryURL directoryURL: URL,
-        projectName: String,
-        commitish: String
-        ) -> SignalProducer<(), CarthageError> {
-        return createVersionFileForCommitish(commitish, dependencyName: projectName, buildProducts: frameworkURLs, rootDirectoryURL: self.directoryURL)
-    }
-
     public func buildOrderForResolvedCartfile(
         _ cartfile: ResolvedCartfile,
         dependenciesToInclude: [String]? = nil
@@ -630,29 +488,6 @@ public final class Project { // swiftlint:disable:this type_body_length
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
-    private func installBinariesForBinaryProject(
-        binary: BinaryURL,
-        pinnedVersion: PinnedVersion,
-        projectName: String,
-        toolchain: String?
-        ) -> SignalProducer<(), CarthageError> {
-        return SignalProducer<Version, ScannableError>(result: Version.from(pinnedVersion))
-            .mapError { CarthageError(scannableError: $0) }
-            .combineLatest(with: dependencyRetriever.downloadBinaryFrameworkDefinition(binary: binary))
-            .attemptMap { semanticVersion, binaryProject -> Result<(Version, URL), CarthageError> in
-                guard let frameworkURL = binaryProject.versions[pinnedVersion] else {
-                    return .failure(CarthageError.requiredVersionNotFound(Dependency.binary(binary), VersionSpecifier.exactly(semanticVersion)))
-                }
-
-                return .success((semanticVersion, frameworkURL))
-            }
-            .flatMap(.concat) { semanticVersion, frameworkURL in
-                return self.dependencyRetriever.downloadBinary(dependency: Dependency.binary(binary), version: semanticVersion, url: frameworkURL)
-            }
-            .flatMap(.concat) { self.unarchiveAndCopyBinaryFrameworks(zipFile: $0, projectName: projectName, pinnedVersion: pinnedVersion, toolchain: toolchain) }
-            .flatMap(.concat) { self.removeItem(at: $0) }
-    }
-
     /// Attempts to build each Carthage dependency that has been checked out,
     /// optionally they are limited by the given list of dependency names.
     /// Cached dependencies whose dependency trees are also cached will not
@@ -709,12 +544,12 @@ public final class Project { // swiftlint:disable:this type_body_length
                             guard options.useBinaries else {
                                 return .empty
                             }
-                            return self.installBinaries(for: dependency, pinnedVersion: version, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, toolchain: options.toolchain)
                                 .filterMap { installed -> (Dependency, PinnedVersion)? in
                                     return installed ? (dependency, version) : nil
                             }
                         case let .binary(binary):
-                            return self.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, projectName: dependency.name, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, projectName: dependency.name, toolchain: options.toolchain)
                                 .then(.init(value: (dependency, version)))
                         }
                     }
@@ -808,6 +643,8 @@ public final class Project { // swiftlint:disable:this type_body_length
     }
 }
 
+//TODO: Move these methods to separate utility class
+
 /// Creates symlink between the dependency build folder and the root build folder
 ///
 /// Returns a signal indicating success
@@ -844,179 +681,6 @@ private func symlinkBuildPath(for dependency: Dependency, rootDirectoryURL: URL)
                         })
                 }
         }
-    }
-}
-
-/// Sends the URL to each file found in the given directory conforming to the
-/// given type identifier. If no type identifier is provided, all files are sent.
-private func filesInDirectory(_ directoryURL: URL, _ typeIdentifier: String? = nil) -> SignalProducer<URL, CarthageError> {
-    let producer = FileManager.default.reactive
-        .enumerator(at: directoryURL, includingPropertiesForKeys: [ .typeIdentifierKey ], options: [ .skipsHiddenFiles, .skipsPackageDescendants ], catchErrors: true)
-        .map { _, url in url }
-    if let typeIdentifier = typeIdentifier {
-        return producer
-            .filter { url in
-                return url.typeIdentifier
-                    .analysis(ifSuccess: { identifier in
-                        return UTTypeConformsTo(identifier as CFString, typeIdentifier as CFString)
-                    }, ifFailure: { _ in false })
-        }
-    } else {
-        return producer
-    }
-}
-
-/// Sends the platform specified in the given Info.plist.
-func platformForFramework(_ frameworkURL: URL) -> SignalProducer<Platform, CarthageError> {
-    return SignalProducer(value: frameworkURL)
-        // Neither DTPlatformName nor CFBundleSupportedPlatforms can not be used
-        // because Xcode 6 and below do not include either in macOS frameworks.
-        .attemptMap { url -> Result<String, CarthageError> in
-            let bundle = Bundle(url: url)
-
-            func readFailed(_ message: String) -> CarthageError {
-                let error = Result<(), NSError>.error(message)
-                return .readFailed(frameworkURL, error)
-            }
-
-            func sdkNameFromExecutable() -> String? {
-                guard let executableURL = bundle?.executableURL else {
-                    return nil
-                }
-
-                let task = Task("/usr/bin/xcrun", arguments: ["otool", "-lv", executableURL.path])
-
-                let sdkName: String? = task.launch(standardInput: nil)
-                    .ignoreTaskData()
-                    .map { String(data: $0, encoding: .utf8) ?? "" }
-                    .filter { !$0.isEmpty }
-                    .flatMap(.merge) { (output: String) -> SignalProducer<String, NoError> in
-                        output.linesProducer
-                    }
-                    .filter { $0.contains("LC_VERSION") }
-                    .take(last: 1)
-                    .map { lcVersionLine -> String? in
-                        let sdkString = lcVersionLine.split(separator: "_")
-                            .last
-                            .flatMap(String.init)
-                            .flatMap { $0.lowercased() }
-
-                        return sdkString
-                    }
-                    .skipNil()
-                    .single()?
-                    .value
-
-                return sdkName
-            }
-
-            // Try to read what platfrom this binary is for. Attempt in order:
-            // 1. Read `DTSDKName` from Info.plist.
-            //  Some users are reporting that static frameworks don't have this key in the .plist,
-            //  so we fall back and check the binary of the executable itself.
-            // 2. Read the LC_VERSION_<PLATFORM> from the framework's binary executable file
-
-            if let sdkNameFromBundle = bundle?.object(forInfoDictionaryKey: "DTSDKName") as? String {
-                return .success(sdkNameFromBundle)
-            } else if let sdkNameFromExecutable = sdkNameFromExecutable() {
-                return .success(sdkNameFromExecutable)
-            } else {
-                return .failure(readFailed("could not determine platform neither from DTSDKName key in plist nor from the framework's executable"))
-            }
-        }
-        // Thus, the SDK name must be trimmed to match the platform name, e.g.
-        // macosx10.10 -> macosx
-        .map { sdkName in sdkName.trimmingCharacters(in: CharacterSet.letters.inverted) }
-        .attemptMap { platform in SDK.from(string: platform).map { $0.platform } }
-}
-
-/// Sends the URL to each framework bundle found in the given directory.
-internal func frameworksInDirectory(_ directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-    return filesInDirectory(directoryURL, kUTTypeFramework as String)
-        .filter { !$0.pathComponents.contains("__MACOSX") }
-        .filter { url in
-            // Skip nested frameworks
-            let frameworksInURL = url.pathComponents.filter { pathComponent in
-                return (pathComponent as NSString).pathExtension == "framework"
-            }
-            return frameworksInURL.count == 1
-        }.filter { url in
-            // For reasons of speed and the fact that CLI-output structures can change,
-            // first try the safer method of reading the ‘Info.plist’ from the Framework’s bundle.
-            let bundle = Bundle(url: url)
-            let packageType: PackageType? = bundle?.packageType
-
-            switch packageType {
-            case .framework?, .bundle?:
-                return true
-            default:
-                // In case no Info.plist exists check the Mach-O fileType
-                guard let executableURL = bundle?.executableURL else {
-                    return false
-                }
-
-                return MachHeader.headers(forMachOFileAtUrl: executableURL)
-                    .filter { MachHeader.carthageSupportedFileTypes.contains($0.fileType) }
-                    .reduce(into: Set<UInt32>()) { $0.insert($1.fileType); return }
-                    .map { $0.count == 1 }
-                    .single()?
-                    .value ?? false
-            }
-    }
-}
-
-/// Sends the URL to each dSYM found in the given directory
-internal func dSYMsInDirectory(_ directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-    return filesInDirectory(directoryURL, "com.apple.xcode.dsym")
-}
-
-/// Sends the URL of the dSYM whose UUIDs match those of the given framework, or
-/// errors if there was an error parsing a dSYM contained within the directory.
-private func dSYMForFramework(_ frameworkURL: URL, inDirectoryURL directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-    return UUIDsForFramework(frameworkURL)
-        .flatMap(.concat) { (frameworkUUIDs: Set<UUID>) in
-            return dSYMsInDirectory(directoryURL)
-                .flatMap(.merge) { dSYMURL in
-                    return UUIDsForDSYM(dSYMURL)
-                        .filter { (dSYMUUIDs: Set<UUID>) in
-                            return dSYMUUIDs == frameworkUUIDs
-                        }
-                        .map { _ in dSYMURL }
-            }
-        }
-        .take(first: 1)
-}
-
-/// Sends the URL to each bcsymbolmap found in the given directory.
-internal func BCSymbolMapsInDirectory(_ directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-    return filesInDirectory(directoryURL)
-        .filter { url in url.pathExtension == "bcsymbolmap" }
-}
-
-/// Sends the URLs of the bcsymbolmap files that match the given framework and are
-/// located somewhere within the given directory.
-private func BCSymbolMapsForFramework(_ frameworkURL: URL, inDirectoryURL directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-    return UUIDsForFramework(frameworkURL)
-        .flatMap(.merge) { uuids -> SignalProducer<URL, CarthageError> in
-            if uuids.isEmpty {
-                return .empty
-            }
-            func filterUUIDs(_ signal: Signal<URL, CarthageError>) -> Signal<URL, CarthageError> {
-                var remainingUUIDs = uuids
-                let count = remainingUUIDs.count
-                return signal
-                    .filter { fileURL in
-                        let basename = fileURL.deletingPathExtension().lastPathComponent
-                        if let fileUUID = UUID(uuidString: basename) {
-                            return remainingUUIDs.remove(fileUUID) != nil
-                        } else {
-                            return false
-                        }
-                    }
-                    .take(first: count)
-            }
-            return BCSymbolMapsInDirectory(directoryURL)
-                .lift(filterUUIDs)
     }
 }
 

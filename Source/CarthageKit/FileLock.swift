@@ -43,6 +43,7 @@ extension Lock {
 final class FileLock: Lock {
     
     private static let retryInterval = 1.0
+    private var wasLocked = false
     let lockFileURL: URL
     var onWait: ((FileLock) -> Void)?
     
@@ -71,6 +72,7 @@ final class FileLock: Lock {
             task.launch()
             task.waitUntilExit()
             if task.terminationStatus == 0 {
+                wasLocked = true
                 return true
             }
             if timeoutDate.map({ $0.timeIntervalSinceNow <= 0 }) ?? true {
@@ -111,6 +113,9 @@ final class FileLock: Lock {
     /// Unlocks the lock, returns true if lock was released, false otherwise (e.g. because the lock file did not exist anymore).
     @discardableResult
     func unlock() -> Bool {
+        guard wasLocked else {
+            return false
+        }
         do {
             try FileManager.default.removeItem(at: self.lockFileURL)
             return true
@@ -176,7 +181,7 @@ extension URLLock {
             let lock = URLLock(url: url)
             lock.onWait = onWait
             guard lock.lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
-                return .failure(CarthageError.lockError(url: url, timeout: timeout ?? -1))
+                return .failure(CarthageError.lockError(url: url, timeout: timeout))
             }
             return .success(lock)
         })
