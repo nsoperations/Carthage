@@ -9,13 +9,13 @@ import Curry
 public struct FetchCommand: CommandProtocol {
     public struct Options: OptionsProtocol {
         public let colorOptions: ColorOptions
-        public let lockTimeout: Int
+        public let lockTimeout: Int?
         public let repositoryURL: GitURL
 
         public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
             return curry(self.init)
                 <*> ColorOptions.evaluate(mode)
-                <*> mode <| Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to \(Constants.defaultLockTimeout)")
+                <*> mode <| Option<Int?>(key: "lock-timeout", defaultValue: nil, usage: "timeout in seconds to wait for an exclusive lock on shared files, defaults to no timeout")
                 <*> mode <| Argument(usage: "the Git repository that should be cloned or fetched")
         }
     }

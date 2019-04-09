@@ -51,6 +51,9 @@ public enum ProjectEvent {
 
     /// Building an uncached project.
     case buildingUncached(Dependency)
+
+    /// Waiting for a lock on the specified URL.
+    case waiting(URL)
 }
 
 extension ProjectEvent: Equatable {
@@ -76,6 +79,9 @@ extension ProjectEvent: Equatable {
 
         case let (.skippedBuilding(leftIdentifier, leftRevision), .skippedBuilding(rightIdentifier, rightRevision)):
             return leftIdentifier == rightIdentifier && leftRevision == rightRevision
+
+        case let (.waiting(left), .waiting(right)):
+            return left == right
 
         default:
             return false
@@ -110,7 +116,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     }
 
     /// Timeout for waiting for a lock on the checkout cache for git operations (in case of concurrent usage of different carthage commands)
-    public var lockTimeout: Int {
+    public var lockTimeout: Int? {
         set {
             self.dependencyRetriever.lockTimeout = newValue
         }
@@ -148,6 +154,9 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         self.directoryURL = directoryURL
         self.dependencyRetriever = ProjectDependencyRetriever(directoryURL: directoryURL, projectEventsObserver: projectEventsObserver)
+        URLLock.globalWaitHandler = { urlLock in
+            observer.send(value: .waiting(urlLock.url))
+        }
     }
 
     private lazy var xcodeVersionDirectory: String = XcodeVersion.make()
@@ -408,31 +417,40 @@ public final class Project { // swiftlint:disable:this type_body_length
         pinnedVersion: PinnedVersion,
         toolchain: String?
         ) -> SignalProducer<URL, CarthageError> {
-        return SignalProducer<URL, CarthageError>(value: zipFile)
-            .flatMap(.concat, unarchive(archive:))
-            .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
-                return frameworksInDirectory(directoryURL)
-                    .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
-                        return checkFrameworkCompatibility(url, usingToolchain: toolchain)
-                            .mapError { error in CarthageError.internalError(description: error.description) }
-                    }
-                    .flatMap(.merge, self.copyFrameworkToBuildFolder)
-                    .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
-                        return self.copyDSYMToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL)
-                            .then(self.copyBCSymbolMapsToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL))
-                            .then(SignalProducer(value: frameworkURL))
-                    }
-                    .collect()
-                    .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
-                        return self.createVersionFilesForFrameworks(
-                            frameworkURLs,
-                            fromDirectoryURL: directoryURL,
-                            projectName: projectName,
-                            commitish: pinnedVersion.commitish
-                        )
-                    }
-                    .then(SignalProducer<URL, CarthageError>(value: directoryURL))
-        }
+
+        var lock: Lock?
+        return URLLock.lockReactive(url: zipFile, timeout: self.lockTimeout)
+            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URL, CarthageError> in
+                lock = urlLock
+                return SignalProducer<URL, CarthageError>(value: urlLock.url)
+                    .flatMap(.concat, unarchive(archive:))
+                    .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
+                        return frameworksInDirectory(directoryURL)
+                            .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
+                                return checkFrameworkCompatibility(url, usingToolchain: toolchain)
+                                    .mapError { error in CarthageError.internalError(description: error.description) }
+                            }
+                            .flatMap(.merge, self.copyFrameworkToBuildFolder)
+                            .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
+                                return self.copyDSYMToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL)
+                                    .then(self.copyBCSymbolMapsToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL))
+                                    .then(SignalProducer(value: frameworkURL))
+                            }
+                            .collect()
+                            .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
+                                return self.createVersionFilesForFrameworks(
+                                    frameworkURLs,
+                                    fromDirectoryURL: directoryURL,
+                                    projectName: projectName,
+                                    commitish: pinnedVersion.commitish
+                                )
+                            }
+                            .then(SignalProducer<URL, CarthageError>(value: directoryURL))
+                }
+            }
+            .on(terminated: {
+                lock?.unlock()
+            })
     }
 
     /// Removes the file located at the given URL
@@ -730,7 +748,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
-                    .then(build(dependency: dependency, version: version, self.directoryURL, withOptions: options, sdkFilter: sdkFilter))
+                    .then(build(dependency: dependency, version: version, self.directoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter))
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:

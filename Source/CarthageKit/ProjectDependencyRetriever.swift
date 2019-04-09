@@ -33,7 +33,7 @@ public final class ProjectDependencyRetriever {
 
     let projectEventsObserver: Signal<ProjectEvent, NoError>.Observer?
     var preferHTTPS = true
-    var lockTimeout: Int = Constants.defaultLockTimeout
+    var lockTimeout: Int?
     var useSubmodules = false
     let directoryURL: URL
 
@@ -287,7 +287,7 @@ public final class ProjectDependencyRetriever {
                     }
                     .flatMap(.concat) { asset -> SignalProducer<(URL, Release.Asset), CarthageError> in
                         let fileURL = self.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: Constants.Dependency.assetsURL)
-                        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout).map { urlLock in
+                        return URLLock.lockReactive(url: fileURL, timeout: self.lockTimeout).map { urlLock in
                             lock = urlLock
                             return (fileURL, asset)
                         }
@@ -314,7 +314,7 @@ public final class ProjectDependencyRetriever {
         let fileURL = fileURLToCachedBinaryDependency(dependency: dependency, semanticVersion: version, fileName: fileName, baseURL: Constants.Dependency.assetsURL)
         var lock: Lock? = nil
         
-        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout)
+        return URLLock.lockReactive(url: fileURL, timeout: self.lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URL, CarthageError> in
                 lock = urlLock
                 if FileManager.default.fileExists(atPath: fileURL.path) {
@@ -398,7 +398,7 @@ public final class ProjectDependencyRetriever {
     public static func cloneOrFetch(
         dependency: Dependency,
         preferHTTPS: Bool,
-        lockTimeout: Int = Constants.defaultLockTimeout,
+        lockTimeout: Int?,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
@@ -415,7 +415,7 @@ public final class ProjectDependencyRetriever {
     private static func cloneOrFetchLocked(
         dependency: Dependency,
         preferHTTPS: Bool,
-        lockTimeout: Int = Constants.defaultLockTimeout,
+        lockTimeout: Int?,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> {
@@ -423,7 +423,7 @@ public final class ProjectDependencyRetriever {
         let repositoryURL = repositoryFileURL(for: dependency, baseURL: destinationURL)
         var lock: URLLock?
 
-        return ProjectDependencyRetriever.obtainLock(fileURL: repositoryURL, timeout: lockTimeout)
+        return URLLock.lockReactive(url: repositoryURL, timeout: lockTimeout, onWait: { urlLock in  })
             .map { urlLock in
                 lock = urlLock
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
@@ -495,16 +495,6 @@ public final class ProjectDependencyRetriever {
             .map { _, urlLock in urlLock }
             .take(last: 1)
             .startOnQueue(cloneOrFetchQueue)
-    }
-
-    private static func obtainLock(fileURL: URL, timeout: Int) -> SignalProducer<URLLock, CarthageError> {
-        return SignalProducer({ () -> Result<URLLock, CarthageError> in
-            let lock = URLLock(url: fileURL)
-            guard lock.lock(timeout: timeout <= 0 ? TimeInterval(Int.max) : TimeInterval(timeout)) else {
-                return .failure(CarthageError.lockError(url: fileURL, timeout: timeout))
-            }
-            return .success(lock)
-        })
     }
 
     /// Creates symlink between the dependency checkouts and the root checkouts

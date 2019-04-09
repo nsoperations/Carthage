@@ -10,14 +10,14 @@ public struct CheckoutCommand: CommandProtocol {
     public struct Options: OptionsProtocol {
         public let useSSH: Bool
         public let useSubmodules: Bool
-        public let lockTimeout: Int
+        public let lockTimeout: Int?
         public let colorOptions: ColorOptions
         public let directoryPath: String
         public let dependenciesToCheckout: [String]?
 
         private init(useSSH: Bool,
                      useSubmodules: Bool,
-                     lockTimeout: Int,
+                     lockTimeout: Int?,
                      colorOptions: ColorOptions,
                      directoryPath: String,
                      dependenciesToCheckout: [String]?
@@ -38,7 +38,7 @@ public struct CheckoutCommand: CommandProtocol {
             return curry(self.init)
                 <*> mode <| Option(key: "use-ssh", defaultValue: false, usage: "use SSH for downloading GitHub repositories")
                 <*> mode <| Option(key: "use-submodules", defaultValue: false, usage: "add dependencies as Git submodules")
-                <*> mode <| Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to \(Constants.defaultLockTimeout)")
+                <*> mode <| Option<Int?>(key: "lock-timeout", defaultValue: nil, usage: "timeout in seconds to wait for an exclusive lock on shared files, defaults to no timeout")
                 <*> ColorOptions.evaluate(mode)
                 <*> mode <| Option(key: "project-directory", defaultValue: FileManager.default.currentDirectoryPath, usage: "the directory containing the Carthage project")
                 <*> (mode <| Argument(defaultValue: [], usage: dependenciesUsage, usageParameter: "dependency names")).map { $0.isEmpty ? nil : $0 }

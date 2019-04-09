@@ -123,6 +123,9 @@ internal struct ProjectEventSink {
         case let .buildingUncached(dependency):
             carthage.println(formatting.bullets + "No cache found for " + formatting.projectName(dependency.name)
                 + ", building with all downstream dependencies")
+
+        case let .waiting(url):
+            carthage.println(formatting.bullets + "Waiting for lock on " + url.path)
         }
     }
 }

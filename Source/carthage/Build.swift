@@ -42,7 +42,7 @@ public struct BuildCommand: CommandProtocol {
         public let directoryPath: String
         public let logPath: String?
         public let archive: Bool
-        public let lockTimeout: Int
+        public let lockTimeout: Int?
         public let dependenciesToBuild: [String]?
 
         /// If `archive` is true, this will be a producer that will archive
@@ -65,7 +65,7 @@ public struct BuildCommand: CommandProtocol {
             let option3 = Option(key: "project-directory", defaultValue: FileManager.default.currentDirectoryPath, usage: "the directory containing the Carthage project")
             let option4 = Option<String?>(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
             let option5 = Option(key: "archive", defaultValue: false, usage: "archive built frameworks from the current project (implies --no-skip-current)")
-            let option6 = Option(key: "lock-timeout", defaultValue: Constants.defaultLockTimeout, usage: "timeout in seconds to wait for an exclusive lock of the shared checkout directory or 0 to wait indefinitely, defaults to \(Constants.defaultLockTimeout)")
+            let option6 = Option<Int?>(key: "lock-timeout", defaultValue: nil, usage: "timeout in seconds to wait for an exclusive lock on shared files, defaults to no timeout")
 
             return curry(self.init)
                 <*> BuildOptions.evaluate(mode)
@@ -164,7 +164,7 @@ public struct BuildCommand: CommandProtocol {
         if !shouldBuildCurrentProject {
             return buildProducer
         } else {
-            let currentProducers = buildInDirectory(directoryURL, withOptions: options.buildOptions, rootDirectoryURL: directoryURL)
+            let currentProducers = buildInDirectory(directoryURL, withOptions: options.buildOptions, rootDirectoryURL: directoryURL, lockTimeout: options.lockTimeout)
                 .flatMapError { error -> BuildSchemeProducer in
                     switch error {
                     case let .noSharedFrameworkSchemes(project, _):

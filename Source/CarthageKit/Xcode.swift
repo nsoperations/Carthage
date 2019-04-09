@@ -236,7 +236,7 @@ public func buildableSchemesInDirectory( // swiftlint:disable:this function_body
 
 /// Sends pairs of a scheme and a project, the scheme actually resides in
 /// the project.
-public func schemesInProjects(_ projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<[(Scheme, ProjectLocator)], CarthageError> {
+private func schemesInProjects(_ projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<[(Scheme, ProjectLocator)], CarthageError> {
     return SignalProducer<(ProjectLocator, [Scheme]), CarthageError>(projects)
         .map { (project: ProjectLocator, schemes: [Scheme]) in
             // Only look for schemes that actually reside in the project
@@ -559,7 +559,7 @@ public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configu
 ///
 /// Returns a signal of all standard output from `xcodebuild`, and a signal
 /// which will send the URL to each product successfully built.
-public func buildScheme( // swiftlint:disable:this function_body_length cyclomatic_complexity
+private func buildScheme( // swiftlint:disable:this function_body_length cyclomatic_complexity
     _ scheme: Scheme,
     withOptions options: BuildOptions,
     inProject project: ProjectLocator,
@@ -820,7 +820,6 @@ private func build(sdk: SDK, with buildArgs: BuildArguments, in workingDirectory
 
                     var buildScheme = xcodebuildTask(actions, argsForBuilding)
                     buildScheme.workingDirectoryPath = workingDirectoryURL.path
-
                     return buildScheme.launch()
                         .flatMapTaskEvents(.concat) { _ in SignalProducer(settings) }
                         .mapError(CarthageError.taskError)
@@ -829,7 +828,7 @@ private func build(sdk: SDK, with buildArgs: BuildArguments, in workingDirectory
 }
 
 /// Creates a dSYM for the provided dynamic framework.
-public func createDebugInformation(_ builtProductURL: URL) -> SignalProducer<TaskEvent<URL>, CarthageError> {
+private func createDebugInformation(_ builtProductURL: URL) -> SignalProducer<TaskEvent<URL>, CarthageError> {
     let dSYMURL = builtProductURL.appendingPathExtension("dSYM")
 
     let executableName = builtProductURL.deletingPathExtension().lastPathComponent
@@ -861,6 +860,7 @@ public func build(
     version: PinnedVersion,
     _ rootDirectoryURL: URL,
     withOptions options: BuildOptions,
+    lockTimeout: Int?,
     sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) }
     ) -> BuildSchemeProducer {
     let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
@@ -870,6 +870,7 @@ public func build(
                             withOptions: options,
                             dependency: (dependency, version),
                             rootDirectoryURL: rootDirectoryURL,
+                            lockTimeout: lockTimeout,
                             sdkFilter: sdkFilter
         ).mapError { error in
             switch (dependency, error) {
@@ -893,85 +894,93 @@ public func buildInDirectory( // swiftlint:disable:this function_body_length
     withOptions options: BuildOptions,
     dependency: (dependency: Dependency, version: PinnedVersion)? = nil,
     rootDirectoryURL: URL,
+    lockTimeout: Int?,
     sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) }
     ) -> BuildSchemeProducer {
     precondition(directoryURL.isFileURL)
 
-    return BuildSchemeProducer { observer, lifetime in
-        // Use SignalProducer.replayLazily to avoid enumerating the given directory
-        // multiple times.
-        buildableSchemesInDirectory(directoryURL,
-                                    withConfiguration: options.configuration,
-                                    forPlatforms: options.platforms
-            )
-            .flatMap(.concat) { (scheme: Scheme, project: ProjectLocator) -> SignalProducer<TaskEvent<URL>, CarthageError> in
-                let initialValue = (project, scheme)
-
-                let wrappedSDKFilter: SDKFilterCallback = { sdks, scheme, configuration, project in
-                    let filteredSDKs: [SDK]
-                    if options.platforms.isEmpty {
-                        filteredSDKs = sdks
-                    } else {
-                        filteredSDKs = sdks.filter { options.platforms.contains($0.platform) }
-                    }
-                    return sdkFilter(filteredSDKs, scheme, configuration, project)
-                }
-
-                return buildScheme(
-                    scheme,
-                    withOptions: options,
-                    inProject: project,
-                    rootDirectoryURL: rootDirectoryURL,
-                    workingDirectoryURL: directoryURL,
-                    sdkFilter: wrappedSDKFilter
+    var lock: Lock?
+    return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath ?? Constants.Dependency.derivedDataURL.path), timeout: lockTimeout)
+        .flatMap(.merge) { (urlLock) -> BuildSchemeProducer in
+            lock = urlLock
+            return BuildSchemeProducer { observer, lifetime in
+                // Use SignalProducer.replayLazily to avoid enumerating the given directory
+                // multiple times.
+                buildableSchemesInDirectory(directoryURL,
+                                            withConfiguration: options.configuration,
+                                            forPlatforms: options.platforms
                     )
-                    .mapError { error -> CarthageError in
-                        if case let .taskError(taskError) = error {
-                            return .buildFailed(taskError, log: nil)
-                        } else {
-                            return error
+                    .flatMap(.concat) { (scheme: Scheme, project: ProjectLocator) -> SignalProducer<TaskEvent<URL>, CarthageError> in
+                        let initialValue = (project, scheme)
+
+                        let wrappedSDKFilter: SDKFilterCallback = { sdks, scheme, configuration, project in
+                            let filteredSDKs: [SDK]
+                            if options.platforms.isEmpty {
+                                filteredSDKs = sdks
+                            } else {
+                                filteredSDKs = sdks.filter { options.platforms.contains($0.platform) }
+                            }
+                            return sdkFilter(filteredSDKs, scheme, configuration, project)
                         }
+
+                        return buildScheme(
+                            scheme,
+                            withOptions: options,
+                            inProject: project,
+                            rootDirectoryURL: rootDirectoryURL,
+                            workingDirectoryURL: directoryURL,
+                            sdkFilter: wrappedSDKFilter
+                            )
+                            .mapError { error -> CarthageError in
+                                if case let .taskError(taskError) = error {
+                                    return .buildFailed(taskError, log: nil)
+                                } else {
+                                    return error
+                                }
+                            }
+                            .on(started: {
+                                observer.send(value: .success(initialValue))
+                            })
                     }
-                    .on(started: {
-                        observer.send(value: .success(initialValue))
+                    .collectTaskEvents()
+                    .flatMapTaskEvents(.concat) { (urls: [URL]) -> SignalProducer<(), CarthageError> in
+
+                        guard let dependency = dependency else {
+
+                            return createVersionFileForCurrentProject(platforms: options.platforms,
+                                                                      buildProducts: urls,
+                                                                      rootDirectoryURL: rootDirectoryURL
+                                )
+                                .flatMapError { _ in .empty }
+                        }
+
+                        return createVersionFile(
+                            for: dependency.dependency,
+                            version: dependency.version,
+                            platforms: options.platforms,
+                            buildProducts: urls,
+                            rootDirectoryURL: rootDirectoryURL
+                            )
+                            .flatMapError { _ in .empty }
+                    }
+                    // Discard any Success values, since we want to
+                    // use our initial value instead of waiting for
+                    // completion.
+                    .map { taskEvent -> TaskEvent<(ProjectLocator, Scheme)> in
+                        let ignoredValue = (ProjectLocator.workspace(URL(string: ".")!), Scheme(""))
+                        return taskEvent.map { _ in ignoredValue }
+                    }
+                    .filter { taskEvent in
+                        taskEvent.value == nil
+                    }
+                    .startWithSignal({ signal, signalDisposable in
+                        lifetime += signalDisposable
+                        signal.observe(observer)
                     })
             }
-            .collectTaskEvents()
-            .flatMapTaskEvents(.concat) { (urls: [URL]) -> SignalProducer<(), CarthageError> in
-
-                guard let dependency = dependency else {
-
-                    return createVersionFileForCurrentProject(platforms: options.platforms,
-                                                              buildProducts: urls,
-                                                              rootDirectoryURL: rootDirectoryURL
-                        )
-                        .flatMapError { _ in .empty }
-                }
-
-                return createVersionFile(
-                    for: dependency.dependency,
-                    version: dependency.version,
-                    platforms: options.platforms,
-                    buildProducts: urls,
-                    rootDirectoryURL: rootDirectoryURL
-                    )
-                    .flatMapError { _ in .empty }
-            }
-            // Discard any Success values, since we want to
-            // use our initial value instead of waiting for
-            // completion.
-            .map { taskEvent -> TaskEvent<(ProjectLocator, Scheme)> in
-                let ignoredValue = (ProjectLocator.workspace(URL(string: ".")!), Scheme(""))
-                return taskEvent.map { _ in ignoredValue }
-            }
-            .filter { taskEvent in
-                taskEvent.value == nil
-            }
-            .startWithSignal({ signal, signalDisposable in
-                lifetime += signalDisposable
-                signal.observe(observer)
-            })
-    }
+        }.on(terminated: {
+            lock?.unlock()
+        })
 }
 
 /// Strips a framework from unexpected architectures and potentially debug symbols,
@@ -982,6 +991,8 @@ public func stripFramework(
     strippingDebugSymbols: Bool,
     codesigningIdentity: String? = nil
     ) -> SignalProducer<(), CarthageError> {
+
+    //Should be locked
 
     let stripArchitectures = stripBinary(frameworkURL, keepingArchitectures: keepingArchitectures)
     let stripSymbols = strippingDebugSymbols ? stripDebugSymbols(frameworkURL) : .empty

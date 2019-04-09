@@ -44,6 +44,7 @@ final class FileLock: Lock {
     
     private static let retryInterval = 1.0
     let lockFileURL: URL
+    var onWait: ((FileLock) -> Void)?
     
     init(lockFileURL: URL) {
         self.lockFileURL = lockFileURL
@@ -55,13 +56,18 @@ final class FileLock: Lock {
     
     /// Tries a lock with an optional timeoutDate. If the lock was acquired before the timeout date true will be returned, false otherwise.
     func lock(timeoutDate: Date?) -> Bool {
+        var waiting = false
         while true {
+            let processId = self.processId
+            guard processId != self.lockingProcessId else {
+                return true
+            }
             guard let _ = try? FileManager.default.createDirectory(at: lockFileURL.deletingLastPathComponent(), withIntermediateDirectories: true) else {
                 return false
             }
             let task = Process()
             task.launchPath = "/usr/bin/shlock"
-            task.arguments = ["-f", lockFileURL.path, "-p", processId]
+            task.arguments = ["-f", lockFileURL.path, "-p", String(processId)]
             task.launch()
             task.waitUntilExit()
             if task.terminationStatus == 0 {
@@ -69,6 +75,10 @@ final class FileLock: Lock {
             }
             if timeoutDate.map({ $0.timeIntervalSinceNow <= 0 }) ?? true {
                 break
+            }
+            if !waiting {
+                onWait?(self)
+                waiting = true
             }
             Thread.sleep(forTimeInterval: FileLock.retryInterval)
         }
@@ -87,6 +97,16 @@ final class FileLock: Lock {
         task.waitUntilExit()
         return task.terminationStatus == 0
     }
+
+    var lockingProcessId: Int? {
+        guard isLocked else {
+            return nil
+        }
+        guard let contents = try? String(contentsOfFile: lockFileURL.path) else {
+            return nil
+        }
+        return Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
     
     /// Unlocks the lock, returns true if lock was released, false otherwise (e.g. because the lock file did not exist anymore).
     @discardableResult
@@ -99,8 +119,8 @@ final class FileLock: Lock {
         }
     }
     
-    private var processId: String {
-        return String(ProcessInfo.processInfo.processIdentifier)
+    private var processId: Int {
+        return Int(ProcessInfo.processInfo.processIdentifier)
     }
 }
 
@@ -116,6 +136,14 @@ final class URLLock: Lock {
     
     let url: URL
     private let fileLock: FileLock
+    var onWait: ((URLLock) -> Void)? {
+        didSet {
+            fileLock.onWait = { [weak self] fileLock in
+                guard let self = self else { return }
+                self.onWait?(self)
+            }
+        }
+    }
     
     convenience init(url: URL, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
         self.init(url: url, lockFileURL: lockFileNamingStrategy(url))
@@ -137,5 +165,20 @@ final class URLLock: Lock {
     @discardableResult
     func unlock() -> Bool {
         return fileLock.unlock()
+    }
+}
+
+extension URLLock {
+    static var globalWaitHandler: ((URLLock) -> Void)?
+
+    static func lockReactive(url: URL, timeout: Int? = nil, onWait: ((URLLock) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
+        return SignalProducer({ () -> Result<URLLock, CarthageError> in
+            let lock = URLLock(url: url)
+            lock.onWait = onWait
+            guard lock.lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
+                return .failure(CarthageError.lockError(url: url, timeout: timeout ?? -1))
+            }
+            return .success(lock)
+        })
     }
 }
