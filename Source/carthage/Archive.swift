@@ -54,10 +54,10 @@ public struct ArchiveCommand: CommandProtocol {
             })
         } else {
             let directoryURL = URL(fileURLWithPath: options.directoryPath, isDirectory: true)
-            frameworks = buildableSchemesInDirectory(directoryURL, withConfiguration: "Release")
+            frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: "Release")
                 .flatMap(.merge) { scheme, project -> SignalProducer<BuildSettings, CarthageError> in
                     let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: "Release")
-                    return BuildSettings.load(with: buildArguments)
+                    return Xcode.loadBuildSettings(with: buildArguments)
                 }
                 .flatMap(.concat) { settings -> SignalProducer<String, CarthageError> in
                     if let wrapperName = settings.wrapperName.value, settings.productType.value == .framework {

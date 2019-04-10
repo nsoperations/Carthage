@@ -44,7 +44,7 @@ enum PackageType: String {
     case dSYM = "dSYM"
 }
 
-final class Frameworks {
+public final class Frameworks {
     /// Determines the Swift version of a framework at a given `URL`.
     static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<String?, SwiftVersionError> {
         guard isSwiftFramework(frameworkURL) else {

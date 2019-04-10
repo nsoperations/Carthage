@@ -15,7 +15,7 @@ public typealias BuildSchemeProducer = SignalProducer<TaskEvent<(ProjectLocator,
 /// A callback static function used to determine whether or not an SDK should be built
 public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configuration: String, _ project: ProjectLocator) -> Result<[SDK], CarthageError>
 
-final class Xcode {
+public final class Xcode {
     
     /// Finds schemes of projects or workspaces, which Carthage should build, found
     /// within the given directory.
@@ -291,28 +291,62 @@ final class Xcode {
             })
     }
     
+    public static func copyFrameworks(frameworkPath: String, frameworksFolder: URL, symbolsFolder: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool, shouldCopyBCSymbolMap: Bool) -> SignalProducer<(), CarthageError> {
+        let frameworkName = (frameworkPath as NSString).lastPathComponent
+
+        let source = Result(
+            URL(fileURLWithPath: frameworkPath, isDirectory: true),
+            failWith: CarthageError.invalidArgument(
+                description: "Could not find framework \"\(frameworkName)\" at path \(frameworkPath). "
+                    + "Ensure that the given path is appropriately entered and that your \"Input Files\" and \"Input File Lists\" have been entered correctly."
+            )
+        )
+        let target = frameworksFolder.appendingPathComponent(frameworkName, isDirectory: true)
+
+        return SignalProducer.combineLatest(SignalProducer(result: source), SignalProducer(value: target), SignalProducer(value: validArchitectures))
+            .flatMap(.merge) { source, target, validArchitectures -> SignalProducer<(), CarthageError> in
+                return shouldIgnoreFramework(source, validArchitectures: validArchitectures)
+                    .flatMap(.concat) { shouldIgnore -> SignalProducer<(), CarthageError> in
+                        if shouldIgnore {
+                            //carthage.println("warning: Ignoring \(frameworkName) because it does not support the current architecture\n")
+                            return .empty
+                        } else {
+                            let copyFrameworks = copyFramework(source, target: target, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols)
+
+                            // TODO: ignore copyBCSymbols if shouldCopyBCSymbolMap = false
+                            let copyBCSymbols = copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder)
+                            let copydSYMs = copyDebugSymbolsForFramework(source, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures)
+                            return SignalProducer.combineLatest(copyFrameworks, copyBCSymbols, copydSYMs)
+                                .then(SignalProducer<(), CarthageError>.empty)
+                        }
+                }
+        }
+    }
+    
+    // MARK: - Private
+
     /// Strips a framework from unexpected architectures and potentially debug symbols,
     /// optionally codesigning the result.
-    public static func stripFramework(
+    private static func stripFramework(
         _ frameworkURL: URL,
         keepingArchitectures: [String],
         strippingDebugSymbols: Bool,
         codesigningIdentity: String? = nil
         ) -> SignalProducer<(), CarthageError> {
-        
+
         //Should be locked
-        
+
         let stripArchitectures = stripBinary(frameworkURL, keepingArchitectures: keepingArchitectures)
         let stripSymbols = strippingDebugSymbols ? stripDebugSymbols(frameworkURL) : .empty
-        
+
         // Xcode doesn't copy `Headers`, `PrivateHeaders` and `Modules` directory at
         // all.
         let stripHeaders = stripHeadersDirectory(frameworkURL)
         let stripPrivateHeaders = stripPrivateHeadersDirectory(frameworkURL)
         let stripModules = stripModulesDirectory(frameworkURL)
-        
+
         let sign = codesigningIdentity.map { codesign(frameworkURL, $0) } ?? .empty
-        
+
         return stripArchitectures
             .concat(stripSymbols)
             .concat(stripHeaders)
@@ -320,8 +354,54 @@ final class Xcode {
             .concat(stripModules)
             .concat(sign)
     }
-    
-    // MARK: - Private
+
+    private static func shouldIgnoreFramework(_ framework: URL, validArchitectures: [String]) -> SignalProducer<Bool, CarthageError> {
+        return Frameworks.architecturesInPackage(framework)
+            .collect()
+            .map { architectures in
+                // Return all the architectures, present in the framework, that are valid.
+                validArchitectures.filter(architectures.contains)
+            }
+            .map { remainingArchitectures in
+                // If removing the useless architectures results in an empty fat file,
+                // wat means that the framework does not have a binary for the given architecture, ignore the framework.
+                remainingArchitectures.isEmpty
+        }
+    }
+
+    private static func copyFramework(_ source: URL, target: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool) -> SignalProducer<(), CarthageError> {
+        return SignalProducer.combineLatest(Files.copyProduct(source, target), SignalProducer(value: codeSigningIdentity))
+            .flatMap(.merge) { url, codesigningIdentity -> SignalProducer<(), CarthageError> in
+                let strip = stripFramework(
+                    url,
+                    keepingArchitectures: validArchitectures,
+                    strippingDebugSymbols: shouldStripDebugSymbols,
+                    codesigningIdentity: codesigningIdentity
+                )
+                return strip
+        }
+    }
+
+    private static func copyDebugSymbolsForFramework(_ frameworkURL: URL, symbolsFolder: URL, validArchitectures: [String]) -> SignalProducer<(), CarthageError> {
+        return SignalProducer(value: symbolsFolder)
+            .flatMap(.merge) { destinationURL in
+                return SignalProducer(value: frameworkURL)
+                    .map { $0.appendingPathExtension("dSYM") }
+                    .copyFileURLsIntoDirectory(destinationURL)
+                    .flatMap(.merge) { dSYMURL in
+                        return Xcode.stripDSYM(dSYMURL, keepingArchitectures: validArchitectures)
+                }
+        }
+    }
+
+    private static func copyBCSymbolMapsForFramework(_ frameworkURL: URL, symbolsFolder: URL) -> SignalProducer<URL, CarthageError> {
+        // This should be called only when `buildActionIsArchiveOrInstall()` is true.
+        return SignalProducer(value: symbolsFolder)
+            .flatMap(.merge) { destinationURL in
+                return Frameworks.BCSymbolMapsForFramework(frameworkURL)
+                    .copyFileURLsIntoDirectory(destinationURL)
+        }
+    }
     
     /// Creates a task description for executing `xcodebuild` with the given
     /// arguments.

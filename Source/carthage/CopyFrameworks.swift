@@ -10,93 +10,21 @@ public struct CopyFrameworksCommand: CommandProtocol {
     public let function = "In a Run Script build phase, copies each framework specified by a SCRIPT_INPUT_FILE and/or SCRIPT_INPUT_FILE_LIST environment variables into the built app bundle"
 
     public func run(_ options: NoOptions<CarthageError>) -> Result<(), CarthageError> {
+
+        let frameworksFolderURL: URL = frameworksFolder().value!
+        let validArchitectureValues: [String] = validArchitectures().value!
+        let codeSigningIdentityString: String = codeSigningIdentity().single()?.value! ?? "bla"
+        let stripDebugSymbols: Bool = shouldStripDebugSymbols()
+        let shouldCopyBCSymbolMap: Bool = buildActionIsArchiveOrInstall()
+        let symbolsFolder: URL = appropriateDestinationFolder().value!
+
         return inputFiles()
             .flatMap(.merge) { frameworkPath -> SignalProducer<(), CarthageError> in
-                let frameworkName = (frameworkPath as NSString).lastPathComponent
-
-                let source = Result(
-                    URL(fileURLWithPath: frameworkPath, isDirectory: true),
-                    failWith: CarthageError.invalidArgument(
-                        description: "Could not find framework \"\(frameworkName)\" at path \(frameworkPath). "
-                            + "Ensure that the given path is appropriately entered and that your \"Input Files\" and \"Input File Lists\" have been entered correctly."
-                    )
-                )
-                let target = frameworksFolder().map { $0.appendingPathComponent(frameworkName, isDirectory: true) }
-
-                return SignalProducer.combineLatest(SignalProducer(result: source), SignalProducer(result: target), SignalProducer(result: validArchitectures()))
-                    .flatMap(.merge) { source, target, validArchitectures -> SignalProducer<(), CarthageError> in
-                        return shouldIgnoreFramework(source, validArchitectures: validArchitectures)
-                            .flatMap(.concat) { shouldIgnore -> SignalProducer<(), CarthageError> in
-                                if shouldIgnore {
-                                    carthage.println("warning: Ignoring \(frameworkName) because it does not support the current architecture\n")
-                                    return .empty
-                                } else {
-                                    let copyFrameworks = copyFramework(source, target: target, validArchitectures: validArchitectures)
-                                    let copydSYMs = copyDebugSymbolsForFramework(source, validArchitectures: validArchitectures)
-                                    return SignalProducer.combineLatest(copyFrameworks, copydSYMs)
-                                        .then(SignalProducer<(), CarthageError>.empty)
-                                }
-                        }
-                    }
+                return Xcode.copyFrameworks(frameworkPath: frameworkPath, frameworksFolder: frameworksFolderURL, symbolsFolder: symbolsFolder, validArchitectures: validArchitectureValues, codeSigningIdentity: codeSigningIdentityString, shouldStripDebugSymbols: stripDebugSymbols, shouldCopyBCSymbolMap: shouldCopyBCSymbolMap)
                     // Copy as many frameworks as possible in parallel.
                     .start(on: QueueScheduler(name: "org.carthage.CarthageKit.CopyFrameworks.copy"))
             }
             .waitOnCommand()
-    }
-}
-
-private func copyFramework(_ source: URL, target: URL, validArchitectures: [String]) -> SignalProducer<(), CarthageError> {
-    return SignalProducer.combineLatest(Files.copyProduct(source, target), codeSigningIdentity())
-        .flatMap(.merge) { url, codesigningIdentity -> SignalProducer<(), CarthageError> in
-            let strip = stripFramework(
-                url,
-                keepingArchitectures: validArchitectures,
-                strippingDebugSymbols: shouldStripDebugSymbols(),
-                codesigningIdentity: codesigningIdentity
-            )
-            if buildActionIsArchiveOrInstall() {
-                return strip
-                    .then(copyBCSymbolMapsForFramework(url, fromDirectory: source.deletingLastPathComponent()))
-                    .then(SignalProducer<(), CarthageError>.empty)
-            } else {
-                return strip
-            }
-    }
-}
-
-private func shouldIgnoreFramework(_ framework: URL, validArchitectures: [String]) -> SignalProducer<Bool, CarthageError> {
-    return architecturesInPackage(framework)
-        .collect()
-        .map { architectures in
-            // Return all the architectures, present in the framework, that are valid.
-            validArchitectures.filter(architectures.contains)
-        }
-        .map { remainingArchitectures in
-            // If removing the useless architectures results in an empty fat file,
-            // wat means that the framework does not have a binary for the given architecture, ignore the framework.
-            remainingArchitectures.isEmpty
-    }
-}
-
-private func copyDebugSymbolsForFramework(_ source: URL, validArchitectures: [String]) -> SignalProducer<(), CarthageError> {
-    return SignalProducer(result: appropriateDestinationFolder())
-        .flatMap(.merge) { destinationURL in
-            return SignalProducer(value: source)
-                .map { $0.appendingPathExtension("dSYM") }
-                .copyFileURLsIntoDirectory(destinationURL)
-                .flatMap(.merge) { dSYMURL in
-                    return stripDSYM(dSYMURL, keepingArchitectures: validArchitectures)
-            }
-    }
-}
-
-private func copyBCSymbolMapsForFramework(_ frameworkURL: URL, fromDirectory directoryURL: URL) -> SignalProducer<URL, CarthageError> {
-    // This should be called only when `buildActionIsArchiveOrInstall()` is true.
-    return SignalProducer(result: builtProductsFolder())
-        .flatMap(.merge) { builtProductsURL in
-            return Frameworks.BCSymbolMapsForFramework(frameworkURL)
-                .map { url in directoryURL.appendingPathComponent(url.lastPathComponent, isDirectory: false) }
-                .copyFileURLsIntoDirectory(builtProductsURL)
     }
 }
 

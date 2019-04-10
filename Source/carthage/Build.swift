@@ -164,7 +164,7 @@ public struct BuildCommand: CommandProtocol {
         if !shouldBuildCurrentProject {
             return buildProducer
         } else {
-            let currentProducers = buildInDirectory(directoryURL, withOptions: options.buildOptions, rootDirectoryURL: directoryURL, lockTimeout: options.lockTimeout)
+            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: options.buildOptions, rootDirectoryURL: directoryURL, lockTimeout: options.lockTimeout)
                 .flatMapError { error -> BuildSchemeProducer in
                     switch error {
                     case let .noSharedFrameworkSchemes(project, _):
