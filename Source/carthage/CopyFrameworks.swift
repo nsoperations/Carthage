@@ -46,7 +46,7 @@ public struct CopyFrameworksCommand: CommandProtocol {
 }
 
 private func copyFramework(_ source: URL, target: URL, validArchitectures: [String]) -> SignalProducer<(), CarthageError> {
-    return SignalProducer.combineLatest(copyProduct(source, target), codeSigningIdentity())
+    return SignalProducer.combineLatest(Files.copyProduct(source, target), codeSigningIdentity())
         .flatMap(.merge) { url, codesigningIdentity -> SignalProducer<(), CarthageError> in
             let strip = stripFramework(
                 url,
@@ -94,7 +94,7 @@ private func copyBCSymbolMapsForFramework(_ frameworkURL: URL, fromDirectory dir
     // This should be called only when `buildActionIsArchiveOrInstall()` is true.
     return SignalProducer(result: builtProductsFolder())
         .flatMap(.merge) { builtProductsURL in
-            return BCSymbolMapsForFramework(frameworkURL)
+            return Frameworks.BCSymbolMapsForFramework(frameworkURL)
                 .map { url in directoryURL.appendingPathComponent(url.lastPathComponent, isDirectory: false) }
                 .copyFileURLsIntoDirectory(builtProductsURL)
     }

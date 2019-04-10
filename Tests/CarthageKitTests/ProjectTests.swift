@@ -702,7 +702,7 @@ class ProjectMiscTests: XCTestCase {
             fail("Could not load Alomfire.framework from resources")
             return
         }
-        let actualPlatform = platformForFramework(testStaticFrameworkURL).first()?.value
+        let actualPlatform = Frameworks.platformForFramework(testStaticFrameworkURL).first()?.value
         expect(actualPlatform) == .iOS
     }
 
@@ -740,7 +740,7 @@ class ProjectMiscTests: XCTestCase {
             return
         }
 
-        let result = CarthageKit.frameworksInDirectory(directoryURL).collect().single()
+        let result = Frameworks.frameworksInDirectory(directoryURL).collect().single()
         expect(result?.value?.count) == 3
     }
 }

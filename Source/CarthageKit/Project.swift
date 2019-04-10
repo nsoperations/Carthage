@@ -287,42 +287,6 @@ public final class Project { // swiftlint:disable:this type_body_length
             .map(ResolvedCartfile.init)
     }
 
-    /// Attempts to determine the latest version (whether satisfiable or not)
-    /// of the project's Carthage dependencies.
-    ///
-    /// This will fetch dependency repositories as necessary, but will not check
-    /// them out into the project's working directory.
-    private func latestDependencies(resolver: ResolverProtocol) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
-        func resolve(prefersGitReference: Bool) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
-            return SignalProducer
-                .combineLatest(loadCombinedCartfile(), loadResolvedCartfile())
-                .map { cartfile, resolvedCartfile in
-                    resolvedCartfile
-                        .dependencies
-                        .reduce(into: [Dependency: VersionSpecifier]()) { result, group in
-                            let dependency = group.key
-                            let specifier: VersionSpecifier
-                            if case let .gitReference(value)? = cartfile.dependencies[dependency], prefersGitReference {
-                                specifier = .gitReference(value)
-                            } else {
-                                specifier = .any
-                            }
-                            result[dependency] = specifier
-                    }
-                }
-                .flatMap(.merge) { resolver.resolve(dependencies: $0, lastResolved: nil, dependenciesToUpdate: nil) }
-        }
-
-        return resolve(prefersGitReference: false).flatMapError { error in
-            switch error {
-            case .taggedVersionNotFound:
-                return resolve(prefersGitReference: true)
-            default:
-                return SignalProducer(error: error)
-            }
-        }
-    }
-
     public typealias OutdatedDependency = (Dependency, PinnedVersion, PinnedVersion, PinnedVersion)
     /// Attempts to determine which of the project's Carthage
     /// dependencies are out of date.
@@ -583,7 +547,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
-                    .then(build(dependency: dependency, version: version, self.directoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter))
+                    .then(Xcode.build(dependency: dependency, version: version, self.directoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter))
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:
@@ -611,18 +575,6 @@ public final class Project { // swiftlint:disable:this type_body_length
         }
     }
 
-    private func symlinkBuildPathIfNeeded(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(), CarthageError> {
-        return dependencyRetriever.dependencySet(for: dependency, version: version)
-            .flatMap(.merge) { dependencies -> SignalProducer<(), CarthageError> in
-                // Don't symlink the build folder if the dependency doesn't have
-                // any Carthage dependencies
-                if dependencies.isEmpty {
-                    return .empty
-                }
-                return symlinkBuildPath(for: dependency, rootDirectoryURL: self.directoryURL)
-        }
-    }
-
     /// Determines whether the requirements specified in this project's Cartfile.resolved
     /// are compatible with the versions specified in the Cartfile for each of those projects.
     ///
@@ -641,60 +593,93 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return incompatibilities.isEmpty ? .init(value: ()) : .init(error: .invalidResolvedCartfile(incompatibilities))
         }
     }
-}
-
-//TODO: Move these methods to separate utility class
-
-/// Creates symlink between the dependency build folder and the root build folder
-///
-/// Returns a signal indicating success
-private func symlinkBuildPath(for dependency: Dependency, rootDirectoryURL: URL) -> SignalProducer<(), CarthageError> {
-    return SignalProducer { () -> Result<(), CarthageError> in
-        let rootBinariesURL = rootDirectoryURL.appendingPathComponent(Constants.binariesFolderPath, isDirectory: true).resolvingSymlinksInPath()
-        let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
-        let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
-        let fileManager = FileManager.default
-
-        // Link this dependency's Carthage/Build folder to that of the root
-        // project, so it can see all products built already, and so we can
-        // automatically drop this dependency's product in the right place.
-        let dependencyBinariesURL = dependencyURL.appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
-
-        let createDirectory = { try fileManager.createDirectory(at: $0, withIntermediateDirectories: true) }
-        return Result(at: rootBinariesURL, attempt: createDirectory)
-            .flatMap { _ in
-                Result(at: dependencyBinariesURL, attempt: fileManager.removeItem(at:))
-                    .recover(with: Result(at: dependencyBinariesURL.deletingLastPathComponent(), attempt: createDirectory))
-            }
-            .flatMap { _ in
-                Result(at: rawDependencyURL, carthageError: CarthageError.readFailed, attempt: {
-                    try $0.resourceValues(forKeys: [ .isSymbolicLinkKey ]).isSymbolicLink
-                })
-                    .flatMap { isSymlink in
-                        Result(at: dependencyBinariesURL, attempt: {
-                            if isSymlink == true {
-                                return try fileManager.createSymbolicLink(at: $0, withDestinationURL: rootBinariesURL)
-                            } else {
-                                let linkDestinationPath = relativeLinkDestination(for: dependency, subdirectory: Constants.binariesFolderPath)
-                                return try fileManager.createSymbolicLink(atPath: $0.path, withDestinationPath: linkDestinationPath)
-                            }
-                        })
+    
+    private func symlinkBuildPathIfNeeded(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(), CarthageError> {
+        return dependencyRetriever.dependencySet(for: dependency, version: version)
+            .flatMap(.merge) { dependencies -> SignalProducer<(), CarthageError> in
+                // Don't symlink the build folder if the dependency doesn't have
+                // any Carthage dependencies
+                if dependencies.isEmpty {
+                    return .empty
                 }
+                return Project.symlinkBuildPath(for: dependency, rootDirectoryURL: self.directoryURL)
         }
     }
-}
-
-/// Returns the string representing a relative path from a dependency back to the root
-internal func relativeLinkDestination(for dependency: Dependency, subdirectory: String) -> String {
-    let dependencySubdirectoryPath = (dependency.relativePath as NSString).appendingPathComponent(subdirectory)
-    let componentsForGettingTheHellOutOfThisRelativePath = Array(repeating: "..", count: (dependencySubdirectoryPath as NSString).pathComponents.count - 1)
-
-    // Directs a link from, e.g., /Carthage/Checkouts/ReactiveCocoa/Carthage/Build to /Carthage/Build
-    let linkDestinationPath = componentsForGettingTheHellOutOfThisRelativePath.reduce(subdirectory) { trailingPath, pathComponent in
-        return (pathComponent as NSString).appendingPathComponent(trailingPath)
+    
+    /// Creates symlink between the dependency build folder and the root build folder
+    ///
+    /// Returns a signal indicating success
+    private static func symlinkBuildPath(for dependency: Dependency, rootDirectoryURL: URL) -> SignalProducer<(), CarthageError> {
+        return SignalProducer { () -> Result<(), CarthageError> in
+            let rootBinariesURL = rootDirectoryURL.appendingPathComponent(Constants.binariesFolderPath, isDirectory: true).resolvingSymlinksInPath()
+            let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
+            let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
+            let fileManager = FileManager.default
+            
+            // Link this dependency's Carthage/Build folder to that of the root
+            // project, so it can see all products built already, and so we can
+            // automatically drop this dependency's product in the right place.
+            let dependencyBinariesURL = dependencyURL.appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
+            
+            let createDirectory = { try fileManager.createDirectory(at: $0, withIntermediateDirectories: true) }
+            return Result(at: rootBinariesURL, attempt: createDirectory)
+                .flatMap { _ in
+                    Result(at: dependencyBinariesURL, attempt: fileManager.removeItem(at:))
+                        .recover(with: Result(at: dependencyBinariesURL.deletingLastPathComponent(), attempt: createDirectory))
+                }
+                .flatMap { _ in
+                    Result(at: rawDependencyURL, carthageError: CarthageError.readFailed, attempt: {
+                        try $0.resourceValues(forKeys: [ .isSymbolicLinkKey ]).isSymbolicLink
+                    })
+                        .flatMap { isSymlink in
+                            Result(at: dependencyBinariesURL, attempt: {
+                                if isSymlink == true {
+                                    return try fileManager.createSymbolicLink(at: $0, withDestinationURL: rootBinariesURL)
+                                } else {
+                                    let linkDestinationPath = Dependencies.relativeLinkDestination(for: dependency, subdirectory: Constants.binariesFolderPath)
+                                    return try fileManager.createSymbolicLink(atPath: $0.path, withDestinationPath: linkDestinationPath)
+                                }
+                            })
+                    }
+            }
+        }
     }
-
-    return linkDestinationPath
+    
+    /// Attempts to determine the latest version (whether satisfiable or not)
+    /// of the project's Carthage dependencies.
+    ///
+    /// This will fetch dependency repositories as necessary, but will not check
+    /// them out into the project's working directory.
+    private func latestDependencies(resolver: ResolverProtocol) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
+        func resolve(prefersGitReference: Bool) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
+            return SignalProducer
+                .combineLatest(loadCombinedCartfile(), loadResolvedCartfile())
+                .map { cartfile, resolvedCartfile in
+                    resolvedCartfile
+                        .dependencies
+                        .reduce(into: [Dependency: VersionSpecifier]()) { result, group in
+                            let dependency = group.key
+                            let specifier: VersionSpecifier
+                            if case let .gitReference(value)? = cartfile.dependencies[dependency], prefersGitReference {
+                                specifier = .gitReference(value)
+                            } else {
+                                specifier = .any
+                            }
+                            result[dependency] = specifier
+                    }
+                }
+                .flatMap(.merge) { resolver.resolve(dependencies: $0, lastResolved: nil, dependenciesToUpdate: nil) }
+        }
+        
+        return resolve(prefersGitReference: false).flatMapError { error in
+            switch error {
+            case .taggedVersionNotFound:
+                return resolve(prefersGitReference: true)
+            default:
+                return SignalProducer(error: error)
+            }
+        }
+    }
 }
 
 // Diagnostic methods to be able to diagnose problems with the resolver with dependencies

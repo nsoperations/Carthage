@@ -225,7 +225,7 @@ class XcodeTests: XCTestCase {
 		/// There are many suggestions on how to do this but no one single
 		/// accepted way. This seems to work best:
 		/// https://lists.apple.com/archives/unix-porting/2006/Feb/msg00021.html
-		let hasDebugSymbols = SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in binaryURL(targetURL) }
+		let hasDebugSymbols = SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in Frameworks.binaryURL(targetURL) }
 			.flatMap(.merge) { binaryURL -> SignalProducer<Bool, CarthageError> in
 				let nmTask = Task("/usr/bin/xcrun", arguments: [ "nm", "-ap", binaryURL.path])
 				return nmTask.launch()

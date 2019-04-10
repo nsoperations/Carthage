@@ -148,11 +148,11 @@ struct VersionFile: Codable {
                     binariesDirectoryURL: binariesDirectoryURL
                 )
 
-                if !isSwiftFramework(frameworkURL) {
+                if !Frameworks.isSwiftFramework(frameworkURL) {
                     return SignalProducer(value: true)
                 } else {
-                    return frameworkSwiftVersion(frameworkURL)
-                        .flatMapError { _ in dSYMSwiftVersion(frameworkURL.appendingPathExtension("dSYM")) }
+                    return Frameworks.frameworkSwiftVersion(frameworkURL)
+                        .flatMapError { _ in Frameworks.dSYMSwiftVersion(frameworkURL.appendingPathExtension("dSYM")) }
                         .map { swiftVersion -> Bool in
                             return swiftVersion == localSwiftVersion
                         }
@@ -414,7 +414,7 @@ public func createVersionFileForCommitish(
             .flatMap(.merge) { url -> SignalProducer<(String, FrameworkDetail), CarthageError> in
                 let frameworkName = url.deletingPathExtension().lastPathComponent
                 let platformName = url.deletingLastPathComponent().lastPathComponent
-                return frameworkSwiftVersionIfIsSwiftFramework(url)
+                return Frameworks.frameworkSwiftVersionIfIsSwiftFramework(url)
                     .mapError { swiftVersionError -> CarthageError in .unknownFrameworkSwiftVersion(swiftVersionError.description) }
                     .flatMap(.merge) { frameworkSwiftVersion -> SignalProducer<(String, FrameworkDetail), CarthageError> in
                         let frameworkDetail: FrameworkDetail = .init(platformName: platformName,
@@ -485,7 +485,7 @@ public func versionFileMatches(
 
     let platformsToCheck = platforms.isEmpty ? Set<Platform>(Platform.supportedPlatforms) : platforms
 
-    return swiftVersion(usingToolchain: toolchain)
+    return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
         .mapError { error in CarthageError.internalError(description: error.description) }
         .flatMap(.concat) { localSwiftVersion in
             return SignalProducer<Platform, CarthageError>(platformsToCheck)
