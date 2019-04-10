@@ -13,7 +13,7 @@ public struct CopyFrameworksCommand: CommandProtocol {
 
         let frameworksFolderURL: URL = frameworksFolder().value!
         let validArchitectureValues: [String] = validArchitectures().value!
-        let codeSigningIdentityString: String = codeSigningIdentity().single()?.value! ?? "bla"
+        let codeSigningIdentityString: String? = codeSigningIdentity().single()?.value!
         let stripDebugSymbols: Bool = shouldStripDebugSymbols()
         let shouldCopyBCSymbolMap: Bool = buildActionIsArchiveOrInstall()
         let symbolsFolder: URL = appropriateDestinationFolder().value!
