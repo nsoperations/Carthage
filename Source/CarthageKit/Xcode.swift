@@ -325,7 +325,7 @@ public final class Xcode {
 
     /// Strips a framework from unexpected architectures and potentially debug symbols,
     /// optionally codesigning the result.
-    private static func stripFramework(
+    static func stripFramework(
         _ frameworkURL: URL,
         keepingArchitectures: [String],
         strippingDebugSymbols: Bool,

@@ -141,7 +141,7 @@ class ProjectBuildTests: XCTestCase {
             throw ProjectTestsError.assertion(message: "Could not get Swift header URL")
         }
 
-        guard let swiftVersionResult = swiftVersion().first() else {
+        guard let swiftVersionResult = SwiftToolchain.swiftVersion().first() else {
             throw ProjectTestsError.assertion(message: "Expected at least one swift version to be present")
         }
         expect(swiftVersionResult.error).to(beNil())

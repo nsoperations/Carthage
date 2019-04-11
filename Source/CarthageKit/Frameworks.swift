@@ -138,7 +138,7 @@ public final class Frameworks {
     /// The files do not necessarily exist on disk.
     ///
     /// The returned URLs are relative to the parent directory of the framework.
-    static func BCSymbolMapsForFramework(_ frameworkURL: URL) -> SignalProducer<URL, CarthageError> {
+    public static func BCSymbolMapsForFramework(_ frameworkURL: URL) -> SignalProducer<URL, CarthageError> {
         let directoryURL = frameworkURL.deletingLastPathComponent()
         return UUIDsForFramework(frameworkURL)
             .flatMap(.merge) { uuids in SignalProducer<UUID, CarthageError>(uuids) }
