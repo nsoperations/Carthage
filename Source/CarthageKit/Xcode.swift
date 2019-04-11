@@ -312,9 +312,7 @@ public final class Xcode {
                             return .empty
                         } else {
                             let copyFrameworks = copyFramework(source, target: target, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols)
-
-                            // TODO: ignore copyBCSymbols if shouldCopyBCSymbolMap = false
-                            let copyBCSymbols = copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder)
+                            let copyBCSymbols = shouldCopyBCSymbolMap ? copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder) : SignalProducer<URL, CarthageError>.empty
                             let copydSYMs = copyDebugSymbolsForFramework(source, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures)
                             return SignalProducer.combineLatest(copyFrameworks, copyBCSymbols, copydSYMs)
                                 .then(SignalProducer<(), CarthageError>.empty)
