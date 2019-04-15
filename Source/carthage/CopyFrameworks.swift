@@ -17,13 +17,20 @@ public struct CopyFrameworksCommand: CommandProtocol {
             let shouldStripDebugSymbols: Bool = self.shouldStripDebugSymbols()
             let shouldCopyBCSymbolMap: Bool = self.buildActionIsArchiveOrInstall()
             let symbolsFolder: URL = try self.appropriateDestinationFolder().get()
-            
             return inputFiles()
-                .flatMap(.merge) { frameworkPath -> SignalProducer<(), CarthageError> in
+                .flatMap(.merge) { frameworkPath -> SignalProducer<FrameworkEvent, CarthageError> in
                     return Xcode.copyFrameworks(frameworkPath: frameworkPath, frameworksFolder: frameworksFolder, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols, shouldCopyBCSymbolMap: shouldCopyBCSymbolMap)
                         // Copy as many frameworks as possible in parallel.
                         .start(on: QueueScheduler(name: "org.carthage.CarthageKit.CopyFrameworks.copy"))
                 }
+                .on(value: { (event) in
+                    switch event {
+                    case .copyied(let frameworkName):
+                        carthage.println("Copied \(frameworkName)")
+                    case .ignored(let frameworkName):
+                        carthage.println("warning: Ignoring \(frameworkName) because it does not support the current architecture\n")
+                    }
+                })
                 .waitOnCommand()
         } catch let carthageError as CarthageError {
             return .failure(carthageError)

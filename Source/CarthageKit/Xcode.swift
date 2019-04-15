@@ -15,6 +15,12 @@ public typealias BuildSchemeProducer = SignalProducer<TaskEvent<(ProjectLocator,
 /// A callback static function used to determine whether or not an SDK should be built
 public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configuration: String, _ project: ProjectLocator) -> Result<[SDK], CarthageError>
 
+/// Describes an event occurring to or with a framework.
+public enum FrameworkEvent {
+    case ignored(String)
+    case copyied(String)
+}
+
 public final class Xcode {
     
     /// Finds schemes of projects or workspaces, which Carthage should build, found
@@ -291,7 +297,7 @@ public final class Xcode {
             })
     }
     
-    public static func copyFrameworks(frameworkPath: String, frameworksFolder: URL, symbolsFolder: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool, shouldCopyBCSymbolMap: Bool) -> SignalProducer<(), CarthageError> {
+    public static func copyFrameworks(frameworkPath: String, frameworksFolder: URL, symbolsFolder: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool, shouldCopyBCSymbolMap: Bool) -> SignalProducer<FrameworkEvent, CarthageError> {
         let frameworkName = (frameworkPath as NSString).lastPathComponent
 
         let source = Result(
@@ -304,18 +310,17 @@ public final class Xcode {
         let target = frameworksFolder.appendingPathComponent(frameworkName, isDirectory: true)
 
         return SignalProducer.combineLatest(SignalProducer(result: source), SignalProducer(value: target), SignalProducer(value: validArchitectures))
-            .flatMap(.merge) { source, target, validArchitectures -> SignalProducer<(), CarthageError> in
+            .flatMap(.merge) { source, target, validArchitectures -> SignalProducer<FrameworkEvent, CarthageError> in
                 return shouldIgnoreFramework(source, validArchitectures: validArchitectures)
-                    .flatMap(.concat) { shouldIgnore -> SignalProducer<(), CarthageError> in
+                    .flatMap(.concat) { shouldIgnore -> SignalProducer<FrameworkEvent, CarthageError> in
                         if shouldIgnore {
-                            //carthage.println("warning: Ignoring \(frameworkName) because it does not support the current architecture\n")
-                            return .empty
+                            return SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.ignored(frameworkName))
                         } else {
                             let copyFrameworks = copyFramework(source, target: target, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols)
                             let copyBCSymbols = shouldCopyBCSymbolMap ? copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder) : SignalProducer<URL, CarthageError>.empty
                             let copydSYMs = copyDebugSymbolsForFramework(source, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures)
                             return SignalProducer.combineLatest(copyFrameworks, copyBCSymbols, copydSYMs)
-                                .then(SignalProducer<(), CarthageError>.empty)
+                                .then(SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.copyied(frameworkName)))
                         }
                 }
         }
