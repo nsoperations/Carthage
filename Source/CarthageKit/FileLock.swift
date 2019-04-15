@@ -45,10 +45,12 @@ final class FileLock: Lock {
     private static let retryInterval = 1.0
     private var wasLocked = false
     let lockFileURL: URL
+    let isRecursive: Bool
     var onWait: ((FileLock) -> Void)?
     
-    init(lockFileURL: URL) {
+    init(lockFileURL: URL, isRecursive: Bool = true) {
         self.lockFileURL = lockFileURL
+        self.isRecursive = isRecursive
     }
     
     deinit {
@@ -60,7 +62,7 @@ final class FileLock: Lock {
         var waiting = false
         while true {
             let processId = self.processId
-            guard processId != self.lockingProcessId else {
+            if self.isRecursive && processId == self.lockingProcessId {
                 return true
             }
             guard let _ = try? FileManager.default.createDirectory(at: lockFileURL.deletingLastPathComponent(), withIntermediateDirectories: true) else {
@@ -150,13 +152,17 @@ final class URLLock: Lock {
         }
     }
     
-    convenience init(url: URL, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
-        self.init(url: url, lockFileURL: lockFileNamingStrategy(url))
+    convenience init(url: URL, isRecursive: Bool = true, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
+        self.init(url: url, lockFileURL: lockFileNamingStrategy(url), isRecursive: isRecursive)
     }
 
-    init(url: URL, lockFileURL: URL) {
+    convenience init(url: URL, lockFileURL: URL, isRecursive: Bool = true) {
+        self.init(url: url, fileLock: FileLock(lockFileURL: lockFileURL, isRecursive: isRecursive))
+    }
+
+    init(url: URL, fileLock: FileLock) {
         self.url = url
-        self.fileLock = FileLock(lockFileURL: lockFileURL)
+        self.fileLock = fileLock
     }
     
     func lock(timeoutDate: Date?) -> Bool {
