@@ -276,7 +276,7 @@ public func createVersionFileForCurrentProject(
      origin   https://github.com/blender/Carthage.git (push)
      upstream
      */
-    let allRemoteURLs = launchGitTask(["remote", "-v"])
+    let allRemoteURLs = Git.launchGitTask(["remote", "-v"])
         .flatMap(.concat) { $0.linesProducer }
         .map { $0.components(separatedBy: .whitespacesAndNewlines) }
         .filter { $0.count >= 3 && $0.last == "(fetch)" } // Discard ill-formed output as of example
@@ -317,10 +317,10 @@ public func createVersionFileForCurrentProject(
             return Dependency.git(GitURL(origin.remoteNameAndURL.url)).name
     }
 
-    let currentGitTagOrCommitish = launchGitTask(["rev-parse", "HEAD"])
+    let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"])
         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         .flatMap(.merge) { headCommitish in
-            launchGitTask(["describe", "--tags", "--exact-match", headCommitish])
+            Git.launchGitTask(["describe", "--tags", "--exact-match", headCommitish])
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .flatMapError { _  in SignalProducer(value: headCommitish) }
     }

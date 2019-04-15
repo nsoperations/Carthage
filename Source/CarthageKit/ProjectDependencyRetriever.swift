@@ -91,7 +91,7 @@ public final class ProjectDependencyRetriever {
             let cartfileFetch: SignalProducer<Cartfile, CarthageError> = cloneOrFetchDependencyLocked(dependency, commitish: revision)
                 .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
                     lock = urlLock
-                    return contentsOfFileInRepository(urlLock.url, Constants.Project.cartfilePath, revision: revision)
+                    return Git.contentsOfFileInRepository(urlLock.url, Constants.Project.cartfilePath, revision: revision)
                 }
                 .flatMapError { _ in .empty }
                 .attemptMap(Cartfile.from(string:))
@@ -156,13 +156,13 @@ public final class ProjectDependencyRetriever {
             .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<PinnedVersion, CarthageError> in
                 lock = urlLock
                 let repositoryURL = urlLock.url
-                return resolveTagInRepository(repositoryURL, reference)
+                return Git.resolveTagInRepository(repositoryURL, reference)
                     .map { _ in
                         // If the reference is an exact tag, resolves it to the tag.
                         return PinnedVersion(reference)
                     }
                     .flatMapError { _ in
-                        return resolveReferenceInRepository(repositoryURL, reference)
+                        return Git.resolveReferenceInRepository(repositoryURL, reference)
                             .map(PinnedVersion.init)
                 }
             }.on(terminated: {
@@ -183,7 +183,7 @@ public final class ProjectDependencyRetriever {
             fetchVersions = cloneOrFetchDependencyLocked(dependency)
                 .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
                     lock = urlLock
-                    return listTags(urlLock.url) }
+                    return Git.listTags(urlLock.url) }
                 .map { PinnedVersion($0) }
                 .on(terminated: {
                     lock?.unlock()
@@ -277,17 +277,17 @@ public final class ProjectDependencyRetriever {
                 if let submodule = submodule {
                     // In the presence of `submodule` for `dependency` — before symlinking, (not after) — add submodule and its submodules:
                     // `dependency`, subdependencies that are submodules, and non-Carthage-housed submodules.
-                    return addSubmoduleToRepository(self.directoryURL, submodule, GitURL(repositoryURL.path))
+                    return Git.addSubmoduleToRepository(self.directoryURL, submodule, GitURL(repositoryURL.path))
                         .startOnQueue(self.gitOperationQueue)
                         .then(symlinkCheckoutPaths)
                 } else {
-                    return checkoutRepositoryToDirectory(repositoryURL, workingDirectoryURL, revision: revision)
+                    return Git.checkoutRepositoryToDirectory(repositoryURL, workingDirectoryURL, revision: revision)
                         // For checkouts of “ideally bare” repositories of `dependency`, we add its submodules by cloning ourselves, after symlinking.
                         .then(symlinkCheckoutPaths)
                         .then(
-                            submodulesInRepository(repositoryURL, revision: revision)
+                            Git.submodulesInRepository(repositoryURL, revision: revision)
                                 .flatMap(.merge) {
-                                    cloneSubmoduleInWorkingDirectory($0, workingDirectoryURL)
+                                    Git.cloneSubmoduleInWorkingDirectory($0, workingDirectoryURL)
                             }
                     )
                 }
@@ -483,17 +483,17 @@ public final class ProjectDependencyRetriever {
                     fatalError("Lock should be not nil at this point")
                 }
 
-                return isGitRepository(repositoryURL)
+                return Git.isGitRepository(repositoryURL)
                     .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                         if isRepository {
                             let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
-                                guard FetchCache.needsFetch(forURL: remoteURL) else {
+                                guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
                                     return SignalProducer(value: (nil, urlLock))
                                 }
 
                                 return SignalProducer(value: (.fetching(dependency), urlLock))
                                     .concat(
-                                        fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
+                                        Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
                                             .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
                                 )
                             }
@@ -501,8 +501,8 @@ public final class ProjectDependencyRetriever {
                             // If we've already cloned the repo, check for the revision, possibly skipping an unnecessary fetch
                             if let commitish = commitish {
                                 return SignalProducer.zip(
-                                    branchExistsInRepository(repositoryURL, pattern: commitish),
-                                    commitExistsInRepository(repositoryURL, revision: commitish)
+                                    Git.branchExistsInRepository(repositoryURL, pattern: commitish),
+                                    Git.commitExistsInRepository(repositoryURL, revision: commitish)
                                     )
                                     .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                                         // If the given commitish is a branch, we should fetch.
@@ -522,7 +522,7 @@ public final class ProjectDependencyRetriever {
                             _ = try? fileManager.removeItem(at: repositoryURL)
                             return SignalProducer(value: (.cloning(dependency), urlLock))
                                 .concat(
-                                    cloneRepository(remoteURL, repositoryURL)
+                                    Git.cloneRepository(remoteURL, repositoryURL)
                                         .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
                             )
                         }
@@ -623,7 +623,7 @@ public final class ProjectDependencyRetriever {
         
         return dependencySet(for: dependency, version: version)
             // file system objects which might conflict with symlinks
-            .zip(with: list(treeish: version.commitish, atPath: carthageProjectCheckoutsPath, inRepository: repositoryURL)
+            .zip(with: Git.list(treeish: version.commitish, atPath: carthageProjectCheckoutsPath, inRepository: repositoryURL)
                 .map { (path: String) in (path as NSString).lastPathComponent }
                 .collect()
             )

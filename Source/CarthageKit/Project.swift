@@ -418,7 +418,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     public func checkoutResolvedDependencies(_ dependenciesToCheckout: [String]? = nil, buildOptions: BuildOptions?) -> SignalProducer<(), CarthageError> {
         /// Determine whether the repository currently holds any submodules (if
         /// it even is a repository).
-        let submodulesSignal = submodulesInRepository(self.directoryURL)
+        let submodulesSignal = Git.submodulesInRepository(self.directoryURL)
             .reduce(into: [:]) { (submodulesByPath: inout [String: Submodule], submodule) in
                 submodulesByPath[submodule.path] = submodule
         }

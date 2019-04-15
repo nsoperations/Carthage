@@ -27,7 +27,7 @@ extension ProjectLocator {
     public static func locate(in directoryURL: URL) -> SignalProducer<ProjectLocator, CarthageError> {
         let enumerationOptions: FileManager.DirectoryEnumerationOptions = [ .skipsHiddenFiles, .skipsPackageDescendants ]
 
-        return gitmodulesEntriesInRepository(directoryURL, revision: nil)
+        return Git.gitmodulesEntriesInRepository(directoryURL, revision: nil)
             .map { directoryURL.appendingPathComponent($0.path) }
             .concat(value: directoryURL.appendingPathComponent(carthageProjectCheckoutsPath))
             .collect()

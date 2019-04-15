@@ -434,13 +434,13 @@ class ProjectGitOperationsTests: XCTestCase {
 
     func initRepository() {
         expect { try FileManager.default.createDirectory(atPath: self.repositoryURL.path, withIntermediateDirectories: true) }.notTo(throwError())
-        _ = launchGitTask([ "init" ], repositoryFileURL: repositoryURL).wait()
+        _ = Git.launchGitTask([ "init" ], repositoryFileURL: repositoryURL).wait()
     }
 
     @discardableResult
     func addCommit() -> String {
-        _ = launchGitTask([ "commit", "--allow-empty", "-m \"Empty commit\"" ], repositoryFileURL: repositoryURL).wait()
-        guard let commit = launchGitTask([ "rev-parse", "--short", "HEAD" ], repositoryFileURL: repositoryURL)
+        _ = Git.launchGitTask([ "commit", "--allow-empty", "-m \"Empty commit\"" ], repositoryFileURL: repositoryURL).wait()
+        guard let commit = Git.launchGitTask([ "rev-parse", "--short", "HEAD" ], repositoryFileURL: repositoryURL)
             .last()?
             .value?
             .trimmingCharacters(in: .newlines) else {
@@ -457,7 +457,7 @@ class ProjectGitOperationsTests: XCTestCase {
     func assertProjectEvent(commitish: String? = nil, clearFetchTime: Bool = true, action: @escaping (ProjectEvent?) -> Void) {
         waitUntil { done in
             if clearFetchTime {
-                FetchCache.clearFetchTimes()
+                Git.FetchCache.clearFetchTimes()
             }
             self.cloneOrFetch(commitish: commitish).start(Signal.Observer(
                 value: { event, _ in action(event) },
