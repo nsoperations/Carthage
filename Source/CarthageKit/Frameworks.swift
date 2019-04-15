@@ -44,6 +44,12 @@ enum PackageType: String {
     case dSYM = "dSYM"
 }
 
+/// Describes an event occurring to or with a framework.
+public enum FrameworkEvent {
+    case ignored(String)
+    case copied(String)
+}
+
 public final class Frameworks {
     /// Determines the Swift version of a framework at a given `URL`.
     static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<String?, SwiftVersionError> {
@@ -138,7 +144,7 @@ public final class Frameworks {
     /// The files do not necessarily exist on disk.
     ///
     /// The returned URLs are relative to the parent directory of the framework.
-    public static func BCSymbolMapsForFramework(_ frameworkURL: URL) -> SignalProducer<URL, CarthageError> {
+    static func BCSymbolMapsForFramework(_ frameworkURL: URL) -> SignalProducer<URL, CarthageError> {
         let directoryURL = frameworkURL.deletingLastPathComponent()
         return UUIDsForFramework(frameworkURL)
             .flatMap(.merge) { uuids in SignalProducer<UUID, CarthageError>(uuids) }

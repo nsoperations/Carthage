@@ -15,155 +15,7 @@ public typealias BuildSchemeProducer = SignalProducer<TaskEvent<(ProjectLocator,
 /// A callback static function used to determine whether or not an SDK should be built
 public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configuration: String, _ project: ProjectLocator) -> Result<[SDK], CarthageError>
 
-/// Describes an event occurring to or with a framework.
-public enum FrameworkEvent {
-    case ignored(String)
-    case copyied(String)
-}
-
 public final class Xcode {
-    
-    /// Finds schemes of projects or workspaces, which Carthage should build, found
-    /// within the given directory.
-    public static func buildableSchemesInDirectory( // swiftlint:disable:this static function_body_length
-        _ directoryURL: URL,
-        withConfiguration configuration: String,
-        forPlatforms platforms: Set<Platform> = []
-        ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
-        precondition(directoryURL.isFileURL)
-        let locator = ProjectLocator
-            .locate(in: directoryURL)
-            .flatMap(.concat) { project -> SignalProducer<(ProjectLocator, [Scheme]), CarthageError> in
-                return project
-                    .schemes()
-                    .collect()
-                    .flatMapError { error in
-                        if case .noSharedSchemes = error {
-                            return .init(value: [])
-                        } else {
-                            return .init(error: error)
-                        }
-                    }
-                    .map { (project, $0) }
-            }
-            .replayLazily(upTo: Int.max)
-        return locator
-            .collect()
-            // Allow dependencies which have no projects, not to error out with
-            // `.noSharedFrameworkSchemes`.
-            .filter { projects in !projects.isEmpty }
-            .flatMap(.merge) { (projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                return schemesInProjects(projects).flatten()
-            }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                /// Check whether we should the scheme by checking against the project. If we're building
-                /// from a workspace, then it might include additional targets that would trigger our
-                /// check.
-                let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
-                return shouldBuildScheme(buildArguments, platforms)
-                    .filter { $0 }
-                    .map { _ in (scheme, project) }
-            }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                return locator
-                    // This scheduler hop is required to avoid disallowed recursive signals.
-                    // See https://github.com/ReactiveCocoa/ReactiveCocoa/pull/2042.
-                    .start(on: QueueScheduler(qos: .default, name: "org.carthage.CarthageKit.Xcode.buildInDirectory"))
-                    // Pick up the first workspace which can build the scheme.
-                    .flatMap(.concat) { project, schemes -> SignalProducer<ProjectLocator, CarthageError> in
-                        switch project {
-                        case .workspace where schemes.contains(scheme):
-                            let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
-                            return shouldBuildScheme(buildArguments, platforms)
-                                .filter { $0 }
-                                .map { _ in project }
-                            
-                        default:
-                            return .empty
-                        }
-                    }
-                    // If there is no appropriate workspace, use the project in
-                    // which the scheme is defined instead.
-                    .concat(value: project)
-                    .take(first: 1)
-                    .map { project in (scheme, project) }
-            }
-            .collect()
-            .flatMap(.merge) { (schemes: [(Scheme, ProjectLocator)]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                if !schemes.isEmpty {
-                    return .init(schemes)
-                } else {
-                    return .init(error: .noSharedFrameworkSchemes(.git(GitURL(directoryURL.path)), platforms))
-                }
-        }
-    }
-    
-    /// Invokes `xcodebuild` to retrieve build settings for the given build
-    /// arguments.
-    ///
-    /// Upon .success, sends one BuildSettings value for each target included in
-    /// the referenced scheme.
-    public static func loadBuildSettings(with arguments: BuildArguments, for action: BuildArguments.Action? = nil) -> SignalProducer<BuildSettings, CarthageError> {
-        // xcodebuild (in Xcode 8.0) has a bug where xcodebuild -showBuildSettings
-        // can hang indefinitely on projects that contain core data models.
-        // rdar://27052195
-        // Including the action "clean" works around this issue, which is further
-        // discussed here: https://forums.developer.apple.com/thread/50372
-        //
-        // "archive" also works around the issue above so use it to determine if
-        // it is configured for the archive action.
-        let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments)
-        
-        return task.launch()
-            .ignoreTaskData()
-            .mapError(CarthageError.taskError)
-            // xcodebuild has a bug where xcodebuild -showBuildSettings
-            // can sometimes hang indefinitely on projects that don't
-            // share any schemes, so automatically bail out if it looks
-            // like that's happening.
-            .timeout(after: 60, raising: .xcodebuildTimeout(arguments.project), on: QueueScheduler(qos: .default))
-            .retry(upTo: 5)
-            .map { data in
-                return String(data: data, encoding: .utf8)!
-            }
-            .flatMap(.merge) { string -> SignalProducer<BuildSettings, CarthageError> in
-                BuildSettings.produce(string: string, arguments: arguments, action: action)
-        }
-    }
-    
-    /// Sends each shared scheme name found in the receiver.
-    public static func listSchemeNames(project: ProjectLocator) -> SignalProducer<String, CarthageError> {
-        let task = xcodebuildTask("-list", BuildArguments(project: project))
-        
-        return task.launch()
-            .ignoreTaskData()
-            .mapError(CarthageError.taskError)
-            // xcodebuild has a bug where xcodebuild -list can sometimes hang
-            // indefinitely on projects that don't share any schemes, so
-            // automatically bail out if it looks like that's happening.
-            .timeout(after: 60, raising: .xcodebuildTimeout(project), on: QueueScheduler())
-            .retry(upTo: 2)
-            .map { data in
-                return String(data: data, encoding: .utf8)!
-            }
-            .flatMap(.merge) { string in
-                return string.linesProducer
-            }
-            .flatMap(.merge) { line -> SignalProducer<String, CarthageError> in
-                // Matches one of these two possible messages:
-                //
-                // '    This project contains no schemes.'
-                // 'There are no schemes in workspace "Carthage".'
-                if line.hasSuffix("contains no schemes.") || line.hasPrefix("There are no schemes") {
-                    return SignalProducer(error: CarthageError.noSharedSchemes(project, nil))
-                } else {
-                    return SignalProducer(value: line)
-                }
-            }
-            .skip { line in !line.hasSuffix("Schemes:") }
-            .skip(first: 1)
-            .take { line in !line.isEmpty }
-    }
     
     /// Attempts to build the dependency, then places its build product into the
     /// root directory given.
@@ -320,13 +172,155 @@ public final class Xcode {
                             let copyBCSymbols = shouldCopyBCSymbolMap ? copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder) : SignalProducer<URL, CarthageError>.empty
                             let copydSYMs = copyDebugSymbolsForFramework(source, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures)
                             return SignalProducer.combineLatest(copyFrameworks, copyBCSymbols, copydSYMs)
-                                .then(SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.copyied(frameworkName)))
+                                .then(SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.copied(frameworkName)))
                         }
                 }
         }
     }
-    
-    // MARK: - Private
+
+    // MARK: - Internal
+
+    /// Finds schemes of projects or workspaces, which Carthage should build, found
+    /// within the given directory.
+    static func buildableSchemesInDirectory( // swiftlint:disable:this static function_body_length
+        _ directoryURL: URL,
+        withConfiguration configuration: String,
+        forPlatforms platforms: Set<Platform> = []
+        ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
+        precondition(directoryURL.isFileURL)
+        let locator = ProjectLocator
+            .locate(in: directoryURL)
+            .flatMap(.concat) { project -> SignalProducer<(ProjectLocator, [Scheme]), CarthageError> in
+                return project
+                    .schemes()
+                    .collect()
+                    .flatMapError { error in
+                        if case .noSharedSchemes = error {
+                            return .init(value: [])
+                        } else {
+                            return .init(error: error)
+                        }
+                    }
+                    .map { (project, $0) }
+            }
+            .replayLazily(upTo: Int.max)
+        return locator
+            .collect()
+            // Allow dependencies which have no projects, not to error out with
+            // `.noSharedFrameworkSchemes`.
+            .filter { projects in !projects.isEmpty }
+            .flatMap(.merge) { (projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+                return schemesInProjects(projects).flatten()
+            }
+            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+                /// Check whether we should the scheme by checking against the project. If we're building
+                /// from a workspace, then it might include additional targets that would trigger our
+                /// check.
+                let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
+                return shouldBuildScheme(buildArguments, platforms)
+                    .filter { $0 }
+                    .map { _ in (scheme, project) }
+            }
+            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+                return locator
+                    // This scheduler hop is required to avoid disallowed recursive signals.
+                    // See https://github.com/ReactiveCocoa/ReactiveCocoa/pull/2042.
+                    .start(on: QueueScheduler(qos: .default, name: "org.carthage.CarthageKit.Xcode.buildInDirectory"))
+                    // Pick up the first workspace which can build the scheme.
+                    .flatMap(.concat) { project, schemes -> SignalProducer<ProjectLocator, CarthageError> in
+                        switch project {
+                        case .workspace where schemes.contains(scheme):
+                            let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
+                            return shouldBuildScheme(buildArguments, platforms)
+                                .filter { $0 }
+                                .map { _ in project }
+
+                        default:
+                            return .empty
+                        }
+                    }
+                    // If there is no appropriate workspace, use the project in
+                    // which the scheme is defined instead.
+                    .concat(value: project)
+                    .take(first: 1)
+                    .map { project in (scheme, project) }
+            }
+            .collect()
+            .flatMap(.merge) { (schemes: [(Scheme, ProjectLocator)]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+                if !schemes.isEmpty {
+                    return .init(schemes)
+                } else {
+                    return .init(error: .noSharedFrameworkSchemes(.git(GitURL(directoryURL.path)), platforms))
+                }
+        }
+    }
+
+    /// Sends each shared scheme name found in the receiver.
+    static func listSchemeNames(project: ProjectLocator) -> SignalProducer<String, CarthageError> {
+        let task = xcodebuildTask("-list", BuildArguments(project: project))
+
+        return task.launch()
+            .ignoreTaskData()
+            .mapError(CarthageError.taskError)
+            // xcodebuild has a bug where xcodebuild -list can sometimes hang
+            // indefinitely on projects that don't share any schemes, so
+            // automatically bail out if it looks like that's happening.
+            .timeout(after: 60, raising: .xcodebuildTimeout(project), on: QueueScheduler())
+            .retry(upTo: 2)
+            .map { data in
+                return String(data: data, encoding: .utf8)!
+            }
+            .flatMap(.merge) { string in
+                return string.linesProducer
+            }
+            .flatMap(.merge) { line -> SignalProducer<String, CarthageError> in
+                // Matches one of these two possible messages:
+                //
+                // '    This project contains no schemes.'
+                // 'There are no schemes in workspace "Carthage".'
+                if line.hasSuffix("contains no schemes.") || line.hasPrefix("There are no schemes") {
+                    return SignalProducer(error: CarthageError.noSharedSchemes(project, nil))
+                } else {
+                    return SignalProducer(value: line)
+                }
+            }
+            .skip { line in !line.hasSuffix("Schemes:") }
+            .skip(first: 1)
+            .take { line in !line.isEmpty }
+    }
+
+    /// Invokes `xcodebuild` to retrieve build settings for the given build
+    /// arguments.
+    ///
+    /// Upon .success, sends one BuildSettings value for each target included in
+    /// the referenced scheme.
+    static func loadBuildSettings(with arguments: BuildArguments, for action: BuildArguments.Action? = nil) -> SignalProducer<BuildSettings, CarthageError> {
+        // xcodebuild (in Xcode 8.0) has a bug where xcodebuild -showBuildSettings
+        // can hang indefinitely on projects that contain core data models.
+        // rdar://27052195
+        // Including the action "clean" works around this issue, which is further
+        // discussed here: https://forums.developer.apple.com/thread/50372
+        //
+        // "archive" also works around the issue above so use it to determine if
+        // it is configured for the archive action.
+        let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments)
+
+        return task.launch()
+            .ignoreTaskData()
+            .mapError(CarthageError.taskError)
+            // xcodebuild has a bug where xcodebuild -showBuildSettings
+            // can sometimes hang indefinitely on projects that don't
+            // share any schemes, so automatically bail out if it looks
+            // like that's happening.
+            .timeout(after: 60, raising: .xcodebuildTimeout(arguments.project), on: QueueScheduler(qos: .default))
+            .retry(upTo: 5)
+            .map { data in
+                return String(data: data, encoding: .utf8)!
+            }
+            .flatMap(.merge) { string -> SignalProducer<BuildSettings, CarthageError> in
+                BuildSettings.produce(string: string, arguments: arguments, action: action)
+        }
+    }
 
     /// Strips a framework from unexpected architectures and potentially debug symbols,
     /// optionally codesigning the result.
@@ -357,6 +351,8 @@ public final class Xcode {
             .concat(stripModules)
             .concat(sign)
     }
+    
+    // MARK: - Private
 
     private static func shouldIgnoreFramework(_ framework: URL, validArchitectures: [String]) -> SignalProducer<Bool, CarthageError> {
         return Frameworks.architecturesInPackage(framework)

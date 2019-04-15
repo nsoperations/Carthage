@@ -702,7 +702,7 @@ public final class ProjectDependencyRetriever {
         ) -> SignalProducer<URL, CarthageError> {
         
         return SignalProducer<URL, CarthageError>(value: zipFile)
-            .flatMap(.concat, unarchive(archive:))
+            .flatMap(.concat, Archive.unarchive(archive:))
             .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
                 return Frameworks.frameworksInDirectory(directoryURL)
                     .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in

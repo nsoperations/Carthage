@@ -25,7 +25,7 @@ public struct CopyFrameworksCommand: CommandProtocol {
                 }
                 .on(value: { (event) in
                     switch event {
-                    case .copyied(let frameworkName):
+                    case .copied(let frameworkName):
                         carthage.println("Copied \(frameworkName)")
                     case .ignored(let frameworkName):
                         carthage.println("warning: Ignoring \(frameworkName) because it does not support the current architecture\n")

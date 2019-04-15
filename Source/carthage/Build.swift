@@ -49,7 +49,7 @@ public struct BuildCommand: CommandProtocol {
         /// the project after the build.
         ///
         /// Otherwise, this producer will be empty.
-        public var archiveProducer: SignalProducer<(), CarthageError> {
+        public var archiveProducer: SignalProducer<URL, CarthageError> {
             if archive {
                 let options = ArchiveCommand.Options(outputPath: nil, directoryPath: directoryPath, colorOptions: colorOptions, frameworkNames: [])
                 return ArchiveCommand().archiveWithOptions(options)

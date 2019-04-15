@@ -2,73 +2,188 @@ import Foundation
 import Result
 import ReactiveSwift
 import ReactiveTask
+import XCDBLD
 
-/// Zips the given input paths (recursively) into an archive that will be
-/// located at the given URL.
-public func zip(paths: [String], into archiveURL: URL, workingDirectory: String) -> SignalProducer<(), CarthageError> {
-    precondition(!paths.isEmpty)
-    precondition(archiveURL.isFileURL)
+public final class Archive {
 
-    let task = Task("/usr/bin/env", arguments: [ "zip", "-q", "-r", "--symlinks", archiveURL.path ] + paths, workingDirectoryPath: workingDirectory)
+    // MARK: - Public
 
-    return task.launch()
-        .mapError(CarthageError.taskError)
-        .then(SignalProducer<(), CarthageError>.empty)
-}
+    public static func archiveFrameworks(frameworkNames: [String], directoryPath: String, customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+        let frameworks: SignalProducer<[String], CarthageError>
+        if !frameworkNames.isEmpty {
+            frameworks = .init(value: frameworkNames.map {
+                return ($0 as NSString).appendingPathExtension("framework")!
+            })
+        } else {
+            let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
+            frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: "Release")
+                .flatMap(.merge) { scheme, project -> SignalProducer<BuildSettings, CarthageError> in
+                    let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: "Release")
+                    return Xcode.loadBuildSettings(with: buildArguments)
+                }
+                .flatMap(.concat) { settings -> SignalProducer<String, CarthageError> in
+                    if let wrapperName = settings.wrapperName.value, settings.productType.value == .framework {
+                        return .init(value: wrapperName)
+                    } else {
+                        return .empty
+                    }
+                }
+                .collect()
+                .map { Array(Set($0)).sorted() }
+        }
 
-/// Unarchives the given file URL into a temporary directory, using its
-/// extension to detect archive type, then sends the file URL to that directory.
-public func unarchive(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
-    switch fileURL.pathExtension {
-    case "gz", "tgz", "bz2", "xz":
-        return untar(archive: fileURL)
-    default:
-        return unzip(archive: fileURL)
+        return frameworks.flatMap(.merge) { frameworks -> SignalProducer<URL, CarthageError> in
+            return SignalProducer<Platform, CarthageError>(Platform.supportedPlatforms)
+                .flatMap(.merge) { platform -> SignalProducer<String, CarthageError> in
+                    return SignalProducer(frameworks).map { framework in
+                        return (platform.relativePath as NSString).appendingPathComponent(framework)
+                    }
+                }
+                .map { relativePath -> (relativePath: String, absolutePath: String) in
+                    let absolutePath = (directoryPath as NSString).appendingPathComponent(relativePath)
+                    return (relativePath, absolutePath)
+                }
+                .filter { filePath in FileManager.default.fileExists(atPath: filePath.absolutePath) }
+                .flatMap(.merge) { framework -> SignalProducer<String, CarthageError> in
+                    let dSYM = (framework.relativePath as NSString).appendingPathExtension("dSYM")!
+                    let bcsymbolmapsProducer = Frameworks.BCSymbolMapsForFramework(URL(fileURLWithPath: framework.absolutePath))
+                        // generate relative paths for the bcsymbolmaps so they print nicely
+                        .map { url in ((framework.relativePath as NSString).deletingLastPathComponent as NSString).appendingPathComponent(url.lastPathComponent) }
+                    let extraFilesProducer = SignalProducer(value: dSYM)
+                        .concat(bcsymbolmapsProducer)
+                        .filter { _ in FileManager.default.fileExists(atPath: framework.absolutePath) }
+                    return SignalProducer(value: framework.relativePath)
+                        .concat(extraFilesProducer)
+                }
+                .on(value: { path in
+                    frameworkFoundHandler?(path)
+                })
+                .collect()
+                .flatMap(.merge) { paths -> SignalProducer<URL, CarthageError> in
+
+                    let foundFrameworks = paths
+                        .lazy
+                        .map { ($0 as NSString).lastPathComponent }
+                        .filter { $0.hasSuffix(".framework") }
+
+                    if Set(foundFrameworks) != Set(frameworks) {
+                        let error = CarthageError.invalidArgument(
+                            description: "Could not find any copies of \(frameworks.joined(separator: ", ")). "
+                                + "Make sure you're in the project's root and that the frameworks have already been built using 'carthage build --no-skip-current'."
+                        )
+                        return SignalProducer(error: error)
+                    }
+
+                    let outputPath = outputPathForBasePath(customOutputPath, frameworks: frameworks)
+                    let outputURL = URL(fileURLWithPath: outputPath, isDirectory: false)
+
+                    _ = try? FileManager
+                        .default
+                        .removeItem(at: outputURL)
+                    _ = try? FileManager
+                        .default
+                        .createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+                    return zip(paths: paths, into: outputURL, workingDirectory: directoryPath)
+            }
+        }
     }
-}
 
-/// Unzips the archive at the given file URL, extracting into the given
-/// directory URL (which must already exist).
-private func unzip(archive fileURL: URL, to destinationDirectoryURL: URL) -> SignalProducer<(), CarthageError> {
-    precondition(fileURL.isFileURL)
-    precondition(destinationDirectoryURL.isFileURL)
+    // MARK: - Internal
 
-    let task = Task("/usr/bin/env", arguments: [ "unzip", "-uo", "-qq", "-d", destinationDirectoryURL.path, fileURL.path ])
-    return task.launch()
-        .mapError(CarthageError.taskError)
-        .then(SignalProducer<(), CarthageError>.empty)
-}
-
-/// Untars an archive at the given file URL, extracting into the given
-/// directory URL (which must already exist).
-private func untar(archive fileURL: URL, to destinationDirectoryURL: URL) -> SignalProducer<(), CarthageError> {
-    precondition(fileURL.isFileURL)
-    precondition(destinationDirectoryURL.isFileURL)
-
-    let task = Task("/usr/bin/env", arguments: [ "tar", "-xf", fileURL.path, "-C", destinationDirectoryURL.path ])
-    return task.launch()
-        .mapError(CarthageError.taskError)
-        .then(SignalProducer<(), CarthageError>.empty)
-}
-
-private let archiveTemplate = "carthage-archive.XXXXXX"
-
-/// Unzips the archive at the given file URL into a temporary directory, then
-/// sends the file URL to that directory.
-private func unzip(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
-    return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(archiveTemplate)
-        .flatMap(.merge) { directoryURL in
-            return unzip(archive: fileURL, to: directoryURL)
-                .then(SignalProducer<URL, CarthageError>(value: directoryURL))
+    /// Unarchives the given file URL into a temporary directory, using its
+    /// extension to detect archive type, then sends the file URL to that directory.
+    static func unarchive(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
+        switch fileURL.pathExtension {
+        case "gz", "tgz", "bz2", "xz":
+            return untar(archive: fileURL)
+        default:
+            return unzip(archive: fileURL)
+        }
     }
-}
 
-/// Untars an archive at the given file URL into a temporary directory,
-/// then sends the file URL to that directory.
-private func untar(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
-    return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(archiveTemplate)
-        .flatMap(.merge) { directoryURL in
-            return untar(archive: fileURL, to: directoryURL)
-                .then(SignalProducer<URL, CarthageError>(value: directoryURL))
+    /// Zips the given input paths (recursively) into an archive that will be
+    /// located at the given URL.
+    static func zip(paths: [String], into archiveURL: URL, workingDirectory: String) -> SignalProducer<URL, CarthageError> {
+        precondition(!paths.isEmpty)
+        precondition(archiveURL.isFileURL)
+
+        let task = Task("/usr/bin/env", arguments: [ "zip", "-q", "-r", "--symlinks", archiveURL.path ] + paths, workingDirectoryPath: workingDirectory)
+
+        return task.launch()
+            .mapError(CarthageError.taskError)
+            .then(SignalProducer<URL, CarthageError>(value: archiveURL))
     }
+
+    // MARK: - Private
+
+    /// Returns an appropriate output file path for the resulting zip file using
+    /// the given option and frameworks.
+    private static func outputPathForBasePath(_ basePath: String?, frameworks: [String]) -> String {
+        let defaultOutputPath = "\(frameworks.first!).zip"
+
+        return basePath.map { path -> String in
+            if path.hasSuffix("/") {
+                // The given path should be a directory.
+                return path + defaultOutputPath
+            }
+
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue {
+                // If the given path is an existing directory, output a zip file
+                // into that directory.
+                return (path as NSString).appendingPathComponent(defaultOutputPath)
+            } else {
+                // Use the given path as the final output.
+                return path
+            }
+            } ?? defaultOutputPath
+    }
+
+    /// Unzips the archive at the given file URL, extracting into the given
+    /// directory URL (which must already exist).
+    private static func unzip(archive fileURL: URL, to destinationDirectoryURL: URL) -> SignalProducer<URL, CarthageError> {
+        precondition(fileURL.isFileURL)
+        precondition(destinationDirectoryURL.isFileURL)
+
+        let task = Task("/usr/bin/env", arguments: [ "unzip", "-uo", "-qq", "-d", destinationDirectoryURL.path, fileURL.path ])
+        return task.launch()
+            .mapError(CarthageError.taskError)
+            .then(SignalProducer<URL, CarthageError>(value: destinationDirectoryURL))
+    }
+
+    /// Untars an archive at the given file URL, extracting into the given
+    /// directory URL (which must already exist).
+    private static func untar(archive fileURL: URL, to destinationDirectoryURL: URL) -> SignalProducer<URL, CarthageError> {
+        precondition(fileURL.isFileURL)
+        precondition(destinationDirectoryURL.isFileURL)
+
+        let task = Task("/usr/bin/env", arguments: [ "tar", "-xf", fileURL.path, "-C", destinationDirectoryURL.path ])
+        return task.launch()
+            .mapError(CarthageError.taskError)
+            .then(SignalProducer<URL, CarthageError>(value: destinationDirectoryURL))
+    }
+
+    private static let archiveTemplate = "carthage-archive.XXXXXX"
+
+    /// Unzips the archive at the given file URL into a temporary directory, then
+    /// sends the file URL to that directory.
+    private static func unzip(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
+        return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(archiveTemplate)
+            .flatMap(.merge) { directoryURL in
+                return unzip(archive: fileURL, to: directoryURL)
+                    .then(SignalProducer<URL, CarthageError>(value: directoryURL))
+        }
+    }
+
+    /// Untars an archive at the given file URL into a temporary directory,
+    /// then sends the file URL to that directory.
+    private static func untar(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
+        return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(archiveTemplate)
+            .flatMap(.merge) { directoryURL in
+                return untar(archive: fileURL, to: directoryURL)
+                    .then(SignalProducer<URL, CarthageError>(value: directoryURL))
+        }
+    }
+
 }
