@@ -146,38 +146,7 @@ public struct BuildCommand: CommandProtocol {
         var eventSink = ProjectEventSink(colorOptions: options.colorOptions)
         project.projectEvents.observeValues { eventSink.put($0) }
 
-        let buildProducer = project.loadResolvedCartfile()
-            .map { _ in project }
-            .flatMapError { error -> SignalProducer<Project, CarthageError> in
-                if !shouldBuildCurrentProject {
-                    return SignalProducer(error: error)
-                } else {
-                    // Ignore Cartfile.resolved loading failure. Assume the user
-                    // just wants to build the enclosing project.
-                    return .empty
-                }
-            }
-            .flatMap(.merge) { project in
-                return project.buildCheckedOutDependenciesWithOptions(options.buildOptions, dependenciesToBuild: options.dependenciesToBuild)
-        }
-
-        if !shouldBuildCurrentProject {
-            return buildProducer
-        } else {
-            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: options.buildOptions, rootDirectoryURL: directoryURL, lockTimeout: options.lockTimeout)
-                .flatMapError { error -> BuildSchemeProducer in
-                    switch error {
-                    case let .noSharedFrameworkSchemes(project, _):
-                        // Log that building the current project is being skipped.
-                        eventSink.put(.skippedBuilding(project, error.description))
-                        return .empty
-
-                    default:
-                        return SignalProducer(error: error)
-                    }
-            }
-            return buildProducer.concat(currentProducers)
-        }
+        return project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions)
     }
 
     /// Opens an existing file, if provided, or creates a temporary file if not, returning a handle and the URL to the

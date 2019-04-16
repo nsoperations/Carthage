@@ -17,9 +17,14 @@ public struct CopyFrameworksCommand: CommandProtocol {
             let shouldStripDebugSymbols: Bool = self.shouldStripDebugSymbols()
             let shouldCopyBCSymbolMap: Bool = self.buildActionIsArchiveOrInstall()
             let symbolsFolder: URL = try self.appropriateDestinationFolder().get()
+
+            let waitHandler: (URL) -> Void = { url in
+                carthage.println("Waiting for lock on url: \(url)")
+            }
+
             return inputFiles()
-                .flatMap(.merge) { frameworkPath -> SignalProducer<FrameworkEvent, CarthageError> in
-                    return Xcode.copyFrameworks(frameworkPath: frameworkPath, frameworksFolder: frameworksFolder, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols, shouldCopyBCSymbolMap: shouldCopyBCSymbolMap)
+                .flatMap(.merge) { frameworkURL -> SignalProducer<FrameworkEvent, CarthageError> in
+                    return CopyFramework.copyFramework(frameworkURL: frameworkURL, frameworksFolder: frameworksFolder, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols, shouldCopyBCSymbolMap: shouldCopyBCSymbolMap, waitHandler: waitHandler)
                         // Copy as many frameworks as possible in parallel.
                         .start(on: QueueScheduler(name: "org.carthage.CarthageKit.CopyFrameworks.copy"))
                 }
@@ -113,10 +118,11 @@ public struct CopyFrameworksCommand: CommandProtocol {
         return getEnvironmentVariable("ACTION").value == "install"
     }
     
-    private func inputFiles() -> SignalProducer<String, CarthageError> {
+    private func inputFiles() -> SignalProducer<URL, CarthageError> {
         return SignalProducer(values: scriptInputFiles(), scriptInputFileLists())
             .flatten(.merge)
             .uniqueValues()
+            .map { URL(fileURLWithPath: $0) }
     }
     
     private func scriptInputFiles() -> SignalProducer<String, CarthageError> {

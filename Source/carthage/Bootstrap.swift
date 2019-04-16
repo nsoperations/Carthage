@@ -22,23 +22,6 @@ public struct BootstrapCommand: CommandProtocol {
                         buildOptions: options.buildOptions)
                 }
 
-                let checkDependencies: SignalProducer<(), CarthageError>
-                if let depsToUpdate = options.dependenciesToUpdate {
-                    checkDependencies = project
-                        .loadResolvedCartfile()
-                        .flatMap(.concat) { resolvedCartfile -> SignalProducer<(), CarthageError> in
-                            let resolvedDependencyNames = resolvedCartfile.dependencies.keys.map { $0.name.lowercased() }
-                            let unresolvedDependencyNames = Set(depsToUpdate.map { $0.lowercased() }).subtracting(resolvedDependencyNames)
-
-                            if !unresolvedDependencyNames.isEmpty {
-                                return SignalProducer(error: .unresolvedDependencies(unresolvedDependencyNames.sorted()))
-                            }
-                            return .empty
-                    }
-                } else {
-                    checkDependencies = .empty
-                }
-
                 let checkoutDependencies: SignalProducer<(), CarthageError>
                 if options.checkoutAfterUpdate {
                     checkoutDependencies = project.checkoutResolvedDependencies(options.dependenciesToUpdate, buildOptions: options.buildOptions)
@@ -46,7 +29,7 @@ public struct BootstrapCommand: CommandProtocol {
                     checkoutDependencies = .empty
                 }
 
-                return checkDependencies.then(checkoutDependencies)
+                return checkoutDependencies
             }
             .then(options.buildProducer)
             .waitOnCommand()
