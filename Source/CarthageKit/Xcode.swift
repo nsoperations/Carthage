@@ -381,7 +381,7 @@ public final class Xcode {
         let target = settings.wrapperName.map(directoryURL.appendingPathComponent)
         return SignalProducer(result: target.fanout(settings.wrapperURL))
             .flatMap(.merge) { target, source in
-                return Files.copyProduct(source.resolvingSymlinksInPath(), target)
+                return Files.copyFile(from: source.resolvingSymlinksInPath(), to: target)
             }
             .flatMap(.merge) { url in
                 return copyBCSymbolMapsForBuildProductIntoDirectory(directoryURL, settings)

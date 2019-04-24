@@ -83,7 +83,7 @@ public final class CopyFramework {
     }
 
     private static func copyFramework(_ source: URL, target: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool) -> SignalProducer<(), CarthageError> {
-        return SignalProducer.combineLatest(Files.copyProduct(source, target), SignalProducer(value: codeSigningIdentity))
+        return SignalProducer.combineLatest(Files.copyFile(from: source, to: target), SignalProducer(value: codeSigningIdentity))
             .flatMap(.merge) { url, codesigningIdentity -> SignalProducer<(), CarthageError> in
                 let strip = Xcode.stripFramework(
                     url,

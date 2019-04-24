@@ -327,22 +327,17 @@ public final class ProjectDependencyRetriever {
     ///
     /// Sends a boolean indicating whether binaries were installed.
     public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, toolchain: String?) -> SignalProducer<Bool, CarthageError> {
+        var binariesCache: BinariesCache? = nil
         switch dependency {
         case let .gitHub(server, repository):
+            binariesCache = GitHubBinariesCache(repository: repository, client: Client(server: server))
+        case .git, .binary:
+            return SignalProducer(value: false)
+        }
+
+        if let binariesCache = binariesCache {
             var lock: Lock?
-            let client = Client(server: server)
-            return self.downloadMatchingBinaries(for: dependency, pinnedVersion: pinnedVersion, fromRepository: repository, client: client)
-                .flatMapError { error -> SignalProducer<URLLock, CarthageError> in
-                    if !client.isAuthenticated {
-                        return SignalProducer(error: error)
-                    }
-                    return self.downloadMatchingBinaries(
-                        for: dependency,
-                        pinnedVersion: pinnedVersion,
-                        fromRepository: repository,
-                        client: Client(server: server, isAuthenticated: false)
-                    )
-                }
+            return binariesCache.matchingBinaries(for: dependency, pinnedVersion: pinnedVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
                 .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
                     lock = urlLock
                     return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: dependency.name, pinnedVersion: pinnedVersion, toolchain: toolchain)
@@ -356,7 +351,7 @@ public final class ProjectDependencyRetriever {
                 .concat(value: false)
                 .take(first: 1)
                 .on(terminated: { lock?.unlock() })
-        case .git, .binary:
+        } else {
             return SignalProducer(value: false)
         }
     }
@@ -390,70 +385,6 @@ public final class ProjectDependencyRetriever {
     }
 
     // MARK: - Private methods
-
-    /// Downloads any binaries and debug symbols that may be able to be used
-    /// instead of a repository checkout.
-    ///
-    /// Sends the URL to each downloaded zip, after it has been moved to a
-    /// less temporary location.
-    private func downloadMatchingBinaries(
-        for dependency: Dependency,
-        pinnedVersion: PinnedVersion,
-        fromRepository repository: Repository,
-        client: Client
-        ) -> SignalProducer<URLLock, CarthageError> {
-        return client.execute(repository.release(forTag: pinnedVersion.commitish))
-            .map { _, release in release }
-            .filter { release in
-                return !release.isDraft && !release.assets.isEmpty
-            }
-            .flatMapError { error -> SignalProducer<Release, CarthageError> in
-                switch error {
-                case .doesNotExist:
-                    return .empty
-
-                case let .apiError(_, _, error):
-                    // Log the GitHub API request failure, not to error out,
-                    // because that should not be fatal error.
-                    self.projectEventsObserver?.send(value: .skippedDownloadingBinaries(dependency, error.message))
-                    return .empty
-
-                default:
-                    return SignalProducer(error: .gitHubAPIRequestFailed(error))
-                }
-            }
-            .on(value: { release in
-                self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, release.nameWithFallback))
-            })
-            .flatMap(.concat) { release -> SignalProducer<URLLock, CarthageError> in
-                return SignalProducer<Release.Asset, CarthageError>(release.assets)
-                    .filter { asset in
-                        if asset.name.range(of: Constants.Project.binaryAssetPattern) == nil {
-                            return false
-                        }
-                        return Constants.Project.binaryAssetContentTypes.contains(asset.contentType)
-                    }
-                    .flatMap(.concat) { asset -> SignalProducer<(URLLock, Release.Asset), CarthageError> in
-                        let fileURL = self.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: Constants.Dependency.assetsURL)
-                        return URLLock.lockReactive(url: fileURL, timeout: self.lockTimeout).map { urlLock in
-                            return (urlLock, asset)
-                        }
-                    }
-                    .flatMap(.concat) { (urlLock, asset) -> SignalProducer<URLLock, CarthageError> in
-                        let fileURL = urlLock.url
-                        if FileManager.default.fileExists(atPath: fileURL.path) {
-                            return SignalProducer(value: urlLock)
-                        } else {
-                            return client.download(asset: asset)
-                                .mapError(CarthageError.gitHubAPIRequestFailed)
-                                .flatMap(.concat) { downloadURL in
-                                    self.cacheDownloadedBinary(downloadURL, toURL: fileURL)
-                                        .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
-                            }
-                        }
-                }
-            }
-    }
 
     private func cloneOrFetchDependencyLocked(_ dependency: Dependency, commitish: String? = nil) -> SignalProducer<URLLock, CarthageError> {
         return ProjectDependencyRetriever.cloneOrFetchLocked(dependency: dependency, preferHTTPS: self.preferHTTPS, lockTimeout: self.lockTimeout, commitish: commitish)
@@ -577,13 +508,6 @@ public final class ProjectDependencyRetriever {
         }
     }
 
-    /// Constructs a file URL to where the binary corresponding to the given
-    /// arguments should live.
-    private func fileURLToCachedBinary(dependency: Dependency, release: Release, asset: Release.Asset, baseURL: URL) -> URL {
-        // ~/Library/Caches/org.carthage.CarthageKit/binaries/ReactiveCocoa/v2.3.1/1234-ReactiveCocoa.framework.zip
-        return baseURL.appendingPathComponent("\(dependency.name)/\(release.tag)/\(asset.id)-\(asset.name)", isDirectory: false)
-    }
-
     /// Constructs a file URL to where the binary only framework download should be cached
     private func fileURLToCachedBinaryDependency(dependency: Dependency, semanticVersion: Version, fileName: String, baseURL: URL) -> URL {
         // ~/Library/Caches/org.carthage.CarthageKit/binaries/MyBinaryProjectFramework/2.3.1/MyBinaryProject.framework.zip
@@ -600,13 +524,15 @@ public final class ProjectDependencyRetriever {
                 if FileManager.default.fileExists(atPath: fileURL.path) {
                     return SignalProducer(value: urlLock)
                 } else {
-                    return URLSession.shared.reactive.download(with: URLRequest(url: url))
+                    let urlRequest = URLRequest(url: url)
+                    return URLSession.shared.reactive.download(with: urlRequest)
                         .on(started: {
                             self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, version.description))
                         })
                         .mapError { CarthageError.readFailed(url, $0 as NSError) }
-                        .flatMap(.concat) { downloadURL, _ in
-                            self.cacheDownloadedBinary(downloadURL, toURL: fileURL)
+                        .flatMap(.concat) { result -> SignalProducer<URLLock, CarthageError> in
+                            let downloadURL = result.0
+                            return Files.moveFile(from: downloadURL, to: fileURL)
                                 .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
                     }
                 }

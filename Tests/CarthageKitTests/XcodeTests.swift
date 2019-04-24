@@ -207,7 +207,7 @@ class XcodeTests: XCTestCase {
 		// Copy ReactiveCocoaLayout.framework to the temporary folder.
 		let targetURL = targetFolderURL.appendingPathComponent("ReactiveCocoaLayout.framework", isDirectory: true)
 		
-		let resultURL = Files.copyProduct(frameworkFolderURL, targetURL).single()
+        let resultURL = Files.copyFile(from: frameworkFolderURL, to: targetURL).single()
 		expect(resultURL?.value) == targetURL
 		expect(targetURL.path).to(beExistingDirectory())
 		

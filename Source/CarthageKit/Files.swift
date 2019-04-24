@@ -14,7 +14,7 @@ final class Files {
     /// send `.success`.
     ///
     /// Returns a signal that will send the URL after copying upon .success.
-    static func copyProduct(_ from: URL, _ to: URL) -> SignalProducer<URL, CarthageError> { // swiftlint:disable:this identifier_name
+    static func copyFile(from: URL, to: URL) -> SignalProducer<URL, CarthageError> { // swiftlint:disable:this identifier_name
         return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
             let manager = FileManager.default
             
@@ -54,6 +54,42 @@ final class Files {
         }
     }
 
+    /// Moves the source file at the given URL to the specified destination URL
+    ///
+    /// Sends the final file URL upon .success.
+    static func moveFile(from sourceURL: URL, to destinationURL: URL) -> SignalProducer<URL, CarthageError> {
+        return SignalProducer(value: destinationURL)
+            .attempt { fileURL in
+                Result(at: fileURL.deletingLastPathComponent(), attempt: {
+                    try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true)
+                })
+            }
+            .attempt { newsourceURL in
+                // Tries `rename()` system call at first.
+                let result = sourceURL.withUnsafeFileSystemRepresentation { old in
+                    newsourceURL.withUnsafeFileSystemRepresentation { new in
+                        rename(old!, new!)
+                    }
+                }
+                if result == 0 {
+                    return .success(())
+                }
+
+                if errno != EXDEV {
+                    return .failure(.taskError(.posixError(errno)))
+                }
+
+                // If the “Cross-device link” error occurred, then falls back to
+                // `FileManager.moveItem(at:to:)`.
+                //
+                // See https://github.com/Carthage/Carthage/issues/706 and
+                // https://github.com/Carthage/Carthage/issues/711.
+                return Result(at: newsourceURL, attempt: {
+                    try FileManager.default.moveItem(at: sourceURL, to: $0)
+                })
+        }
+    }
+
 }
 
 extension SignalProducer where Value == URL, Error == CarthageError {
@@ -68,7 +104,7 @@ extension SignalProducer where Value == URL, Error == CarthageError {
                 let destinationURL = directoryURL.appendingPathComponent(fileName, isDirectory: false)
                 let resolvedDestinationURL = destinationURL.resolvingSymlinksInPath()
                 
-                return Files.copyProduct(fileURL, resolvedDestinationURL)
+                return Files.copyFile(from: fileURL, to: resolvedDestinationURL)
         }
     }
 }
