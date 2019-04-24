@@ -17,14 +17,14 @@ class RemoteVersionTests: XCTestCase {
 		}
 		let release = Release(id: 0, tag: "0.1.0", url: aboutURL, assets: [])
 		let producer = SignalProducer<Release, CarthageError>(value: release)
-		expect(remoteVersion(producer)) == Version(0, 1, 0)
+        XCTAssertEqual(producer.getLatestVersion(), Version(0, 1, 0))
 	}
 	
 	func testVersionTimeout() {
 		let expectation = XCTestExpectation(description: "timeout")
 		var version: Version? = Version(0, 0, 0)
 		DispatchQueue.main.async {
-			version = remoteVersion(SignalProducer.never)
+			version = SignalProducer.never.getLatestVersion()
 			XCTAssertNil(version)
 			expectation.fulfill()
 		}

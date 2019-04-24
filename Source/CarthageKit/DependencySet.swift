@@ -3,8 +3,6 @@ import BTree
 
 typealias DependencyEntry = (key: Dependency, value: VersionSpecifier)
 
-// swiftlint:disable vertical_parameter_alignment_on_call
-// swiftlint:disable vertical_parameter_alignment
 // swiftlint:disable type_body_length
 
 /**

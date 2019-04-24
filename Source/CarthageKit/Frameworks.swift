@@ -50,7 +50,7 @@ public enum FrameworkEvent {
     case copied(String)
 }
 
-public final class Frameworks {
+final class Frameworks {
     /// Determines the Swift version of a framework at a given `URL`.
     static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<String?, SwiftVersionError> {
         guard isSwiftFramework(frameworkURL) else {

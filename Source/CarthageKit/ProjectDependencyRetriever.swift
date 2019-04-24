@@ -785,7 +785,7 @@ public final class ProjectDependencyRetriever {
         projectName: String,
         commitish: String
         ) -> SignalProducer<(), CarthageError> {
-        return createVersionFileForCommitish(commitish, dependencyName: projectName, buildProducts: frameworkURLs, rootDirectoryURL: self.directoryURL)
+        return VersionFile.createVersionFileForCommitish(commitish, dependencyName: projectName, buildProducts: frameworkURLs, rootDirectoryURL: self.directoryURL)
     }
 }
 

@@ -10,6 +10,7 @@ import Result
 import ReactiveSwift
 import ReactiveTask
 
+/// Protocol describing the public interface for concrete implementations of lock
 protocol Lock {
     
     /// Whether or not the lock is currently locked

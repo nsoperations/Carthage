@@ -333,6 +333,65 @@ public final class Project { // swiftlint:disable:this type_body_length
         return self.loadResolvedCartfile().flatMap(.merge, self.validate)
     }
 
+    /// Stores all possible dependencies and versions of those dependencies in the specified local dependency store.
+    ///
+    /// If ignoreErrors is true, failure for retrieving some of the transitive dependencies or their versions will not be fatal,
+    /// rather an empty collection is assumed.
+    ///
+    /// Dependency mappings are used to anonymize dependencies to avoid disclosure of possible sensitive information.
+    /// Use key=source dependency and value=target dependency
+    ///
+    /// Specify an event observer to be notified by events of the DependencyCrawler.
+    ///
+    /// Upon success this method returns the mapped Cartfile and optionally ResolvedCartfile.
+    public func storeDependencies(to store: LocalDependencyStore,
+                                  ignoreErrors: Bool = false,
+                                  dependencyMappings: [Dependency: Dependency]? = nil,
+                                  eventObserver: ((DependencyCrawlerEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
+        let crawler = DependencyCrawler(
+            versionsForDependency: dependencyRetriever.versions(for:),
+            dependenciesForDependency: dependencyRetriever.dependencies(for:version:),
+            resolvedGitReference: dependencyRetriever.resolvedGitReference,
+            store: store,
+            mappings: dependencyMappings,
+            ignoreErrors: ignoreErrors
+        )
+
+        if let observer = eventObserver {
+            crawler.events.observeValues(observer)
+        }
+
+        let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile()
+            .map(Optional.init)
+            .flatMapError { _ in .init(value: nil) }
+
+        return SignalProducer
+            .zip(loadCombinedCartfile(), resolvedCartfile)
+            .flatMap(.merge) { cartfile, resolvedCartfile -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> in
+                let result = crawler.traverse(dependencies: cartfile.dependencies)
+
+                if case .failure(let carthageError) = result {
+                    return SignalProducer(error: carthageError)
+                }
+
+                let mappedDependencies: [Dependency: VersionSpecifier] = Dictionary(uniqueKeysWithValues: cartfile.dependencies.map { dependency, versionSpecifier -> (Dependency, VersionSpecifier) in
+                    let mappedDependency = dependencyMappings?[dependency] ?? dependency
+                    return (mappedDependency, versionSpecifier)
+                })
+
+                let mappedResolvedDependencies: [Dependency: PinnedVersion]? = resolvedCartfile.map {
+                    Dictionary(uniqueKeysWithValues: $0.dependencies.map { dependency, pinnedVersion -> (Dependency, PinnedVersion) in
+                        let mappedDependency = dependencyMappings?[dependency] ?? dependency
+                        return (mappedDependency, pinnedVersion)
+                    })
+                }
+
+                let mappedCartfile = Cartfile(dependencies: mappedDependencies)
+                let mappedResolvedCartfile = mappedResolvedDependencies.map { ResolvedCartfile(dependencies: $0) }
+                return SignalProducer(value: (mappedCartfile, mappedResolvedCartfile))
+        }
+    }
+
     // MARK: - Internal
 
     /// Attempts to load Cartfile or Cartfile.private from the given directory,
@@ -510,7 +569,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     .map { dependency, _ in dependency }
                     .filter { dependency in dependenciesToInclude?.contains(dependency.name) ?? false })
 
-                guard let sortedDependencies = topologicalSort(graph, nodes: dependenciesToInclude) else { // swiftlint:disable:this single_line_guard
+                guard let sortedDependencies = Algorithms.topologicalSort(graph, nodes: dependenciesToInclude) else { // swiftlint:disable:this single_line_guard
                     return SignalProducer(error: .dependencyCycle(graph))
                 }
 
@@ -543,7 +602,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
                     self.dependencyRetriever.dependencySet(for: dependency, version: version),
-                    versionFileMatches(dependency, version: version, platforms: options.platforms, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain)
+                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain)
                 )
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
@@ -630,7 +689,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                             if options.cacheBuilds {
                                 // Create a version file for a dependency with no shared schemes
                                 // so that its cache is not always considered invalid.
-                                return createVersionFileForCommitish(version.commitish,
+                                return VersionFile.createVersionFileForCommitish(version.commitish,
                                                                      dependencyName: dependency.name,
                                                                      platforms: options.platforms,
                                                                      buildProducts: [],
@@ -644,6 +703,21 @@ public final class Project { // swiftlint:disable:this type_body_length
                         }
                 }
         }
+    }
+
+    /// Updates dependencies by using the specified local dependency store instead of 'live' lookup for dependencies and their versions
+    /// Returns a signal with the resulting ResolvedCartfile upon success or a CarthageError upon failure.
+    func resolveUpdatedDependencies(
+        from store: LocalDependencyStore,
+        resolverType: ResolverProtocol.Type,
+        dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
+        let resolver = resolverType.init(
+            versionsForDependency: store.versions(for:),
+            dependenciesForDependency: store.dependencies(for:version:),
+            resolvedGitReference: store.resolvedGitReference
+        )
+
+        return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 
     // MARK: - Private
@@ -754,84 +828,5 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer(error: error)
             }
         }
-    }
-}
-
-// Diagnostic methods to be able to diagnose problems with the resolver with dependencies
-// which cannot be tested 'live', e.g. for private repositories
-extension Project {
-
-    /// Stores all possible dependencies and versions of those dependencies in the specified local dependency store.
-    ///
-    /// If ignoreErrors is true, failure for retrieving some of the transitive dependencies or their versions will not be fatal,
-    /// rather an empty collection is assumed.
-    ///
-    /// Dependency mappings are used to anonymize dependencies to avoid disclosure of possible sensitive information.
-    /// Use key=source dependency and value=target dependency
-    ///
-    /// Specify an event observer to be notified by events of the DependencyCrawler.
-    ///
-    /// Upon success this method returns the mapped Cartfile and optionally ResolvedCartfile.
-    public func storeDependencies(to store: LocalDependencyStore,
-                                  ignoreErrors: Bool = false,
-                                  dependencyMappings: [Dependency: Dependency]? = nil,
-                                  eventObserver: ((DependencyCrawlerEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
-        let crawler = DependencyCrawler(
-            versionsForDependency: dependencyRetriever.versions(for:),
-            dependenciesForDependency: dependencyRetriever.dependencies(for:version:),
-            resolvedGitReference: dependencyRetriever.resolvedGitReference,
-            store: store,
-            mappings: dependencyMappings,
-            ignoreErrors: ignoreErrors
-        )
-
-        if let observer = eventObserver {
-            crawler.events.observeValues(observer)
-        }
-
-        let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile()
-            .map(Optional.init)
-            .flatMapError { _ in .init(value: nil) }
-
-        return SignalProducer
-            .zip(loadCombinedCartfile(), resolvedCartfile)
-            .flatMap(.merge) { cartfile, resolvedCartfile -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> in
-                let result = crawler.traverse(dependencies: cartfile.dependencies)
-
-                if case .failure(let carthageError) = result {
-                    return SignalProducer(error: carthageError)
-                }
-
-                let mappedDependencies: [Dependency: VersionSpecifier] = Dictionary(uniqueKeysWithValues: cartfile.dependencies.map { dependency, versionSpecifier -> (Dependency, VersionSpecifier) in
-                    let mappedDependency = dependencyMappings?[dependency] ?? dependency
-                    return (mappedDependency, versionSpecifier)
-                })
-
-                let mappedResolvedDependencies: [Dependency: PinnedVersion]? = resolvedCartfile.map {
-                    Dictionary(uniqueKeysWithValues: $0.dependencies.map { dependency, pinnedVersion -> (Dependency, PinnedVersion) in
-                        let mappedDependency = dependencyMappings?[dependency] ?? dependency
-                        return (mappedDependency, pinnedVersion)
-                    })
-                }
-
-                let mappedCartfile = Cartfile(dependencies: mappedDependencies)
-                let mappedResolvedCartfile = mappedResolvedDependencies.map { ResolvedCartfile(dependencies: $0) }
-                return SignalProducer(value: (mappedCartfile, mappedResolvedCartfile))
-        }
-    }
-
-    /// Updates dependencies by using the specified local dependency store instead of 'live' lookup for dependencies and their versions
-    /// Returns a signal with the resulting ResolvedCartfile upon success or a CarthageError upon failure.
-    func resolveUpdatedDependencies(
-        from store: LocalDependencyStore,
-        resolverType: ResolverProtocol.Type,
-        dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
-        let resolver = resolverType.init(
-            versionsForDependency: store.versions(for:),
-            dependenciesForDependency: store.dependencies(for:version:),
-            resolvedGitReference: store.resolvedGitReference
-        )
-
-        return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 }

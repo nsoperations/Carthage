@@ -1,16 +1,12 @@
-//
-//  CopyFramework.swift
-//  CarthageKit
-//
-//  Created by Werner Altewischer on 16/04/2019.
-//
-
 import Foundation
 import Result
 import ReactiveSwift
 import ReactiveTask
 import XCDBLD
 
+/**
+ Implementation of copyframework for the `copyframeworks` carthage command
+ */
 public final class CopyFramework {
 
     // MARK: - Public

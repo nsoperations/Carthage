@@ -112,13 +112,13 @@ struct VersionFile: Codable {
         ) -> SignalProducer<String?, CarthageError> {
         return SignalProducer<CachedFramework, CarthageError>(cachedFrameworks)
             .flatMap(.concat) { cachedFramework -> SignalProducer<String?, CarthageError> in
-                let frameworkBinaryURL = self.frameworkBinaryURL(
+                let frameworkBinaryURL: URL = self.frameworkBinaryURL(
                     for: cachedFramework,
                     platform: platform,
                     binariesDirectoryURL: binariesDirectoryURL
                 )
 
-                return hashForFileAtURL(frameworkBinaryURL)
+                return VersionFile.hashForFileAtURL(frameworkBinaryURL)
                     .map { hash -> String? in
                         return hash
                     }
@@ -242,282 +242,288 @@ struct VersionFile: Codable {
     }
 }
 
-/// Creates a version file for the current project in the
-/// Carthage/Build directory which associates its commitish with
-/// the hashes (e.g. SHA256) of the built frameworks for each platform
-/// in order to allow those frameworks to be skipped in future builds.
-///
-/// Derives the current project name from `git remote get-url origin`
-///
-/// Returns a signal that succeeds once the file has been created.
-public func createVersionFileForCurrentProject(
-    platforms: Set<Platform>,
-    buildProducts: [URL],
-    rootDirectoryURL: URL
-    ) -> SignalProducer<(), CarthageError> {
+extension VersionFile {
 
-    /*
-     List all remotes known for this repository
-     and keep only the "fetch" urls by which the current repository
-     would be known for the purpose of fetching anyways.
+    /// Creates a version file for the current project in the
+    /// Carthage/Build directory which associates its commitish with
+    /// the hashes (e.g. SHA256) of the built frameworks for each platform
+    /// in order to allow those frameworks to be skipped in future builds.
+    ///
+    /// Derives the current project name from `git remote get-url origin`
+    ///
+    /// Returns a signal that succeeds once the file has been created.
+    static func createVersionFileForCurrentProject(
+        platforms: Set<Platform>,
+        buildProducts: [URL],
+        rootDirectoryURL: URL
+        ) -> SignalProducer<(), CarthageError> {
 
-     Example of well-formed output:
+        /*
+         List all remotes known for this repository
+         and keep only the "fetch" urls by which the current repository
+         would be known for the purpose of fetching anyways.
 
-     $ git remote -v
-     origin   https://github.com/blender/Carthage.git (fetch)
-     origin   https://github.com/blender/Carthage.git (push)
-     upstream https://github.com/Carthage/Carthage.git (fetch)
-     upstream https://github.com/Carthage/Carthage.git (push)
+         Example of well-formed output:
 
-     Example of ill-formed output where upstream does not have a url:
+         $ git remote -v
+         origin   https://github.com/blender/Carthage.git (fetch)
+         origin   https://github.com/blender/Carthage.git (push)
+         upstream https://github.com/Carthage/Carthage.git (fetch)
+         upstream https://github.com/Carthage/Carthage.git (push)
 
-     $ git remote -v
-     origin   https://github.com/blender/Carthage.git (fetch)
-     origin   https://github.com/blender/Carthage.git (push)
-     upstream
-     */
-    let allRemoteURLs = Git.launchGitTask(["remote", "-v"])
-        .flatMap(.concat) { $0.linesProducer }
-        .map { $0.components(separatedBy: .whitespacesAndNewlines) }
-        .filter { $0.count >= 3 && $0.last == "(fetch)" } // Discard ill-formed output as of example
-        .map { ($0[0], $0[1]) }
-        .collect()
+         Example of ill-formed output where upstream does not have a url:
 
-    let currentProjectName = allRemoteURLs
-        // Assess the popularity of each remote url
-        .map { $0.reduce([String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]()) { remoteURLPopularityMap, remoteNameAndURL in
-            let (remoteName, remoteUrl) = remoteNameAndURL
-            var remoteURLPopularityMap = remoteURLPopularityMap
-            if let existingEntry = remoteURLPopularityMap[remoteName] {
-                remoteURLPopularityMap[remoteName] = (existingEntry.popularity + 1, existingEntry.remoteNameAndURL)
-            } else {
-                remoteURLPopularityMap[remoteName] = (0, (remoteName, remoteUrl))
+         $ git remote -v
+         origin   https://github.com/blender/Carthage.git (fetch)
+         origin   https://github.com/blender/Carthage.git (push)
+         upstream
+         */
+        let allRemoteURLs = Git.launchGitTask(["remote", "-v"])
+            .flatMap(.concat) { $0.linesProducer }
+            .map { $0.components(separatedBy: .whitespacesAndNewlines) }
+            .filter { $0.count >= 3 && $0.last == "(fetch)" } // Discard ill-formed output as of example
+            .map { ($0[0], $0[1]) }
+            .collect()
+
+        let currentProjectName = allRemoteURLs
+            // Assess the popularity of each remote url
+            .map { $0.reduce([String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]()) { remoteURLPopularityMap, remoteNameAndURL in
+                let (remoteName, remoteUrl) = remoteNameAndURL
+                var remoteURLPopularityMap = remoteURLPopularityMap
+                if let existingEntry = remoteURLPopularityMap[remoteName] {
+                    remoteURLPopularityMap[remoteName] = (existingEntry.popularity + 1, existingEntry.remoteNameAndURL)
+                } else {
+                    remoteURLPopularityMap[remoteName] = (0, (remoteName, remoteUrl))
+                }
+                return remoteURLPopularityMap
+                }
             }
-            return remoteURLPopularityMap
-            }
+            // Pick "origin" if it exists,
+            // otherwise sort remotes by popularity
+            // or alphabetically in case of a draw
+            .map { (remotePopularityMap: [String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]) -> String in
+                guard let origin = remotePopularityMap["origin"] else {
+                    let urlOfMostPopularRemote = remotePopularityMap.sorted { lhs, rhs in
+                        if lhs.value.popularity == rhs.value.popularity {
+                            return lhs.key < rhs.key
+                        }
+                        return lhs.value.popularity > rhs.value.popularity
+                        }
+                        .first?.value.remoteNameAndURL.url
+
+                    // If the reposiroty is not pushed to any remote
+                    // the list of remotes is empty, so call the current project... "_Current"
+                    return urlOfMostPopularRemote.flatMap { Dependency.git(GitURL($0)).name } ?? "_Current"
+                }
+
+                return Dependency.git(GitURL(origin.remoteNameAndURL.url)).name
         }
-        // Pick "origin" if it exists,
-        // otherwise sort remotes by popularity
-        // or alphabetically in case of a draw
-        .map { (remotePopularityMap: [String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]) -> String in
-            guard let origin = remotePopularityMap["origin"] else {
-                let urlOfMostPopularRemote = remotePopularityMap.sorted { lhs, rhs in
-                    if lhs.value.popularity == rhs.value.popularity {
-                        return lhs.key < rhs.key
-                    }
-                    return lhs.value.popularity > rhs.value.popularity
-                    }
-                    .first?.value.remoteNameAndURL.url
 
-                // If the reposiroty is not pushed to any remote
-                // the list of remotes is empty, so call the current project... "_Current"
-                return urlOfMostPopularRemote.flatMap { Dependency.git(GitURL($0)).name } ?? "_Current"
+        let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap(.merge) { headCommitish in
+                Git.launchGitTask(["describe", "--tags", "--exact-match", headCommitish])
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .flatMapError { _  in SignalProducer(value: headCommitish) }
+        }
+
+        return SignalProducer.zip(currentProjectName, currentGitTagOrCommitish)
+            .flatMap(.merge) { currentProjectNameString, version in
+                createVersionFileForCommitish(
+                    version,
+                    dependencyName: currentProjectNameString,
+                    platforms: platforms,
+                    buildProducts: buildProducts,
+                    rootDirectoryURL: rootDirectoryURL
+                )
+        }
+    }
+
+
+    /// Creates a version file for the current dependency in the
+    /// Carthage/Build directory which associates its commitish with
+    /// the hashes (e.g. SHA256) of the built frameworks for each platform
+    /// in order to allow those frameworks to be skipped in future builds.
+    ///
+    /// Returns a signal that succeeds once the file has been created.
+    static func createVersionFile(
+        for dependency: Dependency,
+        version: PinnedVersion,
+        platforms: Set<Platform>,
+        buildProducts: [URL],
+        rootDirectoryURL: URL
+        ) -> SignalProducer<(), CarthageError> {
+        return createVersionFileForCommitish(
+            version.commitish,
+            dependencyName: dependency.name,
+            platforms: platforms,
+            buildProducts: buildProducts,
+            rootDirectoryURL: rootDirectoryURL
+        )
+    }
+
+    /// Creates a version file for the dependency in the given root directory with:
+    /// - The given commitish
+    /// - The provided project name
+    /// - The location of the built frameworks products for all platforms
+    ///
+    /// Returns a signal that succeeds once the file has been created.
+    static func createVersionFileForCommitish(
+        _ commitish: String,
+        dependencyName: String,
+        platforms: Set<Platform> = Set(Platform.supportedPlatforms),
+        buildProducts: [URL],
+        rootDirectoryURL: URL
+        ) -> SignalProducer<(), CarthageError> {
+        var platformCaches: [String: [CachedFramework]] = [:]
+
+        let platformsToCache = platforms.isEmpty ? Set(Platform.supportedPlatforms) : platforms
+        for platform in platformsToCache {
+            platformCaches[platform.rawValue] = []
+        }
+
+        struct FrameworkDetail {
+            let platformName: String
+            let frameworkName: String
+            let frameworkSwiftVersion: String?
+        }
+
+        if !buildProducts.isEmpty {
+            return SignalProducer<URL, CarthageError>(buildProducts)
+                .flatMap(.merge) { url -> SignalProducer<(String, FrameworkDetail), CarthageError> in
+                    let frameworkName = url.deletingPathExtension().lastPathComponent
+                    let platformName = url.deletingLastPathComponent().lastPathComponent
+                    return Frameworks.frameworkSwiftVersionIfIsSwiftFramework(url)
+                        .mapError { swiftVersionError -> CarthageError in .unknownFrameworkSwiftVersion(swiftVersionError.description) }
+                        .flatMap(.merge) { frameworkSwiftVersion -> SignalProducer<(String, FrameworkDetail), CarthageError> in
+                            let frameworkDetail: FrameworkDetail = .init(platformName: platformName,
+                                                                         frameworkName: frameworkName,
+                                                                         frameworkSwiftVersion: frameworkSwiftVersion)
+                            let details = SignalProducer<FrameworkDetail, CarthageError>(value: frameworkDetail)
+                            let binaryURL = url.appendingPathComponent(frameworkName, isDirectory: false)
+                            return SignalProducer.zip(hashForFileAtURL(binaryURL), details)
+                    }
+                }
+                .reduce(into: platformCaches) { (platformCaches: inout [String: [CachedFramework]], values: (String, FrameworkDetail)) in
+                    let hash = values.0
+                    let platformName = values.1.platformName
+                    let frameworkName = values.1.frameworkName
+                    let frameworkSwiftVersion = values.1.frameworkSwiftVersion
+
+                    let cachedFramework = CachedFramework(name: frameworkName, hash: hash, swiftToolchainVersion: frameworkSwiftVersion)
+                    if var frameworks = platformCaches[platformName] {
+                        frameworks.append(cachedFramework)
+                        platformCaches[platformName] = frameworks
+                    }
+                }
+                .flatMap(.merge) { platformCaches -> SignalProducer<(), CarthageError> in
+                    createVersionFile(
+                        commitish,
+                        dependencyName: dependencyName,
+                        rootDirectoryURL: rootDirectoryURL,
+                        platformCaches: platformCaches
+                    )
             }
-
-            return Dependency.git(GitURL(origin.remoteNameAndURL.url)).name
-    }
-
-    let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"])
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .flatMap(.merge) { headCommitish in
-            Git.launchGitTask(["describe", "--tags", "--exact-match", headCommitish])
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .flatMapError { _  in SignalProducer(value: headCommitish) }
-    }
-
-    return SignalProducer.zip(currentProjectName, currentGitTagOrCommitish)
-        .flatMap(.merge) { currentProjectNameString, version in
-            createVersionFileForCommitish(
-                version,
-                dependencyName: currentProjectNameString,
-                platforms: platforms,
-                buildProducts: buildProducts,
-                rootDirectoryURL: rootDirectoryURL
+        } else {
+            // Write out an empty version file for dependencies with no built frameworks, so cache builds can differentiate between
+            // no cache and a dependency that has no frameworks
+            return createVersionFile(
+                commitish,
+                dependencyName: dependencyName,
+                rootDirectoryURL: rootDirectoryURL,
+                platformCaches: platformCaches
             )
+        }
     }
-}
 
-/// Creates a version file for the current dependency in the
-/// Carthage/Build directory which associates its commitish with
-/// the hashes (e.g. SHA256) of the built frameworks for each platform
-/// in order to allow those frameworks to be skipped in future builds.
-///
-/// Returns a signal that succeeds once the file has been created.
-public func createVersionFile(
-    for dependency: Dependency,
-    version: PinnedVersion,
-    platforms: Set<Platform>,
-    buildProducts: [URL],
-    rootDirectoryURL: URL
-    ) -> SignalProducer<(), CarthageError> {
-    return createVersionFileForCommitish(
-        version.commitish,
-        dependencyName: dependency.name,
-        platforms: platforms,
-        buildProducts: buildProducts,
-        rootDirectoryURL: rootDirectoryURL
-    )
-}
-
-private func createVersionFile(
-    _ commitish: String,
-    dependencyName: String,
-    rootDirectoryURL: URL,
-    platformCaches: [String: [CachedFramework]]
-    ) -> SignalProducer<(), CarthageError> {
-    return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
+    /// Determines whether a dependency can be skipped because it is
+    /// already cached.
+    ///
+    /// If a set of platforms is not provided, all platforms are checked.
+    ///
+    /// Returns an optional bool which is nil if no version file exists,
+    /// otherwise true if the version file matches and the build can be
+    /// skipped or false if there is a mismatch of some kind.
+    static func versionFileMatches(
+        _ dependency: Dependency,
+        version: PinnedVersion,
+        platforms: Set<Platform>,
+        rootDirectoryURL: URL,
+        toolchain: String?
+        ) -> SignalProducer<Bool?, CarthageError> {
         let rootBinariesURL = rootDirectoryURL
             .appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
             .resolvingSymlinksInPath()
         let versionFileURL = rootBinariesURL
-            .appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
-
-        let versionFile = VersionFile(
-            commitish: commitish,
-            macOS: platformCaches[Platform.macOS.rawValue],
-            iOS: platformCaches[Platform.iOS.rawValue],
-            watchOS: platformCaches[Platform.watchOS.rawValue],
-            tvOS: platformCaches[Platform.tvOS.rawValue])
-
-        return versionFile.write(to: versionFileURL)
-    }
-}
-
-/// Creates a version file for the dependency in the given root directory with:
-/// - The given commitish
-/// - The provided project name
-/// - The location of the built frameworks products for all platforms
-///
-/// Returns a signal that succeeds once the file has been created.
-public func createVersionFileForCommitish(
-    _ commitish: String,
-    dependencyName: String,
-    platforms: Set<Platform> = Set(Platform.supportedPlatforms),
-    buildProducts: [URL],
-    rootDirectoryURL: URL
-    ) -> SignalProducer<(), CarthageError> {
-    var platformCaches: [String: [CachedFramework]] = [:]
-
-    let platformsToCache = platforms.isEmpty ? Set(Platform.supportedPlatforms) : platforms
-    for platform in platformsToCache {
-        platformCaches[platform.rawValue] = []
-    }
-
-    struct FrameworkDetail {
-        let platformName: String
-        let frameworkName: String
-        let frameworkSwiftVersion: String?
-    }
-
-    if !buildProducts.isEmpty {
-        return SignalProducer<URL, CarthageError>(buildProducts)
-            .flatMap(.merge) { url -> SignalProducer<(String, FrameworkDetail), CarthageError> in
-                let frameworkName = url.deletingPathExtension().lastPathComponent
-                let platformName = url.deletingLastPathComponent().lastPathComponent
-                return Frameworks.frameworkSwiftVersionIfIsSwiftFramework(url)
-                    .mapError { swiftVersionError -> CarthageError in .unknownFrameworkSwiftVersion(swiftVersionError.description) }
-                    .flatMap(.merge) { frameworkSwiftVersion -> SignalProducer<(String, FrameworkDetail), CarthageError> in
-                        let frameworkDetail: FrameworkDetail = .init(platformName: platformName,
-                                                                     frameworkName: frameworkName,
-                                                                     frameworkSwiftVersion: frameworkSwiftVersion)
-                        let details = SignalProducer<FrameworkDetail, CarthageError>(value: frameworkDetail)
-                        let binaryURL = url.appendingPathComponent(frameworkName, isDirectory: false)
-                        return SignalProducer.zip(hashForFileAtURL(binaryURL), details)
-                }
-            }
-            .reduce(into: platformCaches) { (platformCaches: inout [String: [CachedFramework]], values: (String, FrameworkDetail)) in
-                let hash = values.0
-                let platformName = values.1.platformName
-                let frameworkName = values.1.frameworkName
-                let frameworkSwiftVersion = values.1.frameworkSwiftVersion
-
-                let cachedFramework = CachedFramework(name: frameworkName, hash: hash, swiftToolchainVersion: frameworkSwiftVersion)
-                if var frameworks = platformCaches[platformName] {
-                    frameworks.append(cachedFramework)
-                    platformCaches[platformName] = frameworks
-                }
-            }
-            .flatMap(.merge) { platformCaches -> SignalProducer<(), CarthageError> in
-                createVersionFile(
-                    commitish,
-                    dependencyName: dependencyName,
-                    rootDirectoryURL: rootDirectoryURL,
-                    platformCaches: platformCaches
-                )
+            .appendingPathComponent(".\(dependency.name).\(VersionFile.pathExtension)")
+        guard let versionFile = VersionFile(url: versionFileURL) else {
+            return SignalProducer(value: nil)
         }
-    } else {
-        // Write out an empty version file for dependencies with no built frameworks, so cache builds can differentiate between
-        // no cache and a dependency that has no frameworks
-        return createVersionFile(
-            commitish,
-            dependencyName: dependencyName,
-            rootDirectoryURL: rootDirectoryURL,
-            platformCaches: platformCaches
-        )
-    }
-}
 
-/// Determines whether a dependency can be skipped because it is
-/// already cached.
-///
-/// If a set of platforms is not provided, all platforms are checked.
-///
-/// Returns an optional bool which is nil if no version file exists,
-/// otherwise true if the version file matches and the build can be
-/// skipped or false if there is a mismatch of some kind.
-public func versionFileMatches(
-    _ dependency: Dependency,
-    version: PinnedVersion,
-    platforms: Set<Platform>,
-    rootDirectoryURL: URL,
-    toolchain: String?
-    ) -> SignalProducer<Bool?, CarthageError> {
-    let rootBinariesURL = rootDirectoryURL
-        .appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
-        .resolvingSymlinksInPath()
-    let versionFileURL = rootBinariesURL
-        .appendingPathComponent(".\(dependency.name).\(VersionFile.pathExtension)")
-    guard let versionFile = VersionFile(url: versionFileURL) else {
-        return SignalProducer(value: nil)
+        let commitish = version.commitish
+
+        let platformsToCheck = platforms.isEmpty ? Set<Platform>(Platform.supportedPlatforms) : platforms
+
+        return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
+            .mapError { error in CarthageError.internalError(description: error.description) }
+            .flatMap(.concat) { localSwiftVersion in
+                return SignalProducer<Platform, CarthageError>(platformsToCheck)
+                    .flatMap(.merge) { platform in
+                        return versionFile.satisfies(
+                            platform: platform,
+                            commitish: commitish,
+                            binariesDirectoryURL: rootBinariesURL,
+                            localSwiftVersion: localSwiftVersion
+                        )
+                    }
+                    .reduce(true) { $0 && $1 }
+                    .map { .some($0) }
+        }
     }
 
-    let commitish = version.commitish
+    // MARK: - Private
 
-    let platformsToCheck = platforms.isEmpty ? Set<Platform>(Platform.supportedPlatforms) : platforms
+    private static func createVersionFile(
+        _ commitish: String,
+        dependencyName: String,
+        rootDirectoryURL: URL,
+        platformCaches: [String: [CachedFramework]]
+        ) -> SignalProducer<(), CarthageError> {
+        return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
+            let rootBinariesURL = rootDirectoryURL
+                .appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
+                .resolvingSymlinksInPath()
+            let versionFileURL = rootBinariesURL
+                .appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
 
-    return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
-        .mapError { error in CarthageError.internalError(description: error.description) }
-        .flatMap(.concat) { localSwiftVersion in
-            return SignalProducer<Platform, CarthageError>(platformsToCheck)
-                .flatMap(.merge) { platform in
-                    return versionFile.satisfies(
-                        platform: platform,
-                        commitish: commitish,
-                        binariesDirectoryURL: rootBinariesURL,
-                        localSwiftVersion: localSwiftVersion
-                    )
+            let versionFile = VersionFile(
+                commitish: commitish,
+                macOS: platformCaches[Platform.macOS.rawValue],
+                iOS: platformCaches[Platform.iOS.rawValue],
+                watchOS: platformCaches[Platform.watchOS.rawValue],
+                tvOS: platformCaches[Platform.tvOS.rawValue])
+
+            return versionFile.write(to: versionFileURL)
+        }
+    }
+
+    private static func hashForFileAtURL(_ frameworkFileURL: URL) -> SignalProducer<String, CarthageError> {
+        guard FileManager.default.fileExists(atPath: frameworkFileURL.path) else {
+            return SignalProducer(error: .readFailed(frameworkFileURL, nil))
+        }
+
+        let task = Task("/usr/bin/shasum", arguments: ["-a", "256", frameworkFileURL.path])
+
+        return task.launch()
+            .mapError(CarthageError.taskError)
+            .ignoreTaskData()
+            .attemptMap { data in
+                guard let taskOutput = String(data: data, encoding: .utf8) else {
+                    return .failure(.readFailed(frameworkFileURL, nil))
                 }
-                .reduce(true) { $0 && $1 }
-                .map { .some($0) }
-    }
-}
 
-private func hashForFileAtURL(_ frameworkFileURL: URL) -> SignalProducer<String, CarthageError> {
-    guard FileManager.default.fileExists(atPath: frameworkFileURL.path) else {
-        return SignalProducer(error: .readFailed(frameworkFileURL, nil))
-    }
-
-    let task = Task("/usr/bin/shasum", arguments: ["-a", "256", frameworkFileURL.path])
-
-    return task.launch()
-        .mapError(CarthageError.taskError)
-        .ignoreTaskData()
-        .attemptMap { data in
-            guard let taskOutput = String(data: data, encoding: .utf8) else {
-                return .failure(.readFailed(frameworkFileURL, nil))
-            }
-
-            let hashStr = taskOutput.components(separatedBy: CharacterSet.whitespaces)[0]
-            return .success(hashStr.trimmingCharacters(in: .whitespacesAndNewlines))
+                let hashStr = taskOutput.components(separatedBy: CharacterSet.whitespaces)[0]
+                return .success(hashStr.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
     }
 }

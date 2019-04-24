@@ -3,6 +3,7 @@ import Result
 import ReactiveSwift
 import ReactiveTask
 
+/// Class with methods for performing git operations
 public final class Git {
 
     // MARK: - Public

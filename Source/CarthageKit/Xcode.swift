@@ -113,14 +113,14 @@ public final class Xcode {
                             
                             guard let dependency = dependency else {
                                 
-                                return createVersionFileForCurrentProject(platforms: options.platforms,
+                                return VersionFile.createVersionFileForCurrentProject(platforms: options.platforms,
                                                                           buildProducts: urls,
                                                                           rootDirectoryURL: rootDirectoryURL
                                     )
                                     .flatMapError { _ in .empty }
                             }
                             
-                            return createVersionFile(
+                            return VersionFile.createVersionFile(
                                 for: dependency.dependency,
                                 version: dependency.version,
                                 platforms: options.platforms,
@@ -811,7 +811,7 @@ public final class Xcode {
                     .mapError(CarthageError.taskError)
                     .ignoreTaskData()
                     .flatMap(.concat) { (data: Data) -> SignalProducer<Simulator, CarthageError> in
-                        if let selectedSimulator = selectAvailableSimulator(of: sdk, from: data) {
+                        if let selectedSimulator = Simulator.selectAvailableSimulator(of: sdk, from: data) {
                             return .init(value: selectedSimulator)
                         } else {
                             return .init(error: CarthageError.noAvailableSimulators(platformName: sdk.platform.rawValue))
