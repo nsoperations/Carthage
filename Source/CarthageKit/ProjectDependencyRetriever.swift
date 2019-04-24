@@ -14,6 +14,7 @@ import ReactiveTask
 import SPMUtility
 
 import struct Foundation.URL
+import enum XCDBLD.Platform
 
 public final class ProjectDependencyRetriever {
 
@@ -33,7 +34,7 @@ public final class ProjectDependencyRetriever {
 
     let projectEventsObserver: Signal<ProjectEvent, NoError>.Observer?
     var preferHTTPS = true
-    var lockTimeout: Int = Constants.defaultLockTimeout
+    var lockTimeout: Int?
     var useSubmodules = false
     let directoryURL: URL
 
@@ -90,7 +91,7 @@ public final class ProjectDependencyRetriever {
             let cartfileFetch: SignalProducer<Cartfile, CarthageError> = cloneOrFetchDependencyLocked(dependency, commitish: revision)
                 .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
                     lock = urlLock
-                    return contentsOfFileInRepository(urlLock.url, Constants.Project.cartfilePath, revision: revision)
+                    return Git.contentsOfFileInRepository(urlLock.url, Constants.Project.cartfilePath, revision: revision)
                 }
                 .flatMapError { _ in .empty }
                 .attemptMap(Cartfile.from(string:))
@@ -155,13 +156,13 @@ public final class ProjectDependencyRetriever {
             .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<PinnedVersion, CarthageError> in
                 lock = urlLock
                 let repositoryURL = urlLock.url
-                return resolveTagInRepository(repositoryURL, reference)
+                return Git.resolveTagInRepository(repositoryURL, reference)
                     .map { _ in
                         // If the reference is an exact tag, resolves it to the tag.
                         return PinnedVersion(reference)
                     }
                     .flatMapError { _ in
-                        return resolveReferenceInRepository(repositoryURL, reference)
+                        return Git.resolveReferenceInRepository(repositoryURL, reference)
                             .map(PinnedVersion.init)
                 }
             }.on(terminated: {
@@ -182,7 +183,7 @@ public final class ProjectDependencyRetriever {
             fetchVersions = cloneOrFetchDependencyLocked(dependency)
                 .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
                     lock = urlLock
-                    return listTags(urlLock.url) }
+                    return Git.listTags(urlLock.url) }
                 .map { PinnedVersion($0) }
                 .on(terminated: {
                     lock?.unlock()
@@ -242,96 +243,6 @@ public final class ProjectDependencyRetriever {
             .startOnQueue(self.cachedBinaryProjectsQueue)
     }
 
-    /// Downloads any binaries and debug symbols that may be able to be used
-    /// instead of a repository checkout.
-    ///
-    /// Sends the URL to each downloaded zip, after it has been moved to a
-    /// less temporary location.
-    public func downloadMatchingBinaries(
-        for dependency: Dependency,
-        pinnedVersion: PinnedVersion,
-        fromRepository repository: Repository,
-        client: Client
-        ) -> SignalProducer<URL, CarthageError> {
-        var lock: Lock? = nil
-        return client.execute(repository.release(forTag: pinnedVersion.commitish))
-            .map { _, release in release }
-            .filter { release in
-                return !release.isDraft && !release.assets.isEmpty
-            }
-            .flatMapError { error -> SignalProducer<Release, CarthageError> in
-                switch error {
-                case .doesNotExist:
-                    return .empty
-                    
-                case let .apiError(_, _, error):
-                    // Log the GitHub API request failure, not to error out,
-                    // because that should not be fatal error.
-                    self.projectEventsObserver?.send(value: .skippedDownloadingBinaries(dependency, error.message))
-                    return .empty
-                    
-                default:
-                    return SignalProducer(error: .gitHubAPIRequestFailed(error))
-                }
-            }
-            .on(value: { release in
-                self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, release.nameWithFallback))
-            })
-            .flatMap(.concat) { release -> SignalProducer<URL, CarthageError> in
-                return SignalProducer<Release.Asset, CarthageError>(release.assets)
-                    .filter { asset in
-                        if asset.name.range(of: Constants.Project.binaryAssetPattern) == nil {
-                            return false
-                        }
-                        return Constants.Project.binaryAssetContentTypes.contains(asset.contentType)
-                    }
-                    .flatMap(.concat) { asset -> SignalProducer<(URL, Release.Asset), CarthageError> in
-                        let fileURL = self.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: Constants.Dependency.assetsURL)
-                        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout).map { urlLock in
-                            lock = urlLock
-                            return (fileURL, asset)
-                        }
-                    }
-                    .flatMap(.concat) { (fileURL, asset) -> SignalProducer<URL, CarthageError> in
-                        if FileManager.default.fileExists(atPath: fileURL.path) {
-                            return SignalProducer(value: fileURL)
-                        } else {
-                            return client.download(asset: asset)
-                                .mapError(CarthageError.gitHubAPIRequestFailed)
-                                .flatMap(.concat) { downloadURL in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
-                        }
-                }
-            }
-            .on(terminated: {
-                lock?.unlock()
-            })
-    }
-
-    /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
-    /// less temporary location.
-    public func downloadBinary(dependency: Dependency, version: Version, url: URL) -> SignalProducer<URL, CarthageError> {
-        let fileName = url.lastPathComponent
-        let fileURL = fileURLToCachedBinaryDependency(dependency: dependency, semanticVersion: version, fileName: fileName, baseURL: Constants.Dependency.assetsURL)
-        var lock: Lock? = nil
-        
-        return ProjectDependencyRetriever.obtainLock(fileURL: fileURL, timeout: self.lockTimeout)
-            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URL, CarthageError> in
-                lock = urlLock
-                if FileManager.default.fileExists(atPath: fileURL.path) {
-                    return SignalProducer(value: fileURL)
-                } else {
-                    return URLSession.shared.reactive.download(with: URLRequest(url: url))
-                        .on(started: {
-                            self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, version.description))
-                        })
-                        .mapError { CarthageError.readFailed(url, $0 as NSError) }
-                        .flatMap(.concat) { downloadURL, _ in self.cacheDownloadedBinary(downloadURL, toURL: fileURL) }
-                }
-            }.on(terminated: {
-                lock?.unlock()
-            })
-    }
-
     /// Checks out the given dependency into its intended working directory,
     /// cloning it first if need be.
     public func checkoutOrCloneDependency(
@@ -366,17 +277,17 @@ public final class ProjectDependencyRetriever {
                 if let submodule = submodule {
                     // In the presence of `submodule` for `dependency` — before symlinking, (not after) — add submodule and its submodules:
                     // `dependency`, subdependencies that are submodules, and non-Carthage-housed submodules.
-                    return addSubmoduleToRepository(self.directoryURL, submodule, GitURL(repositoryURL.path))
+                    return Git.addSubmoduleToRepository(self.directoryURL, submodule, GitURL(repositoryURL.path))
                         .startOnQueue(self.gitOperationQueue)
                         .then(symlinkCheckoutPaths)
                 } else {
-                    return checkoutRepositoryToDirectory(repositoryURL, workingDirectoryURL, revision: revision)
+                    return Git.checkoutRepositoryToDirectory(repositoryURL, workingDirectoryURL, revision: revision)
                         // For checkouts of “ideally bare” repositories of `dependency`, we add its submodules by cloning ourselves, after symlinking.
                         .then(symlinkCheckoutPaths)
                         .then(
-                            submodulesInRepository(repositoryURL, revision: revision)
+                            Git.submodulesInRepository(repositoryURL, revision: revision)
                                 .flatMap(.merge) {
-                                    cloneSubmoduleInWorkingDirectory($0, workingDirectoryURL)
+                                    Git.cloneSubmoduleInWorkingDirectory($0, workingDirectoryURL)
                             }
                     )
                 }
@@ -398,7 +309,7 @@ public final class ProjectDependencyRetriever {
     public static func cloneOrFetch(
         dependency: Dependency,
         preferHTTPS: Bool,
-        lockTimeout: Int = Constants.defaultLockTimeout,
+        lockTimeout: Int? = nil,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
@@ -412,18 +323,162 @@ public final class ProjectDependencyRetriever {
             })
     }
 
+    /// Installs binaries and debug symbols for the given project, if available.
+    ///
+    /// Sends a boolean indicating whether binaries were installed.
+    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, toolchain: String?) -> SignalProducer<Bool, CarthageError> {
+        switch dependency {
+        case let .gitHub(server, repository):
+            var lock: Lock?
+            let client = Client(server: server)
+            return self.downloadMatchingBinaries(for: dependency, pinnedVersion: pinnedVersion, fromRepository: repository, client: client)
+                .flatMapError { error -> SignalProducer<URLLock, CarthageError> in
+                    if !client.isAuthenticated {
+                        return SignalProducer(error: error)
+                    }
+                    return self.downloadMatchingBinaries(
+                        for: dependency,
+                        pinnedVersion: pinnedVersion,
+                        fromRepository: repository,
+                        client: Client(server: server, isAuthenticated: false)
+                    )
+                }
+                .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
+                    lock = urlLock
+                    return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: dependency.name, pinnedVersion: pinnedVersion, toolchain: toolchain)
+                }
+                .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
+                .map { true }
+                .flatMapError { error in
+                    self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
+                    return SignalProducer(value: false)
+                }
+                .concat(value: false)
+                .take(first: 1)
+                .on(terminated: { lock?.unlock() })
+        case .git, .binary:
+            return SignalProducer(value: false)
+        }
+    }
+
+    public func installBinariesForBinaryProject(
+        binary: BinaryURL,
+        pinnedVersion: PinnedVersion,
+        projectName: String,
+        toolchain: String?
+        ) -> SignalProducer<(), CarthageError> {
+        var lock: Lock?
+        return SignalProducer<Version, ScannableError>(result: Version.from(pinnedVersion))
+            .mapError { CarthageError(scannableError: $0) }
+            .combineLatest(with: self.downloadBinaryFrameworkDefinition(binary: binary))
+            .attemptMap { semanticVersion, binaryProject -> Result<(Version, URL), CarthageError> in
+                guard let frameworkURL = binaryProject.versions[pinnedVersion] else {
+                    return .failure(CarthageError.requiredVersionNotFound(Dependency.binary(binary), VersionSpecifier.exactly(semanticVersion)))
+                }
+
+                return .success((semanticVersion, frameworkURL))
+            }
+            .flatMap(.concat) { semanticVersion, frameworkURL in
+                return self.downloadBinary(dependency: Dependency.binary(binary), version: semanticVersion, url: frameworkURL)
+            }
+            .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
+                lock = urlLock
+                return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: projectName, pinnedVersion: pinnedVersion, toolchain: toolchain)
+            }
+            .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
+            .on(terminated: { lock?.unlock() })
+    }
+
+    // MARK: - Private methods
+
+    /// Downloads any binaries and debug symbols that may be able to be used
+    /// instead of a repository checkout.
+    ///
+    /// Sends the URL to each downloaded zip, after it has been moved to a
+    /// less temporary location.
+    private func downloadMatchingBinaries(
+        for dependency: Dependency,
+        pinnedVersion: PinnedVersion,
+        fromRepository repository: Repository,
+        client: Client
+        ) -> SignalProducer<URLLock, CarthageError> {
+        return client.execute(repository.release(forTag: pinnedVersion.commitish))
+            .map { _, release in release }
+            .filter { release in
+                return !release.isDraft && !release.assets.isEmpty
+            }
+            .flatMapError { error -> SignalProducer<Release, CarthageError> in
+                switch error {
+                case .doesNotExist:
+                    return .empty
+
+                case let .apiError(_, _, error):
+                    // Log the GitHub API request failure, not to error out,
+                    // because that should not be fatal error.
+                    self.projectEventsObserver?.send(value: .skippedDownloadingBinaries(dependency, error.message))
+                    return .empty
+
+                default:
+                    return SignalProducer(error: .gitHubAPIRequestFailed(error))
+                }
+            }
+            .on(value: { release in
+                self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, release.nameWithFallback))
+            })
+            .flatMap(.concat) { release -> SignalProducer<URLLock, CarthageError> in
+                return SignalProducer<Release.Asset, CarthageError>(release.assets)
+                    .filter { asset in
+                        if asset.name.range(of: Constants.Project.binaryAssetPattern) == nil {
+                            return false
+                        }
+                        return Constants.Project.binaryAssetContentTypes.contains(asset.contentType)
+                    }
+                    .flatMap(.concat) { asset -> SignalProducer<(URLLock, Release.Asset), CarthageError> in
+                        let fileURL = self.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: Constants.Dependency.assetsURL)
+                        return URLLock.lockReactive(url: fileURL, timeout: self.lockTimeout).map { urlLock in
+                            return (urlLock, asset)
+                        }
+                    }
+                    .flatMap(.concat) { (urlLock, asset) -> SignalProducer<URLLock, CarthageError> in
+                        let fileURL = urlLock.url
+                        if FileManager.default.fileExists(atPath: fileURL.path) {
+                            return SignalProducer(value: urlLock)
+                        } else {
+                            return client.download(asset: asset)
+                                .mapError(CarthageError.gitHubAPIRequestFailed)
+                                .flatMap(.concat) { downloadURL in
+                                    self.cacheDownloadedBinary(downloadURL, toURL: fileURL)
+                                        .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
+                            }
+                        }
+                }
+            }
+    }
+
+    private func cloneOrFetchDependencyLocked(_ dependency: Dependency, commitish: String? = nil) -> SignalProducer<URLLock, CarthageError> {
+        return ProjectDependencyRetriever.cloneOrFetchLocked(dependency: dependency, preferHTTPS: self.preferHTTPS, lockTimeout: self.lockTimeout, commitish: commitish)
+            .on(value: { event, _ in
+                if let event = event {
+                    self.projectEventsObserver?.send(value: event)
+                }
+            })
+            .map { _, urlLock in urlLock }
+            .take(last: 1)
+            .startOnQueue(cloneOrFetchQueue)
+    }
+
     private static func cloneOrFetchLocked(
         dependency: Dependency,
         preferHTTPS: Bool,
-        lockTimeout: Int = Constants.defaultLockTimeout,
+        lockTimeout: Int?,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> {
         let fileManager = FileManager.default
-        let repositoryURL = repositoryFileURL(for: dependency, baseURL: destinationURL)
+        let repositoryURL = Dependencies.repositoryFileURL(for: dependency, baseURL: destinationURL)
         var lock: URLLock?
 
-        return ProjectDependencyRetriever.obtainLock(fileURL: repositoryURL, timeout: lockTimeout)
+        return URLLock.lockReactive(url: repositoryURL, timeout: lockTimeout, onWait: { urlLock in  })
             .map { urlLock in
                 lock = urlLock
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
@@ -434,17 +489,17 @@ public final class ProjectDependencyRetriever {
                     fatalError("Lock should be not nil at this point")
                 }
 
-                return isGitRepository(repositoryURL)
+                return Git.isGitRepository(repositoryURL)
                     .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                         if isRepository {
                             let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
-                                guard FetchCache.needsFetch(forURL: remoteURL) else {
+                                guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
                                     return SignalProducer(value: (nil, urlLock))
                                 }
 
                                 return SignalProducer(value: (.fetching(dependency), urlLock))
                                     .concat(
-                                        fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
+                                        Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
                                             .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
                                 )
                             }
@@ -452,8 +507,8 @@ public final class ProjectDependencyRetriever {
                             // If we've already cloned the repo, check for the revision, possibly skipping an unnecessary fetch
                             if let commitish = commitish {
                                 return SignalProducer.zip(
-                                    branchExistsInRepository(repositoryURL, pattern: commitish),
-                                    commitExistsInRepository(repositoryURL, revision: commitish)
+                                    Git.branchExistsInRepository(repositoryURL, pattern: commitish),
+                                    Git.commitExistsInRepository(repositoryURL, revision: commitish)
                                     )
                                     .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                                         // If the given commitish is a branch, we should fetch.
@@ -473,7 +528,7 @@ public final class ProjectDependencyRetriever {
                             _ = try? fileManager.removeItem(at: repositoryURL)
                             return SignalProducer(value: (.cloning(dependency), urlLock))
                                 .concat(
-                                    cloneRepository(remoteURL, repositoryURL)
+                                    Git.cloneRepository(remoteURL, repositoryURL)
                                         .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
                             )
                         }
@@ -483,113 +538,6 @@ public final class ProjectDependencyRetriever {
             }, interrupted: {
                 lock?.unlock()
             })
-    }
-
-    private func cloneOrFetchDependencyLocked(_ dependency: Dependency, commitish: String? = nil) -> SignalProducer<URLLock, CarthageError> {
-        return ProjectDependencyRetriever.cloneOrFetchLocked(dependency: dependency, preferHTTPS: self.preferHTTPS, lockTimeout: self.lockTimeout, commitish: commitish)
-            .on(value: { event, _ in
-                if let event = event {
-                    self.projectEventsObserver?.send(value: event)
-                }
-            })
-            .map { _, urlLock in urlLock }
-            .take(last: 1)
-            .startOnQueue(cloneOrFetchQueue)
-    }
-
-    private static func obtainLock(fileURL: URL, timeout: Int) -> SignalProducer<URLLock, CarthageError> {
-        return SignalProducer({ () -> Result<URLLock, CarthageError> in
-            let lock = URLLock(url: fileURL)
-            guard lock.lock(timeout: timeout <= 0 ? TimeInterval(Int.max) : TimeInterval(timeout)) else {
-                return .failure(CarthageError.lockError(url: fileURL, timeout: timeout))
-            }
-            return .success(lock)
-        })
-    }
-
-    /// Creates symlink between the dependency checkouts and the root checkouts
-    private func symlinkCheckoutPaths(
-        for dependency: Dependency,
-        version: PinnedVersion,
-        withRepository repositoryURL: URL,
-        atRootDirectory rootDirectoryURL: URL
-        ) -> SignalProducer<(), CarthageError> {
-        let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
-        let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
-        let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(carthageProjectCheckoutsPath, isDirectory: true).resolvingSymlinksInPath()
-        let fileManager = FileManager.default
-
-        return dependencySet(for: dependency, version: version)
-            // file system objects which might conflict with symlinks
-            .zip(with: list(treeish: version.commitish, atPath: carthageProjectCheckoutsPath, inRepository: repositoryURL)
-                .map { (path: String) in (path as NSString).lastPathComponent }
-                .collect()
-            )
-            .attemptMap { (dependencies: Set<Dependency>, components: [String]) -> Result<(), CarthageError> in
-                let names = dependencies
-                    .filter { dependency in
-                        // Filter out dependencies with names matching (case-insensitively) file system objects from git in `CarthageProjectCheckoutsPath`.
-                        // Edge case warning on file system case-sensitivity. If a differently-cased file system object exists in git
-                        // and is stored on a case-sensitive file system (like the Sierra preview of APFS), we currently preempt
-                        // the non-conflicting symlink. Probably, nobody actually desires or needs the opposite behavior.
-                        !components.contains {
-                            dependency.name.caseInsensitiveCompare($0) == .orderedSame
-                        }
-                    }
-                    .map { $0.name }
-
-                // If no `CarthageProjectCheckoutsPath`-housed symlinks are needed,
-                // return early after potentially adding submodules
-                // (which could be outside `CarthageProjectCheckoutsPath`).
-                if names.isEmpty { return .success(()) } // swiftlint:disable:this single_line_return
-
-                do {
-                    try fileManager.createDirectory(at: dependencyCheckoutsURL, withIntermediateDirectories: true)
-                } catch let error as NSError {
-                    if !(error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError) {
-                        return .failure(.writeFailed(dependencyCheckoutsURL, error))
-                    }
-                }
-
-                for name in names {
-                    let dependencyCheckoutURL = dependencyCheckoutsURL.appendingPathComponent(name)
-                    let subdirectoryPath = (carthageProjectCheckoutsPath as NSString).appendingPathComponent(name)
-                    let linkDestinationPath = relativeLinkDestination(for: dependency, subdirectory: subdirectoryPath)
-
-                    let dependencyCheckoutURLResource = try? dependencyCheckoutURL.resourceValues(forKeys: [
-                        .isSymbolicLinkKey,
-                        .isDirectoryKey,
-                        ])
-
-                    if dependencyCheckoutURLResource?.isSymbolicLink == true {
-                        _ = dependencyCheckoutURL.path.withCString(Darwin.unlink)
-                    } else if dependencyCheckoutURLResource?.isDirectory == true {
-                        // older version of carthage wrote this directory?
-                        // user wrote this directory, unaware of the precedent not to circumvent carthage’s management?
-                        // directory exists as the result of rogue process or gamma ray?
-
-                        // swiftlint:disable:next todo
-                        // TODO: explore possibility of messaging user, informing that deleting said directory will result
-                        // in symlink creation with carthage versions greater than 0.20.0, maybe with more broad advice on
-                        // “from scratch” reproducability.
-                        continue
-                    }
-
-                    if let error = Result(at: dependencyCheckoutURL, attempt: {
-                        try fileManager.createSymbolicLink(atPath: $0.path, withDestinationPath: linkDestinationPath)
-                    }).error {
-                        return .failure(error)
-                    }
-                }
-
-                return .success(())
-        }
-    }
-
-    /// Returns the file URL at which the given project's repository will be
-    /// located.
-    private static func repositoryFileURL(for dependency: Dependency, baseURL: URL) -> URL {
-        return baseURL.appendingPathComponent(dependency.name, isDirectory: true)
     }
 
     /// Caches the downloaded binary at the given URL, moving it to the other URL
@@ -642,4 +590,203 @@ public final class ProjectDependencyRetriever {
         return baseURL.appendingPathComponent("\(dependency.name)/\(semanticVersion)/\(fileName)")
     }
 
+    /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
+    /// less temporary location.
+    private func downloadBinary(dependency: Dependency, version: Version, url: URL) -> SignalProducer<URLLock, CarthageError> {
+        let fileName = url.lastPathComponent
+        let fileURL = fileURLToCachedBinaryDependency(dependency: dependency, semanticVersion: version, fileName: fileName, baseURL: Constants.Dependency.assetsURL)
+        return URLLock.lockReactive(url: fileURL, timeout: self.lockTimeout)
+            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock, CarthageError> in
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    return SignalProducer(value: urlLock)
+                } else {
+                    return URLSession.shared.reactive.download(with: URLRequest(url: url))
+                        .on(started: {
+                            self.projectEventsObserver?.send(value: .downloadingBinaries(dependency, version.description))
+                        })
+                        .mapError { CarthageError.readFailed(url, $0 as NSError) }
+                        .flatMap(.concat) { downloadURL, _ in
+                            self.cacheDownloadedBinary(downloadURL, toURL: fileURL)
+                                .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
+                    }
+                }
+            }
+    }
+    
+    /// Creates symlink between the dependency checkouts and the root checkouts
+    private func symlinkCheckoutPaths(
+        for dependency: Dependency,
+        version: PinnedVersion,
+        withRepository repositoryURL: URL,
+        atRootDirectory rootDirectoryURL: URL
+        ) -> SignalProducer<(), CarthageError> {
+        let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
+        let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
+        let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(carthageProjectCheckoutsPath, isDirectory: true).resolvingSymlinksInPath()
+        let fileManager = FileManager.default
+        
+        return dependencySet(for: dependency, version: version)
+            // file system objects which might conflict with symlinks
+            .zip(with: Git.list(treeish: version.commitish, atPath: carthageProjectCheckoutsPath, inRepository: repositoryURL)
+                .map { (path: String) in (path as NSString).lastPathComponent }
+                .collect()
+            )
+            .attemptMap { (dependencies: Set<Dependency>, components: [String]) -> Result<(), CarthageError> in
+                let names = dependencies
+                    .filter { dependency in
+                        // Filter out dependencies with names matching (case-insensitively) file system objects from git in `CarthageProjectCheckoutsPath`.
+                        // Edge case warning on file system case-sensitivity. If a differently-cased file system object exists in git
+                        // and is stored on a case-sensitive file system (like the Sierra preview of APFS), we currently preempt
+                        // the non-conflicting symlink. Probably, nobody actually desires or needs the opposite behavior.
+                        !components.contains {
+                            dependency.name.caseInsensitiveCompare($0) == .orderedSame
+                        }
+                    }
+                    .map { $0.name }
+                
+                // If no `CarthageProjectCheckoutsPath`-housed symlinks are needed,
+                // return early after potentially adding submodules
+                // (which could be outside `CarthageProjectCheckoutsPath`).
+                if names.isEmpty { return .success(()) } // swiftlint:disable:this single_line_return
+                
+                do {
+                    try fileManager.createDirectory(at: dependencyCheckoutsURL, withIntermediateDirectories: true)
+                } catch let error as NSError {
+                    if !(error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError) {
+                        return .failure(.writeFailed(dependencyCheckoutsURL, error))
+                    }
+                }
+                
+                for name in names {
+                    let dependencyCheckoutURL = dependencyCheckoutsURL.appendingPathComponent(name)
+                    let subdirectoryPath = (carthageProjectCheckoutsPath as NSString).appendingPathComponent(name)
+                    let linkDestinationPath = Dependencies.relativeLinkDestination(for: dependency, subdirectory: subdirectoryPath)
+                    
+                    let dependencyCheckoutURLResource = try? dependencyCheckoutURL.resourceValues(forKeys: [
+                        .isSymbolicLinkKey,
+                        .isDirectoryKey,
+                        ])
+                    
+                    if dependencyCheckoutURLResource?.isSymbolicLink == true {
+                        _ = dependencyCheckoutURL.path.withCString(Darwin.unlink)
+                    } else if dependencyCheckoutURLResource?.isDirectory == true {
+                        // older version of carthage wrote this directory?
+                        // user wrote this directory, unaware of the precedent not to circumvent carthage’s management?
+                        // directory exists as the result of rogue process or gamma ray?
+                        
+                        // swiftlint:disable:next todo
+                        // TODO: explore possibility of messaging user, informing that deleting said directory will result
+                        // in symlink creation with carthage versions greater than 0.20.0, maybe with more broad advice on
+                        // “from scratch” reproducability.
+                        continue
+                    }
+                    
+                    if let error = Result(at: dependencyCheckoutURL, attempt: {
+                        try fileManager.createSymbolicLink(atPath: $0.path, withDestinationPath: linkDestinationPath)
+                    }).error {
+                        return .failure(error)
+                    }
+                }
+                
+                return .success(())
+        }
+    }
+    
+    /// Unzips the file at the given URL and copies the frameworks, DSYM and
+    /// bcsymbolmap files into the corresponding folders for the project. This
+    /// step will also check framework compatibility and create a version file
+    /// for the given frameworks.
+    ///
+    /// Sends the temporary URL of the unzipped directory
+    private func unarchiveAndCopyBinaryFrameworks(
+        zipFile: URL,
+        projectName: String,
+        pinnedVersion: PinnedVersion,
+        toolchain: String?
+        ) -> SignalProducer<URL, CarthageError> {
+        
+        return SignalProducer<URL, CarthageError>(value: zipFile)
+            .flatMap(.concat, Archive.unarchive(archive:))
+            .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
+                return Frameworks.frameworksInDirectory(directoryURL)
+                    .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
+                        return Frameworks.checkFrameworkCompatibility(url, usingToolchain: toolchain)
+                            .mapError { error in CarthageError.internalError(description: error.description) }
+                    }
+                    .flatMap(.merge, self.copyFrameworkToBuildFolder)
+                    .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
+                        return ProjectDependencyRetriever.copyDSYMToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL)
+                            .then(ProjectDependencyRetriever.copyBCSymbolMapsToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL))
+                            .then(SignalProducer(value: frameworkURL))
+                    }
+                    .collect()
+                    .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
+                        return self.createVersionFilesForFrameworks(
+                            frameworkURLs,
+                            projectName: projectName,
+                            commitish: pinnedVersion.commitish
+                        )
+                    }
+                    .then(SignalProducer<URL, CarthageError>(value: directoryURL))
+        }
+    }
+    
+    /// Copies the framework at the given URL into the current project's build
+    /// folder.
+    ///
+    /// Sends the URL to the framework after copying.
+    private func copyFrameworkToBuildFolder(_ frameworkURL: URL) -> SignalProducer<URL, CarthageError> {
+        return Frameworks.platformForFramework(frameworkURL)
+            .flatMap(.merge) { platform -> SignalProducer<URL, CarthageError> in
+                let platformFolderURL = self.directoryURL.appendingPathComponent(platform.relativePath, isDirectory: true)
+                return SignalProducer(value: frameworkURL)
+                    .copyFileURLsIntoDirectory(platformFolderURL)
+        }
+    }
+    
+    /// Copies the DSYM matching the given framework and contained within the
+    /// given directory URL to the directory that the framework resides within.
+    ///
+    /// If no dSYM is found for the given framework, completes with no values.
+    ///
+    /// Sends the URL of the dSYM after copying.
+    private static func copyDSYMToBuildFolderForFramework(_ frameworkURL: URL, fromDirectoryURL directoryURL: URL) -> SignalProducer<URL, CarthageError> {
+        let destinationDirectoryURL = frameworkURL.deletingLastPathComponent()
+        return Frameworks.dSYMForFramework(frameworkURL, inDirectoryURL: directoryURL)
+            .copyFileURLsIntoDirectory(destinationDirectoryURL)
+    }
+    
+    /// Copies any *.bcsymbolmap files matching the given framework and contained
+    /// within the given directory URL to the directory that the framework
+    /// resides within.
+    ///
+    /// If no bcsymbolmap files are found for the given framework, completes with
+    /// no values.
+    ///
+    /// Sends the URLs of the bcsymbolmap files after copying.
+    private static func copyBCSymbolMapsToBuildFolderForFramework(_ frameworkURL: URL, fromDirectoryURL directoryURL: URL) -> SignalProducer<URL, CarthageError> {
+        let destinationDirectoryURL = frameworkURL.deletingLastPathComponent()
+        return Frameworks.BCSymbolMapsForFramework(frameworkURL, inDirectoryURL: directoryURL)
+            .copyFileURLsIntoDirectory(destinationDirectoryURL)
+    }
+    
+    /// Removes the file located at the given URL
+    ///
+    /// Sends empty value on successful removal
+    private static func removeItem(at url: URL) -> SignalProducer<(), CarthageError> {
+        return SignalProducer {
+            Result(at: url, attempt: FileManager.default.removeItem(at:))
+        }
+    }
+    
+    /// Creates a .version file for all of the provided frameworks.
+    private func createVersionFilesForFrameworks(
+        _ frameworkURLs: [URL],
+        projectName: String,
+        commitish: String
+        ) -> SignalProducer<(), CarthageError> {
+        return VersionFile.createVersionFileForCommitish(commitish, dependencyName: projectName, buildProducts: frameworkURLs, rootDirectoryURL: self.directoryURL)
+    }
 }
+
+

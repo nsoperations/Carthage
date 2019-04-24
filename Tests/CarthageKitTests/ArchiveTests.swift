@@ -1,4 +1,4 @@
-import CarthageKit
+@testable import CarthageKit
 import Foundation
 import Nimble
 import XCTest
@@ -31,7 +31,7 @@ class ArchiveTests: XCTestCase {
 			fail("Could not find CartfilePrivateOnly.zip in resources")
 			return
 		}
-		let result = unarchive(archive: archiveURL).single()
+		let result = Archive.unarchive(archive: archiveURL).single()
 		expect(result).notTo(beNil())
 		expect(result?.error).to(beNil())
 		
@@ -58,10 +58,10 @@ class ArchiveTests: XCTestCase {
 		let outerFilePath = "outer"
 		expect { try "foobar".write(toFile: outerFilePath, atomically: true, encoding: .utf8) }.notTo(throwError())
 		
-		let result = zip(paths: [ innerFilePath, outerFilePath ], into: archiveURL, workingDirectory: temporaryURL.path).wait()
+		let result = Archive.zip(paths: [ innerFilePath, outerFilePath ], into: archiveURL, workingDirectory: temporaryURL.path).wait()
 		expect(result.error).to(beNil())
 		
-		let unzipResult = unarchive(archive: archiveURL).single()
+		let unzipResult = Archive.unarchive(archive: archiveURL).single()
 		expect(unzipResult).notTo(beNil())
 		expect(unzipResult?.error).to(beNil())
 		
@@ -89,10 +89,10 @@ class ArchiveTests: XCTestCase {
 		expect { try FileManager.default.createSymbolicLink(atPath: symlinkPath, withDestinationPath: destinationPath) }.notTo(throwError())
 		expect { try FileManager.default.destinationOfSymbolicLink(atPath: symlinkPath) } == destinationPath
 		
-		let result = zip(paths: [ symlinkPath, destinationPath ], into: archiveURL, workingDirectory: temporaryURL.path).wait()
+		let result = Archive.zip(paths: [ symlinkPath, destinationPath ], into: archiveURL, workingDirectory: temporaryURL.path).wait()
 		expect(result.error).to(beNil())
 		
-		let unzipResult = unarchive(archive: archiveURL).single()
+		let unzipResult = Archive.unarchive(archive: archiveURL).single()
 		expect(unzipResult).notTo(beNil())
 		expect(unzipResult?.error).to(beNil())
 		

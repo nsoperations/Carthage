@@ -1,4 +1,4 @@
-import CarthageKit
+@testable import CarthageKit
 import Foundation
 import Nimble
 import XCTest
@@ -43,11 +43,11 @@ class VersionTests: XCTestCase {
 
 func testIntersection(_ lhs: VersionSpecifier, _ rhs: VersionSpecifier, expected: VersionSpecifier?) {
 	if let expected = expected {
-		expect(intersection(lhs, rhs)) == expected
-		expect(intersection(rhs, lhs)) == expected
+		expect(VersionSpecifier.intersection(lhs, rhs)) == expected
+		expect(VersionSpecifier.intersection(rhs, lhs)) == expected
 	} else {
-		expect(intersection(lhs, rhs)).to(beNil())
-		expect(intersection(rhs, lhs)).to(beNil())
+		expect(VersionSpecifier.intersection(lhs, rhs)).to(beNil())
+		expect(VersionSpecifier.intersection(rhs, lhs)).to(beNil())
 	}
 }
 

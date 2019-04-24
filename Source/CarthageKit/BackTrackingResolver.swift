@@ -2,9 +2,6 @@ import Foundation
 import Result
 import ReactiveSwift
 
-// swiftlint:disable vertical_parameter_alignment_on_call
-// swiftlint:disable vertical_parameter_alignment
-
 /**
  Resolver implementation based on an optimized Backtracking Algorithm.
 

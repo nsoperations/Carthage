@@ -11,7 +11,7 @@ public struct ValidateCommand: CommandProtocol {
 
     public func run(_ options: CheckoutCommand.Options) -> Result<(), CarthageError> {
         return options.loadProject().flatMap(.merge) { (project: Project) in
-            return project.loadResolvedCartfile().flatMap(.merge, project.validate)
+            return project.validate()
             }
             .on(value: { _ in
                 carthage.println("No incompatibilities found in Cartfile.resolved")

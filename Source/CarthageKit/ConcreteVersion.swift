@@ -8,8 +8,6 @@ import BTree
 
  Semantic versions are first, ordered descending, then versions that do not comply with the semantic structure (*.*.*).
  */
-
-// swiftlint:disable vertical_parameter_alignment
 struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
     public let pinnedVersion: PinnedVersion
     public let semanticVersion: Version?
@@ -312,7 +310,9 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
      Returns the conflicting definition for the specified versionSpecifier, or nil if no conflict could be found.
      */
     public func conflictingDefinition(for versionSpecifier: VersionSpecifier) -> ConcreteVersionSetDefinition? {
-        return definitions.first { intersection($0.versionSpecifier, versionSpecifier) == nil }
+        return definitions.first {
+            $0.versionSpecifier.intersectionSpecifier(versionSpecifier) == nil
+        }
     }
 
     // MARK: - Sequence implementation

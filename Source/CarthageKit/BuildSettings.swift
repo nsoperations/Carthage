@@ -38,94 +38,6 @@ public struct BuildSettings {
         options: [ .caseInsensitive, .anchorsMatchLines ]
     )
 
-    /// Invokes `xcodebuild` to retrieve build settings for the given build
-    /// arguments.
-    ///
-    /// Upon .success, sends one BuildSettings value for each target included in
-    /// the referenced scheme.
-    public static func load(with arguments: BuildArguments, for action: BuildArguments.Action? = nil) -> SignalProducer<BuildSettings, CarthageError> {
-        // xcodebuild (in Xcode 8.0) has a bug where xcodebuild -showBuildSettings
-        // can hang indefinitely on projects that contain core data models.
-        // rdar://27052195
-        // Including the action "clean" works around this issue, which is further
-        // discussed here: https://forums.developer.apple.com/thread/50372
-        //
-        // "archive" also works around the issue above so use it to determine if
-        // it is configured for the archive action.
-        let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments)
-
-        return task.launch()
-            .ignoreTaskData()
-            .mapError(CarthageError.taskError)
-            // xcodebuild has a bug where xcodebuild -showBuildSettings
-            // can sometimes hang indefinitely on projects that don't
-            // share any schemes, so automatically bail out if it looks
-            // like that's happening.
-            .timeout(after: 60, raising: .xcodebuildTimeout(arguments.project), on: QueueScheduler(qos: .default))
-            .retry(upTo: 5)
-            .map { data in
-                return String(data: data, encoding: .utf8)!
-            }
-            .flatMap(.merge) { string -> SignalProducer<BuildSettings, CarthageError> in
-                return SignalProducer { observer, lifetime in
-                    var currentSettings: [String: String] = [:]
-                    var currentTarget: String?
-
-                    let flushTarget = { () -> Void in
-                        if let currentTarget = currentTarget {
-                            let buildSettings = self.init(
-                                target: currentTarget,
-                                settings: currentSettings,
-                                arguments: arguments,
-                                action: action
-                            )
-                            observer.send(value: buildSettings)
-                        }
-
-                        currentTarget = nil
-                        currentSettings = [:]
-                    }
-
-                    string.enumerateLines { line, stop in
-                        if lifetime.hasEnded {
-                            stop = true
-                            return
-                        }
-
-                        if let result = self.targetSettingsRegex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
-                            let targetRange = Range(result.range(at: 1), in: line)!
-
-                            flushTarget()
-                            currentTarget = String(line[targetRange])
-                            return
-                        }
-
-                        let trimSet = CharacterSet.whitespacesAndNewlines
-                        let components = line
-                            .split(maxSplits: 1) { $0 == "=" }
-                            .map { $0.trimmingCharacters(in: trimSet) }
-
-                        if components.count == 2 {
-                            currentSettings[components[0]] = components[1]
-                        }
-                    }
-
-                    flushTarget()
-                    observer.sendCompleted()
-                }
-        }
-    }
-
-    /// Determines which SDKs the given scheme builds for, by default.
-    ///
-    /// If an SDK is unrecognized or could not be determined, an error will be
-    /// sent on the returned signal.
-    public static func SDKsForScheme(_ scheme: Scheme, inProject project: ProjectLocator) -> SignalProducer<SDK, CarthageError> {
-        return load(with: BuildArguments(project: project, scheme: scheme))
-            .take(first: 1)
-            .flatMap(.merge) { $0.buildSDKs }
-    }
-
     /// Returns the value for the given build setting, or an error if it could
     /// not be determined.
     public subscript(key: String) -> Result<String, CarthageError> {
@@ -302,6 +214,55 @@ public struct BuildSettings {
             directoryURL = destinationURL
         }
         return directoryURL
+    }
+    
+    static func produce(string: String, arguments: BuildArguments, action: BuildArguments.Action?) -> SignalProducer<BuildSettings, CarthageError> {
+        return SignalProducer { observer, lifetime in
+            var currentSettings: [String: String] = [:]
+            var currentTarget: String?
+            
+            let flushTarget = { () -> Void in
+                if let currentTarget = currentTarget {
+                    let buildSettings = BuildSettings(
+                        target: currentTarget,
+                        settings: currentSettings,
+                        arguments: arguments,
+                        action: action
+                    )
+                    observer.send(value: buildSettings)
+                }
+                
+                currentTarget = nil
+                currentSettings = [:]
+            }
+            
+            string.enumerateLines { line, stop in
+                if lifetime.hasEnded {
+                    stop = true
+                    return
+                }
+                
+                if let result = self.targetSettingsRegex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
+                    let targetRange = Range(result.range(at: 1), in: line)!
+                    
+                    flushTarget()
+                    currentTarget = String(line[targetRange])
+                    return
+                }
+                
+                let trimSet = CharacterSet.whitespacesAndNewlines
+                let components = line
+                    .split(maxSplits: 1) { $0 == "=" }
+                    .map { $0.trimmingCharacters(in: trimSet) }
+                
+                if components.count == 2 {
+                    currentSettings[components[0]] = components[1]
+                }
+            }
+            
+            flushTarget()
+            observer.sendCompleted()
+        }
     }
 }
 

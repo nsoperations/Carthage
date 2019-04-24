@@ -98,17 +98,17 @@ class SimulatorTests: XCTestCase {
 			fail("Could not load json for Simulators/availables")
 			return
 		}
-		let iPhoneSimulator = selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
+		let iPhoneSimulator = Simulator.selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
 		expect(iPhoneSimulator.udid).to(equal(UUID(uuidString: "A52BF797-F6F8-47F1-B559-68B66B553B23")!))
 		expect(iPhoneSimulator.isAvailable).to(beTrue())
 		expect(iPhoneSimulator.name).to(equal("iPhone 5s"))
 		
-		let watchSimulator = selectAvailableSimulator(of: .watchSimulator, from: data)!
+		let watchSimulator = Simulator.selectAvailableSimulator(of: .watchSimulator, from: data)!
 		expect(watchSimulator.udid).to(equal(UUID(uuidString: "290C3D57-0FF0-407F-B33C-F1A55EA44019")!))
 		expect(watchSimulator.isAvailable).to(beTrue())
 		expect(watchSimulator.name).to(equal("Apple Watch - 38mm"))
 		
-		let tvSimulator = selectAvailableSimulator(of: .tvSimulator, from: data)
+		let tvSimulator = Simulator.selectAvailableSimulator(of: .tvSimulator, from: data)
 		expect(tvSimulator).to(beNil())
 	}
 	
@@ -117,17 +117,17 @@ class SimulatorTests: XCTestCase {
 			fail("Could not load json for Simulators/availables-xcode101-beta")
 			return
 		}
-		let iPhoneSimulator = selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
+		let iPhoneSimulator = Simulator.selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
 		expect(iPhoneSimulator.udid).to(equal(UUID(uuidString: "A52BF797-F6F8-47F1-B559-68B66B553B23")!))
 		expect(iPhoneSimulator.isAvailable).to(beTrue())
 		expect(iPhoneSimulator.name).to(equal("iPhone 5s"))
 		
-		let watchSimulator = selectAvailableSimulator(of: .watchSimulator, from: data)!
+		let watchSimulator = Simulator.selectAvailableSimulator(of: .watchSimulator, from: data)!
 		expect(watchSimulator.udid).to(equal(UUID(uuidString: "290C3D57-0FF0-407F-B33C-F1A55EA44019")!))
 		expect(watchSimulator.isAvailable).to(beTrue())
 		expect(watchSimulator.name).to(equal("Apple Watch - 38mm"))
 		
-		let tvSimulator = selectAvailableSimulator(of: .tvSimulator, from: data)
+		let tvSimulator = Simulator.selectAvailableSimulator(of: .tvSimulator, from: data)
 		expect(tvSimulator).to(beNil())
 	}
 	
@@ -136,17 +136,17 @@ class SimulatorTests: XCTestCase {
 			fail("Could not load json for Simulators/availables-xcode101")
 			return
 		}
-		let iPhoneSimulator = selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
+		let iPhoneSimulator = Simulator.selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
 		expect(iPhoneSimulator.udid).to(equal(UUID(uuidString: "A52BF797-F6F8-47F1-B559-68B66B553B23")!))
 		expect(iPhoneSimulator.isAvailable).to(beTrue())
 		expect(iPhoneSimulator.name).to(equal("iPhone 5s"))
 		
-		let watchSimulator = selectAvailableSimulator(of: .watchSimulator, from: data)!
+		let watchSimulator = Simulator.selectAvailableSimulator(of: .watchSimulator, from: data)!
 		expect(watchSimulator.udid).to(equal(UUID(uuidString: "290C3D57-0FF0-407F-B33C-F1A55EA44019")!))
 		expect(watchSimulator.isAvailable).to(beTrue())
 		expect(watchSimulator.name).to(equal("Apple Watch - 38mm"))
 		
-		let tvSimulator = selectAvailableSimulator(of: .tvSimulator, from: data)
+		let tvSimulator = Simulator.selectAvailableSimulator(of: .tvSimulator, from: data)
 		expect(tvSimulator).to(beNil())
 	}
 	
@@ -155,17 +155,17 @@ class SimulatorTests: XCTestCase {
 			fail("Could not load json for Simulators/availables-xcode102-with-unavailable-latest-simulators")
 			return
 		}
-		let iPhoneSimulator = selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
+		let iPhoneSimulator = Simulator.selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
 		expect(iPhoneSimulator.udid).to(equal(UUID(uuidString: "12972BD8-0153-452B-83F7-F253EA75C4FE")!))
 		expect(iPhoneSimulator.isAvailable).to(beTrue())
 		expect(iPhoneSimulator.name).to(equal("iPhone 5s"))
 		
-		let watchSimulator = selectAvailableSimulator(of: .watchSimulator, from: data)!
+		let watchSimulator = Simulator.selectAvailableSimulator(of: .watchSimulator, from: data)!
 		expect(watchSimulator.udid).to(equal(UUID(uuidString: "3E3C4790-EB16-445B-9C39-2BD22C54B37A")!))
 		expect(watchSimulator.isAvailable).to(beTrue())
 		expect(watchSimulator.name).to(equal("Apple Watch Series 2 - 38mm"))
 		
-		let tvSimulator = selectAvailableSimulator(of: .tvSimulator, from: data)!
+		let tvSimulator = Simulator.selectAvailableSimulator(of: .tvSimulator, from: data)!
 		expect(tvSimulator.udid).to(equal(UUID(uuidString: "4747A322-2660-4025-B1F7-90373369F808")!))
 		expect(tvSimulator.isAvailable).to(beTrue())
 		expect(tvSimulator.name).to(equal("Apple TV"))
@@ -176,17 +176,17 @@ class SimulatorTests: XCTestCase {
 			fail("Could not load json for Simulators/availables-xcode102-beta")
 			return
 		}
-		let iPhoneSimulator = selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
+		let iPhoneSimulator = Simulator.selectAvailableSimulator(of: .iPhoneSimulator, from: data)!
 		expect(iPhoneSimulator.udid).to(equal(UUID(uuidString: "A52BF797-F6F8-47F1-B559-68B66B553B23")!))
 		expect(iPhoneSimulator.isAvailable).to(beTrue())
 		expect(iPhoneSimulator.name).to(equal("iPhone 5s"))
 		
-		let watchSimulator = selectAvailableSimulator(of: .watchSimulator, from: data)!
+		let watchSimulator = Simulator.selectAvailableSimulator(of: .watchSimulator, from: data)!
 		expect(watchSimulator.udid).to(equal(UUID(uuidString: "290C3D57-0FF0-407F-B33C-F1A55EA44019")!))
 		expect(watchSimulator.isAvailable).to(beTrue())
 		expect(watchSimulator.name).to(equal("Apple Watch - 38mm"))
 		
-		let tvSimulator = selectAvailableSimulator(of: .tvSimulator, from: data)
+		let tvSimulator = Simulator.selectAvailableSimulator(of: .tvSimulator, from: data)
 		expect(tvSimulator).to(beNil())
 	}
 	
@@ -195,26 +195,26 @@ class SimulatorTests: XCTestCase {
 			fail("Could not load data for Simulators/unavailable")
 			return
 		}
-		expect(selectAvailableSimulator(of: .watchSimulator, from: data)).to(beNil())
+		expect(Simulator.selectAvailableSimulator(of: .watchSimulator, from: data)).to(beNil())
 	}
 	
 	func testShouldReturnThePlatformVersionWhenThePlatformNameIsPresent() {
-		let platformVersion = parsePlatformVersion(for: "iOS", from: "iOS 12.1")
+		let platformVersion = Simulator.parsePlatformVersion(for: "iOS", from: "iOS 12.1")
 		expect(platformVersion).to(equal("iOS 12.1"))
 	}
 	
 	func testShouldReturnThePlatformVersionWhenTheIdentifierHasAPrefix() {
-		let platformVersion = parsePlatformVersion(for: "iOS", from: "com.apple.CoreSimulator.SimRuntime.iOS-12-1")
+		let platformVersion = Simulator.parsePlatformVersion(for: "iOS", from: "com.apple.CoreSimulator.SimRuntime.iOS-12-1")
 		expect(platformVersion).to(equal("iOS 12.1"))
 	}
 	
 	func testShouldReturnNilWhenThePlatformNameIsMissing() {
-		let platformVersion = parsePlatformVersion(for: "iOS", from: "watchOS 5.2")
+		let platformVersion = Simulator.parsePlatformVersion(for: "iOS", from: "watchOS 5.2")
 		expect(platformVersion).to(beNil())
 	}
 	
 	func testShouldReturnNilWhenTheIdentifierHasAPrefix() {
-		let platformVersion = parsePlatformVersion(for: "iOS", from: "com.apple.CoreSimulator.SimRuntime.watchOS-5-2")
+		let platformVersion = Simulator.parsePlatformVersion(for: "iOS", from: "com.apple.CoreSimulator.SimRuntime.watchOS-5-2")
 		expect(platformVersion).to(beNil())
 	}
 }

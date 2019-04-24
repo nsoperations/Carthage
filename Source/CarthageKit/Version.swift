@@ -392,131 +392,141 @@ extension VersionSpecifier: CustomStringConvertible {
     }
 }
 
-private func intersection(atLeast: Version, compatibleWith: Version) -> VersionSpecifier? {
-    if atLeast.major > compatibleWith.major {
-        return nil
-    } else if atLeast.major < compatibleWith.major {
-        return .compatibleWith(compatibleWith)
-    } else {
-        return .compatibleWith(max(atLeast, compatibleWith))
-    }
-}
+extension VersionSpecifier {
 
-private func intersection(atLeast: Version, exactly: Version) -> VersionSpecifier? {
-    if atLeast > exactly {
-        return nil
+    func intersectionSpecifier(_ other: VersionSpecifier) -> VersionSpecifier? {
+        return VersionSpecifier.intersection(self, other)
     }
 
-    return .exactly(exactly)
-}
+    /// Attempts to determine a version specifier that accurately describes the
+    /// intersection between the two given specifiers.
+    ///
+    /// In other words, any version that satisfies the returned specifier will
+    /// satisfy _both_ of the given specifiers.
+    static func intersection(_ lhs: VersionSpecifier, _ rhs: VersionSpecifier) -> VersionSpecifier? { // swiftlint:disable:this cyclomatic_complexity
+        switch (lhs, rhs) {
+            // Unfortunately, patterns with a wildcard _ are not considered exhaustive,
+        // so do the same thing manually. – swiftlint:disable:this vertical_whitespace_between_cases
+        case (.any, .any), (.any, .exactly):
+            return rhs
 
-private func intersection(compatibleWith: Version, exactly: Version) -> VersionSpecifier? {
-    if exactly.major != compatibleWith.major || compatibleWith > exactly {
-        return nil
-    }
+        case let (.any, .atLeast(rv)):
+            return .atLeast(rv.discardingBuildMetadata)
 
-    return .exactly(exactly)
-}
+        case let (.any, .compatibleWith(rv)):
+            return .compatibleWith(rv.discardingBuildMetadata)
 
-/// Attempts to determine a version specifier that accurately describes the
-/// intersection between the two given specifiers.
-///
-/// In other words, any version that satisfies the returned specifier will
-/// satisfy _both_ of the given specifiers.
-public func intersection(_ lhs: VersionSpecifier, _ rhs: VersionSpecifier) -> VersionSpecifier? { // swiftlint:disable:this cyclomatic_complexity
-    switch (lhs, rhs) {
-        // Unfortunately, patterns with a wildcard _ are not considered exhaustive,
-    // so do the same thing manually. – swiftlint:disable:this vertical_whitespace_between_cases
-    case (.any, .any), (.any, .exactly):
-        return rhs
+        case (.exactly, .any):
+            return lhs
 
-    case let (.any, .atLeast(rv)):
-        return .atLeast(rv.discardingBuildMetadata)
+        case let (.compatibleWith(lv), .any):
+            return .compatibleWith(lv.discardingBuildMetadata)
 
-    case let (.any, .compatibleWith(rv)):
-        return .compatibleWith(rv.discardingBuildMetadata)
+        case let (.atLeast(lv), .any):
+            return .atLeast(lv.discardingBuildMetadata)
 
-    case (.exactly, .any):
-        return lhs
+        case (.gitReference, .any), (.gitReference, .atLeast), (.gitReference, .compatibleWith), (.gitReference, .exactly):
+            return lhs
 
-    case let (.compatibleWith(lv), .any):
-        return .compatibleWith(lv.discardingBuildMetadata)
+        case (.any, .gitReference), (.atLeast, .gitReference), (.compatibleWith, .gitReference), (.exactly, .gitReference):
+            return rhs
 
-    case let (.atLeast(lv), .any):
-        return .atLeast(lv.discardingBuildMetadata)
-
-    case (.gitReference, .any), (.gitReference, .atLeast), (.gitReference, .compatibleWith), (.gitReference, .exactly):
-        return lhs
-
-    case (.any, .gitReference), (.atLeast, .gitReference), (.compatibleWith, .gitReference), (.exactly, .gitReference):
-        return rhs
-
-    case let (.gitReference(lv), .gitReference(rv)):
-        if lv != rv {
-            return nil
-        }
-
-        return lhs
-
-    case let (.atLeast(lv), .atLeast(rv)):
-        return .atLeast(max(lv.discardingBuildMetadata, rv.discardingBuildMetadata))
-
-    case let (.atLeast(lv), .compatibleWith(rv)):
-        return intersection(atLeast: lv.discardingBuildMetadata, compatibleWith: rv.discardingBuildMetadata)
-
-    case let (.atLeast(lv), .exactly(rv)):
-        return intersection(atLeast: lv.discardingBuildMetadata, exactly: rv)
-
-    case let (.compatibleWith(lv), .atLeast(rv)):
-        return intersection(atLeast: rv.discardingBuildMetadata, compatibleWith: lv.discardingBuildMetadata)
-
-    case let (.compatibleWith(lv), .compatibleWith(rv)):
-        if lv.major != rv.major {
-            return nil
-        }
-
-        // According to SemVer, any 0.x.y release may completely break the
-        // exported API, so it's not safe to consider them compatible with one
-        // another. Only patch versions are compatible under 0.x, meaning 0.1.1 is
-        // compatible with 0.1.2, but not 0.2. This isn't according to the SemVer
-        // spec but keeps ~> useful for 0.x.y versions.
-        if lv.major == 0 && rv.major == 0 {
-            if lv.minor != rv.minor {
+        case let (.gitReference(lv), .gitReference(rv)):
+            if lv != rv {
                 return nil
             }
+
+            return lhs
+
+        case let (.atLeast(lv), .atLeast(rv)):
+            return .atLeast(max(lv.discardingBuildMetadata, rv.discardingBuildMetadata))
+
+        case let (.atLeast(lv), .compatibleWith(rv)):
+            return intersection(atLeast: lv.discardingBuildMetadata, compatibleWith: rv.discardingBuildMetadata)
+
+        case let (.atLeast(lv), .exactly(rv)):
+            return intersection(atLeast: lv.discardingBuildMetadata, exactly: rv)
+
+        case let (.compatibleWith(lv), .atLeast(rv)):
+            return intersection(atLeast: rv.discardingBuildMetadata, compatibleWith: lv.discardingBuildMetadata)
+
+        case let (.compatibleWith(lv), .compatibleWith(rv)):
+            if lv.major != rv.major {
+                return nil
+            }
+
+            // According to SemVer, any 0.x.y release may completely break the
+            // exported API, so it's not safe to consider them compatible with one
+            // another. Only patch versions are compatible under 0.x, meaning 0.1.1 is
+            // compatible with 0.1.2, but not 0.2. This isn't according to the SemVer
+            // spec but keeps ~> useful for 0.x.y versions.
+            if lv.major == 0 && rv.major == 0 {
+                if lv.minor != rv.minor {
+                    return nil
+                }
+            }
+
+            return .compatibleWith(max(lv.discardingBuildMetadata, rv.discardingBuildMetadata))
+
+        case let (.compatibleWith(lv), .exactly(rv)):
+            return intersection(compatibleWith: lv.discardingBuildMetadata, exactly: rv)
+
+        case let (.exactly(lv), .atLeast(rv)):
+            return intersection(atLeast: rv.discardingBuildMetadata, exactly: lv)
+
+        case let (.exactly(lv), .compatibleWith(rv)):
+            return intersection(compatibleWith: rv.discardingBuildMetadata, exactly: lv)
+
+        case let (.exactly(lv), .exactly(rv)):
+            if lv != rv {
+                return nil
+            }
+
+            return lhs
         }
+    }
 
-        return .compatibleWith(max(lv.discardingBuildMetadata, rv.discardingBuildMetadata))
+    private static func intersection(atLeast: Version, compatibleWith: Version) -> VersionSpecifier? {
+        if atLeast.major > compatibleWith.major {
+            return nil
+        } else if atLeast.major < compatibleWith.major {
+            return .compatibleWith(compatibleWith)
+        } else {
+            return .compatibleWith(max(atLeast, compatibleWith))
+        }
+    }
 
-    case let (.compatibleWith(lv), .exactly(rv)):
-        return intersection(compatibleWith: lv.discardingBuildMetadata, exactly: rv)
-
-    case let (.exactly(lv), .atLeast(rv)):
-        return intersection(atLeast: rv.discardingBuildMetadata, exactly: lv)
-
-    case let (.exactly(lv), .compatibleWith(rv)):
-        return intersection(compatibleWith: rv.discardingBuildMetadata, exactly: lv)
-
-    case let (.exactly(lv), .exactly(rv)):
-        if lv != rv {
+    private static func intersection(atLeast: Version, exactly: Version) -> VersionSpecifier? {
+        if atLeast > exactly {
             return nil
         }
 
-        return lhs
+        return .exactly(exactly)
+    }
+
+    private static func intersection(compatibleWith: Version, exactly: Version) -> VersionSpecifier? {
+        if exactly.major != compatibleWith.major || compatibleWith > exactly {
+            return nil
+        }
+
+        return .exactly(exactly)
     }
 }
 
-/// Attempts to determine a version specifier that accurately describes the
-/// intersection between the given specifiers.
-///
-/// In other words, any version that satisfies the returned specifier will
-/// satisfy _all_ of the given specifiers.
-public func intersection<S: Sequence>(_ specs: S) -> VersionSpecifier? where S.Iterator.Element == VersionSpecifier {
-    return specs.reduce(nil) { (left: VersionSpecifier?, right: VersionSpecifier) -> VersionSpecifier? in
-        if let left = left {
-            return intersection(left, right)
-        } else {
-            return right
+extension Sequence where Iterator.Element == VersionSpecifier {
+
+    /// Attempts to determine a version specifier that accurately describes the
+    /// intersection between the given specifiers.
+    ///
+    /// In other words, any version that satisfies the returned specifier will
+    /// satisfy _all_ of the given specifiers.
+    func intersectionSpecifier() -> VersionSpecifier? {
+        return self.reduce(nil) { (left: VersionSpecifier?, right: VersionSpecifier) -> VersionSpecifier? in
+            if let left = left {
+                return left.intersectionSpecifier(right)
+            } else {
+                return right
+            }
         }
     }
 }

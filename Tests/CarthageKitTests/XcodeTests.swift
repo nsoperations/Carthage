@@ -37,7 +37,7 @@ class XcodeTests: XCTestCase {
 		_ = try? FileManager.default.removeItem(at: targetFolderURL)
 	}
 	
-	let currentSwiftVersion = swiftVersion().single()?.value
+	let currentSwiftVersion = SwiftToolchain.swiftVersion().single()?.value
 	#if !SWIFT_PACKAGE
 	let testSwiftFramework = "Quick.framework"
 	let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
@@ -55,7 +55,7 @@ class XcodeTests: XCTestCase {
 			fail("Could not load FakeOldObjc.framework from resources")
 			return
 		}
-		expect(isSwiftFramework(frameworkURL)) == false
+		expect(Frameworks.isSwiftFramework(frameworkURL)) == false
 	}
 	
 	func testShouldDetermineAValueForTheLocalSwiftVersion() {
@@ -85,7 +85,7 @@ class XcodeTests: XCTestCase {
 			fail("Could not load FakeSwift.framework from resources")
 			return
 		}
-		let result = frameworkSwiftVersion(frameworkURL).single()
+		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
 		
 		expect(result?.value) == "4.0 (swiftlang-900.0.43 clang-900.0.22.8)"
 	}
@@ -103,7 +103,7 @@ class XcodeTests: XCTestCase {
 			fail("Could not load FakeOldSwift.framework from resources")
 			return
 		}
-		let result = checkSwiftFrameworkCompatibility(frameworkURL, usingToolchain: nil).single()
+		let result = Frameworks.checkSwiftFrameworkCompatibility(frameworkURL, usingToolchain: nil).single()
 		
 		expect(result?.value).to(beNil())
 		expect(result?.error) == .incompatibleFrameworkSwiftVersions(local: currentSwiftVersion ?? "", framework: "0.0.0 (swiftlang-800.0.63 clang-800.0.42.1)")
@@ -114,7 +114,7 @@ class XcodeTests: XCTestCase {
 			fail("Could not load FakeOSSSwift.framework from resources")
 			return
 		}
-		let result = frameworkSwiftVersion(frameworkURL).single()
+		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
 		
 		expect(result?.value) == "4.1-dev (LLVM 0fcc19c0d8, Clang 1696f82ad2, Swift 691139445e)"
 	}
@@ -156,7 +156,7 @@ class XcodeTests: XCTestCase {
 		let version = PinnedVersion("0.1")
 		
 		for dependency in dependencies {
-			let result = build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug"))
+			let result = Xcode.build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug"))
 				.ignoreTaskData()
 				.on(value: { project, scheme in // swiftlint:disable:this end_closure
 					NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -166,7 +166,7 @@ class XcodeTests: XCTestCase {
 			expect(result.error).to(beNil())
 		}
 		
-		let result = buildInDirectory(directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this closure_params_parantheses
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -193,7 +193,7 @@ class XcodeTests: XCTestCase {
 		
 		// Verify that the iOS framework is a universal binary for device
 		// and simulator.
-		let architectures = architecturesInPackage(frameworkFolderURL)
+		let architectures = Frameworks.architecturesInPackage(frameworkFolderURL)
 			.collect()
 			.single()
 		
@@ -207,14 +207,14 @@ class XcodeTests: XCTestCase {
 		// Copy ReactiveCocoaLayout.framework to the temporary folder.
 		let targetURL = targetFolderURL.appendingPathComponent("ReactiveCocoaLayout.framework", isDirectory: true)
 		
-		let resultURL = copyProduct(frameworkFolderURL, targetURL).single()
+		let resultURL = Files.copyProduct(frameworkFolderURL, targetURL).single()
 		expect(resultURL?.value) == targetURL
 		expect(targetURL.path).to(beExistingDirectory())
 		
-		let strippingResult = stripFramework(targetURL, keepingArchitectures: [ "armv7", "arm64" ], strippingDebugSymbols: true, codesigningIdentity: "-").wait()
+		let strippingResult = Xcode.stripFramework(targetURL, keepingArchitectures: [ "armv7", "arm64" ], strippingDebugSymbols: true, codesigningIdentity: "-").wait()
 		expect(strippingResult.value).notTo(beNil())
 		
-		let strippedArchitectures = architecturesInPackage(targetURL)
+		let strippedArchitectures = Frameworks.architecturesInPackage(targetURL)
 			.collect()
 			.single()
 		
@@ -225,7 +225,7 @@ class XcodeTests: XCTestCase {
 		/// There are many suggestions on how to do this but no one single
 		/// accepted way. This seems to work best:
 		/// https://lists.apple.com/archives/unix-porting/2006/Feb/msg00021.html
-		let hasDebugSymbols = SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in binaryURL(targetURL) }
+		let hasDebugSymbols = SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in Frameworks.binaryURL(targetURL) }
 			.flatMap(.merge) { binaryURL -> SignalProducer<Bool, CarthageError> in
 				let nmTask = Task("/usr/bin/xcrun", arguments: [ "nm", "-ap", binaryURL.path])
 				return nmTask.launch()
@@ -268,7 +268,7 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		
-		let result = buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -297,7 +297,7 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		
-		let result = buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -320,7 +320,7 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		
-		let result = buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -341,7 +341,7 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		
-		let result = buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -364,7 +364,7 @@ class XcodeTests: XCTestCase {
 	func testShouldBuildForOnePlatform() {
 		let dependency = Dependency.gitHub(.dotCom, Repository(owner: "github", name: "Archimedes"))
 		let version = PinnedVersion("0.1")
-		let result = build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS ]))
+		let result = Xcode.build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS ]))
 			.ignoreTaskData()
 			.on(value: { project, scheme in
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -390,7 +390,7 @@ class XcodeTests: XCTestCase {
 	func testShouldBuildForMultiplePlatforms() {
 		let dependency = Dependency.gitHub(.dotCom, Repository(owner: "github", name: "Archimedes"))
 		let version = PinnedVersion("0.1")
-		let result = build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS, .iOS ]))
+		let result = Xcode.build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS, .iOS ]))
 			.ignoreTaskData()
 			.on(value: { project, scheme in
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -437,7 +437,7 @@ class XcodeTests: XCTestCase {
 		
 		_ = try? FileManager.default.removeItem(at: _buildFolderURL)
 		
-		let result = buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug",
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug",
 																			   platforms: [.iOS],
 																			   derivedDataPath: Constants.Dependency.derivedDataURL.appendingPathComponent("TestFramework-o2nfjkdsajhwenrjle").path), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
@@ -458,7 +458,7 @@ class XcodeTests: XCTestCase {
 		expect(frameworkDynamicPackagePath).to(beFramework(ofType: .dynamic))
 		expect(frameworkStaticPackagePath).to(beFramework(ofType: .static))
 		
-		let result2 = buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug",
+		let result2 = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug",
 																				platforms: [.iOS],
 																				derivedDataPath: Constants.Dependency.derivedDataURL.appendingPathComponent("TestFramework-o2nfjkdsajhwenrjle").path), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()

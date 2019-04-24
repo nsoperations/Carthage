@@ -13,7 +13,7 @@ public struct GitURL {
     private static func normalizedURLString(from urlString: String) -> String {
         if let parsedURL = URL(string: urlString), let host = parsedURL.host {
             // Normal, valid URL.
-            let path = strippingGitSuffix(parsedURL.path)
+            let path = Git.strippingGitSuffix(parsedURL.path)
             return "\(host)\(path)"
         } else if urlString.hasPrefix("/") // "/path/to/..."
             || urlString.hasPrefix(".") // "./path/to/...", "../path/to/..."
@@ -21,7 +21,7 @@ public struct GitURL {
             || !urlString.contains(":") // "path/to/..." with avoiding "git@github.com:owner/name"
         {
             // Local path.
-            return strippingGitSuffix(urlString)
+            return Git.strippingGitSuffix(urlString)
         } else {
             // scp syntax.
             var strippedURLString = urlString
@@ -36,7 +36,7 @@ public struct GitURL {
                 strippedURLString.removeSubrange(strippedURLString.startIndex...index)
             }
 
-            var path = strippingGitSuffix(strippedURLString)
+            var path = Git.strippingGitSuffix(strippedURLString)
             if !path.hasPrefix("/") {
                 // This probably isn't strictly legit, but we'll have a forward
                 // slash for other URL types.
@@ -54,7 +54,7 @@ public struct GitURL {
         return components
             .last
             .map(String.init)
-            .map(strippingGitSuffix)
+            .map(Git.strippingGitSuffix)
     }
 
     public init(_ urlString: String) {

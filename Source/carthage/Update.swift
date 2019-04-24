@@ -91,31 +91,11 @@ public struct UpdateCommand: CommandProtocol {
     public func run(_ options: Options) -> Result<(), CarthageError> {
         return options.loadProject()
             .flatMap(.merge) { project -> SignalProducer<(), CarthageError> in
-
-                let checkDependencies: SignalProducer<(), CarthageError>
-                if let depsToUpdate = options.dependenciesToUpdate {
-                    checkDependencies = project
-                        .loadCombinedCartfile()
-                        .flatMap(.concat) { cartfile -> SignalProducer<(), CarthageError> in
-                            let dependencyNames = cartfile.dependencies.keys.map { $0.name.lowercased() }
-                            let unknownDependencyNames = Set(depsToUpdate.map { $0.lowercased() }).subtracting(dependencyNames)
-
-                            if !unknownDependencyNames.isEmpty {
-                                return SignalProducer(error: .unknownDependencies(unknownDependencyNames.sorted()))
-                            }
-                            return .empty
-                    }
-                } else {
-                    checkDependencies = .empty
-                }
-
-                let updateDependencies = project.updateDependencies(
+                return project.updateDependencies(
                     shouldCheckout: options.checkoutAfterUpdate,
                     buildOptions: options.buildOptions,
                     dependenciesToUpdate: options.dependenciesToUpdate
                 )
-
-                return checkDependencies.then(updateDependencies)
             }
             .then(options.buildProducer)
             .waitOnCommand()

@@ -27,7 +27,7 @@ extension ProjectLocator {
     public static func locate(in directoryURL: URL) -> SignalProducer<ProjectLocator, CarthageError> {
         let enumerationOptions: FileManager.DirectoryEnumerationOptions = [ .skipsHiddenFiles, .skipsPackageDescendants ]
 
-        return gitmodulesEntriesInRepository(directoryURL, revision: nil)
+        return Git.gitmodulesEntriesInRepository(directoryURL, revision: nil)
             .map { directoryURL.appendingPathComponent($0.path) }
             .concat(value: directoryURL.appendingPathComponent(carthageProjectCheckoutsPath))
             .collect()
@@ -56,37 +56,8 @@ extension ProjectLocator {
 
     /// Sends each scheme found in the receiver.
     public func schemes() -> SignalProducer<Scheme, CarthageError> {
-        let task = xcodebuildTask("-list", BuildArguments(project: self))
-
-        return task.launch()
-            .ignoreTaskData()
-            .mapError(CarthageError.taskError)
-            // xcodebuild has a bug where xcodebuild -list can sometimes hang
-            // indefinitely on projects that don't share any schemes, so
-            // automatically bail out if it looks like that's happening.
-            .timeout(after: 60, raising: .xcodebuildTimeout(self), on: QueueScheduler())
-            .retry(upTo: 2)
-            .map { data in
-                return String(data: data, encoding: .utf8)!
-            }
-            .flatMap(.merge) { string in
-                return string.linesProducer
-            }
-            .flatMap(.merge) { line -> SignalProducer<String, CarthageError> in
-                // Matches one of these two possible messages:
-                //
-                // '    This project contains no schemes.'
-                // 'There are no schemes in workspace "Carthage".'
-                if line.hasSuffix("contains no schemes.") || line.hasPrefix("There are no schemes") {
-                    return SignalProducer(error: .noSharedSchemes(self, nil))
-                } else {
-                    return SignalProducer(value: line)
-                }
-            }
-            .skip { line in !line.hasSuffix("Schemes:") }
-            .skip(first: 1)
-            .take { line in !line.isEmpty }
-            .map { line in
+        return Xcode.listSchemeNames(project: self)
+            .map { (line: String) -> Scheme in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 return Scheme(trimmed)
         }

@@ -99,7 +99,7 @@ public enum CarthageError: Error {
     /// Cartfile.resolved contains incompatible versions
     case invalidResolvedCartfile([CompatibilityInfo])
 
-    case lockError(url: URL, timeout: Int)
+    case lockError(url: URL, timeout: Int?)
 }
 
 extension CarthageError {
@@ -376,7 +376,7 @@ extension CarthageError: CustomStringConvertible {
                 .joined(separator: "\n")
             return message
         case let .lockError(url, timeout):
-            return "Failed to get lock within timeout of \(timeout)s for directory: \(url.path)"
+            return "Failed to get lock\(timeout.map {  "within timeout of \($0)s" } ?? "") for directory: \(url.path)"
         }
     }
 }

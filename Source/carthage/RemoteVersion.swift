@@ -14,5 +14,5 @@ public func remoteVersion() -> Version? {
         .filterMap { _, releases in
             return releases.first { !$0.isDraft }
     }
-    return remoteVersion(remoteVersionProducer)
+    return remoteVersionProducer.getLatestVersion()
 }

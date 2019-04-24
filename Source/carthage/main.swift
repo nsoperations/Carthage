@@ -7,8 +7,8 @@ import Result
 
 setlinebuf(stdout)
 
-guard ensureGitVersion().first()?.value == true else {
-    fputs("Carthage requires git \(carthageRequiredGitVersion) or later.\n", stderr)
+guard Git.ensureGitVersion().first()?.value == true else {
+    fputs("Carthage requires git \(Git.carthageRequiredGitVersion) or later.\n", stderr)
     exit(EXIT_FAILURE)
 }
 

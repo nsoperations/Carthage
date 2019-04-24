@@ -43,7 +43,7 @@ extension Repository {
         if let match = nwoRegex.firstMatch(in: identifier, range: range) {
             let owner = String(identifier[Range(match.range(at: 1), in: identifier)!])
             let name = String(identifier[Range(match.range(at: 2), in: identifier)!])
-            return .success((.dotCom, self.init(owner: owner, name: strippingGitSuffix(name))))
+            return .success((.dotCom, self.init(owner: owner, name: Git.strippingGitSuffix(name))))
         }
 
         // Hostname-based → GitHub Enterprise
@@ -64,11 +64,11 @@ extension Repository {
         // If the host name starts with “github.com”, that is not an enterprise
         // one.
         guard host != "github.com", host != "www.github.com" else {
-            return .success((.dotCom, self.init(owner: owner, name: strippingGitSuffix(name))))
+            return .success((.dotCom, self.init(owner: owner, name: Git.strippingGitSuffix(name))))
         }
 
         let baseURL = url.deletingLastPathComponent().deletingLastPathComponent()
-        return .success((.enterprise(url: baseURL), self.init(owner: owner, name: strippingGitSuffix(name))))
+        return .success((.enterprise(url: baseURL), self.init(owner: owner, name: Git.strippingGitSuffix(name))))
     }
 }
 
@@ -85,7 +85,7 @@ extension Release {
 private func credentialsFromGit(forServer server: Server) -> (String, String)? {
     let data = "url=\(server)".data(using: .utf8)!
 
-    return launchGitTask([ "credential", "fill" ], standardInput: SignalProducer(value: data))
+    return Git.launchGitTask([ "credential", "fill" ], standardInput: SignalProducer(value: data))
         .flatMap(.concat) { string in
             return string.linesProducer
         }

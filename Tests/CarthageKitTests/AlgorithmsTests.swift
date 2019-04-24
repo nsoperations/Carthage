@@ -1,4 +1,4 @@
-import CarthageKit
+@testable import CarthageKit
 import Nimble
 import XCTest
 
@@ -30,7 +30,7 @@ class AlgorithmTests: XCTestCase {
 	}
 	
 	func testShouldSortFirstByDependencyAndSecondByComparability() {
-		let sorted = topologicalSort(validGraph)
+		let sorted = Algorithms.topologicalSort(validGraph)
 		
 		expect(sorted) == [
 			"Argo",
@@ -44,7 +44,7 @@ class AlgorithmTests: XCTestCase {
 	}
 	
 	func testShouldOnlyIncludeTheProvidedNodeAndItsTransitiveDependencies1() {
-		let sorted = topologicalSort(validGraph, nodes: Set(["ReactiveTask"]))
+		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set(["ReactiveTask"]))
 		
 		expect(sorted) == [
 			"Result",
@@ -54,7 +54,7 @@ class AlgorithmTests: XCTestCase {
 	}
 	
 	func testShouldOnlyIncludeProvidedNodesAndTheirTransitiveDependencies2() {
-		let sorted = topologicalSort(validGraph, nodes: Set(["ReactiveTask", "Commandant"]))
+		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set(["ReactiveTask", "Commandant"]))
 		
 		expect(sorted) == [
 			"Result",
@@ -65,7 +65,7 @@ class AlgorithmTests: XCTestCase {
 	}
 	
 	func testShouldOnlyIncludeProvidedNodesAndTheirTransitiveDependencies3() {
-		let sorted = topologicalSort(validGraph, nodes: Set(["Carthage"]))
+		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set(["Carthage"]))
 		
 		expect(sorted) == [
 			"Argo",
@@ -79,7 +79,7 @@ class AlgorithmTests: XCTestCase {
 	}
 	
 	func testShouldPerformATopologicalSortOnTheProvidedGraphWhenTheSetIsEmpty() {
-		let sorted = topologicalSort(validGraph, nodes: Set())
+		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set())
 		
 		expect(sorted) == [
 			"Argo",
@@ -93,26 +93,26 @@ class AlgorithmTests: XCTestCase {
 	}
 	
 	func testShouldFailWhenThereIsACycleInTheInputGraph1() {
-		let sorted = topologicalSort(cycleGraph)
+		let sorted = Algorithms.topologicalSort(cycleGraph)
 		
 		expect(sorted).to(beNil())
 	}
 	
 	func testShouldFailWhenThereIsACycleInTheInputGraph2() {
-		let sorted = topologicalSort(cycleGraph, nodes: Set(["B"]))
+		let sorted = Algorithms.topologicalSort(cycleGraph, nodes: Set(["B"]))
 		
 		expect(sorted).to(beNil())
 	}
 
 
 	func testShouldFailWhenTheInputGraphIsMissingNodes1() {
-		let sorted = topologicalSort(malformedGraph)
+		let sorted = Algorithms.topologicalSort(malformedGraph)
 		
 		expect(sorted).to(beNil())
 	}
 
 	func testShouldFailWhenTheInputGraphIsMissingNodes2() {
-		let sorted = topologicalSort(malformedGraph, nodes: Set(["A"]))
+		let sorted = Algorithms.topologicalSort(malformedGraph, nodes: Set(["A"]))
 		
 		expect(sorted).to(beNil())
 	}
