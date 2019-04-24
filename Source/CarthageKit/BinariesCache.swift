@@ -10,6 +10,51 @@ protocol BinariesCache {
     
 }
 
+class URLBinariesCache: BinariesCache {
+    
+    let binaryProject: BinaryProject
+    
+    init(binaryProject: BinaryProject) {
+        self.binaryProject = binaryProject
+    }
+    
+    func matchingBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
+        
+        let sourceURL = self.binaryProject.versions[pinnedVersion]!
+        
+        return URLBinariesCache.downloadBinary(dependency: dependency, version: pinnedVersion, url: sourceURL, cacheBaseURL: cacheBaseURL, eventObserver: eventObserver, lockTimeout: lockTimeout)
+    }
+    
+    private static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, fileName: String, cacheBaseURL: URL) -> URL {
+        return cacheBaseURL.appendingPathComponent("\(dependency.name)/\(pinnedVersion)/\(fileName)")
+    }
+    
+    /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
+    /// less temporary location.
+    private static func downloadBinary(dependency: Dependency, version: PinnedVersion, url: URL, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
+        let fileName = url.lastPathComponent
+        let fileURL = URLBinariesCache.fileURL(for: dependency, pinnedVersion: version, fileName: fileName, cacheBaseURL: cacheBaseURL)
+        return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
+            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock, CarthageError> in
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    return SignalProducer(value: urlLock)
+                } else {
+                    let urlRequest = URLRequest(url: url)
+                    return URLSession.shared.reactive.download(with: urlRequest)
+                        .on(started: {
+                            eventObserver?.send(value: .downloadingBinaries(dependency, version.description))
+                        })
+                        .mapError { CarthageError.readFailed(url, $0 as NSError) }
+                        .flatMap(.concat) { result -> SignalProducer<URLLock, CarthageError> in
+                            let downloadURL = result.0
+                            return Files.moveFile(from: downloadURL, to: fileURL)
+                                .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
+                    }
+                }
+        }
+    }
+}
+
 class GitHubBinariesCache: BinariesCache {
 
     let repository: Repository
