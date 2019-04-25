@@ -21,6 +21,7 @@ extension BuildOptions: OptionsProtocol {
         let option3 = Option<String?>(key: "derived-data", defaultValue: nil, usage: "path to the custom derived data folder")
         let option4 = Option(key: "cache-builds", defaultValue: false, usage: "use cached builds when possible")
         let option5 = Option(key: "use-binaries", defaultValue: true, usage: "don't use downloaded binaries when possible")
+        let option6 = Option<String?>(key: "custom-cache-executable", defaultValue: nil, usage: "custom script or executable to download cached (binary) dependencies from a custom cache store. The executable receives three parameters: [dependencyName, pinnedVersion (either semantic or commit hash), targetPath] and should move the cached file to the targetPath if successful. A non-zero exit code has to be returned otherwise.")
 
         return curry(self.init)
             <*> mode <| option1
@@ -29,6 +30,7 @@ extension BuildOptions: OptionsProtocol {
             <*> mode <| option3
             <*> mode <| option4
             <*> mode <| option5
+            <*> mode <| option6
     }
 }
 

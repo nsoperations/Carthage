@@ -30,6 +30,9 @@ public enum ProjectEvent {
     /// there weren't any viable binaries after all.
     case downloadingBinaries(Dependency, String)
 
+    /// Installing binaries from local cache
+    case installingBinaries(Dependency, String)
+
     /// Downloading any available binaries of the project is being skipped,
     /// because of a GitHub API request failure which is due to authentication
     /// or rate-limiting.
@@ -300,7 +303,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .map { currentDependencies, updatedDependencies, latestDependencies -> [OutdatedDependency] in
                 return updatedDependencies.compactMap { project, version -> OutdatedDependency? in
                     if let resolved = currentDependencies[project], let latest = latestDependencies[project], resolved != version || resolved != latest {
-                        if Version.from(resolved).value == nil, version == resolved {
+                        if resolved.semanticVersion == nil, version == resolved {
                             // If resolved version is not a semantic version but a commit
                             // it is a false-positive if `version` and `resolved` are the same
                             return nil
@@ -638,7 +641,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                             guard options.useBinaries else {
                                 return .empty
                             }
-                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, toolchain: options.toolchain, customCachingExecutablePath: options.customCacheExecutablePath)
                                 .filterMap { installed -> (Dependency, PinnedVersion)? in
                                     return installed ? (dependency, version) : nil
                             }

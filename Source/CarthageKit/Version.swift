@@ -7,8 +7,12 @@ import SPMUtility
 
 extension Version {
     /// Attempts to parse a semantic version from a PinnedVersion.
-    public static func from(_ pinnedVersion: PinnedVersion) -> Result<Version, ScannableError> {
-        let scanner = Scanner(string: pinnedVersion.commitish)
+    fileprivate static func from(pinnedVersion: PinnedVersion) -> Result<Version, ScannableError> {
+        return from(commitish: pinnedVersion.commitish)
+    }
+
+    fileprivate static func from(commitish: String) -> Result<Version, ScannableError> {
+        let scanner = Scanner(string: commitish)
 
         // Skip leading characters, like "v" or "version-" or anything like
         // that.
@@ -231,9 +235,32 @@ extension String {
 public struct PinnedVersion: Hashable {
     /// The commit SHA, or name of the tag, to pin to.
     public let commitish: String
+    public var semanticVersion: Version? {
+        return _semanticVersion.value
+    }
+    public var isSemantic: Bool {
+        return self.semanticVersion != nil
+    }
+
+    private let _semanticVersion: LazyValue<Version?>
 
     public init(_ commitish: String) {
         self.commitish = commitish
+        self._semanticVersion = LazyValue<Version?> {
+            return Version.from(commitish: commitish).value
+        }
+    }
+
+    public var displayString: String {
+        return self.semanticVersion?.description ?? self.commitish
+    }
+
+    public static func == (lhs: PinnedVersion, rhs: PinnedVersion) -> Bool {
+        return lhs.commitish == rhs.commitish
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(self.commitish)
     }
 }
 
@@ -258,7 +285,7 @@ extension PinnedVersion: Scannable {
 
 extension PinnedVersion: CustomStringConvertible {
     public var description: String {
-        return "\"\(commitish)\""
+        return displayString
     }
 }
 
@@ -290,7 +317,7 @@ public enum VersionSpecifier: Hashable {
     /// Determines whether the given version satisfies this version specifier.
     public func isSatisfied(by version: PinnedVersion) -> Bool {
         func withVersion(_ predicate: (Version) -> Bool) -> Bool {
-            if let semanticVersion = Version.from(version).value {
+            if let semanticVersion = version.semanticVersion {
                 return predicate(semanticVersion)
             } else {
                 // Consider non-semantic versions (e.g., branches) to meet every
@@ -536,5 +563,29 @@ extension String {
     /// Returns true if self contain any of the characters from the given set
     fileprivate func containsAny(_ characterSet: CharacterSet) -> Bool {
         return self.rangeOfCharacter(from: characterSet) != nil
+    }
+}
+
+fileprivate final class LazyValue<T> {
+
+    private let queue = DispatchQueue(label: "org.carthage.LazyValue")
+    private var _value: T?
+    private var _computed = false
+    private let _computation: () -> T
+
+    init(computation: @escaping () -> T) {
+        self._computation = computation
+    }
+
+    var value: T {
+        var ret: T!
+        queue.sync {
+            if !self._computed {
+                _computed = true
+                _value = _computation()
+                ret = _value
+            }
+        }
+        return ret
     }
 }

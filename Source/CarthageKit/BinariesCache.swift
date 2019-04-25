@@ -2,6 +2,10 @@ import Foundation
 import Result
 import Tentacle
 import ReactiveSwift
+import ReactiveTask
+import SPMUtility
+
+import struct Foundation.URL
 
 /// Cache for binary builds
 protocol BinariesCache {
@@ -10,30 +14,44 @@ protocol BinariesCache {
     
 }
 
-class URLBinariesCache: BinariesCache {
+extension BinariesCache {
+    fileprivate static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, fileName: String? = nil, cacheBaseURL: URL) -> URL {
+        let versionString = pinnedVersion.displayString
+        let effectiveFileName = fileName ?? dependency.name + ".framework.zip"
+        return cacheBaseURL.appendingPathComponent("\(dependency.name)/\(versionString)/\(effectiveFileName)")
+    }
+}
+
+class BinaryProjectCache: BinariesCache {
     
-    let binaryProject: BinaryProject
+    let binaryProjectDefinitions: [Dependency: BinaryProject]
     
-    init(binaryProject: BinaryProject) {
-        self.binaryProject = binaryProject
+    init(binaryProjectDefinitions: [Dependency: BinaryProject]) {
+        self.binaryProjectDefinitions = binaryProjectDefinitions
     }
     
     func matchingBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
         
-        let sourceURL = self.binaryProject.versions[pinnedVersion]!
+        guard let binaryProject = self.binaryProjectDefinitions[dependency], let sourceURL = binaryProject.versions[pinnedVersion] else {
+
+            let error: CarthageError
+            if let semanticVersion = pinnedVersion.semanticVersion {
+                error = CarthageError.requiredVersionNotFound(dependency, VersionSpecifier.exactly(semanticVersion))
+            } else {
+                error = CarthageError.requiredVersionNotFound(dependency, VersionSpecifier.gitReference(pinnedVersion.commitish))
+            }
+
+            return SignalProducer<URLLock, CarthageError>(error: error)
+        }
         
-        return URLBinariesCache.downloadBinary(dependency: dependency, version: pinnedVersion, url: sourceURL, cacheBaseURL: cacheBaseURL, eventObserver: eventObserver, lockTimeout: lockTimeout)
-    }
-    
-    private static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, fileName: String, cacheBaseURL: URL) -> URL {
-        return cacheBaseURL.appendingPathComponent("\(dependency.name)/\(pinnedVersion)/\(fileName)")
+        return BinaryProjectCache.downloadBinary(dependency: dependency, version: pinnedVersion, url: sourceURL, cacheBaseURL: cacheBaseURL, eventObserver: eventObserver, lockTimeout: lockTimeout)
     }
     
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
     private static func downloadBinary(dependency: Dependency, version: PinnedVersion, url: URL, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
         let fileName = url.lastPathComponent
-        let fileURL = URLBinariesCache.fileURL(for: dependency, pinnedVersion: version, fileName: fileName, cacheBaseURL: cacheBaseURL)
+        let fileURL = BinaryProjectCache.fileURL(for: dependency, pinnedVersion: version, fileName: fileName, cacheBaseURL: cacheBaseURL)
         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock, CarthageError> in
                 if FileManager.default.fileExists(atPath: fileURL.path) {
@@ -42,7 +60,7 @@ class URLBinariesCache: BinariesCache {
                     let urlRequest = URLRequest(url: url)
                     return URLSession.shared.reactive.download(with: urlRequest)
                         .on(started: {
-                            eventObserver?.send(value: .downloadingBinaries(dependency, version.description))
+                            eventObserver?.send(value: .downloadingBinaries(dependency, version.displayString))
                         })
                         .mapError { CarthageError.readFailed(url, $0 as NSError) }
                         .flatMap(.concat) { result -> SignalProducer<URLLock, CarthageError> in
@@ -124,7 +142,9 @@ class GitHubBinariesCache: BinariesCache {
                         return Constants.Project.binaryAssetContentTypes.contains(asset.contentType)
                     }
                     .flatMap(.concat) { asset -> SignalProducer<(URLLock, Release.Asset), CarthageError> in
-                        let fileURL = GitHubBinariesCache.fileURLToCachedBinary(dependency: dependency, release: release, asset: asset, baseURL: cacheBaseURL)
+                        // ~/Library/Caches/org.carthage.CarthageKit/binaries/ReactiveCocoa/v2.3.1/1234-ReactiveCocoa.framework.zip
+                        let fileName = "\(asset.id.string)-\(asset.name)"
+                        let fileURL = GitHubBinariesCache.fileURL(for: dependency, pinnedVersion: PinnedVersion(release.tag), fileName: fileName, cacheBaseURL: cacheBaseURL)
                         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout).map { urlLock in
                             return (urlLock, asset)
                         }
@@ -144,12 +164,32 @@ class GitHubBinariesCache: BinariesCache {
                 }
         }
     }
-
-    // Constructs a file URL to where the binary corresponding to the given
-    /// arguments should live.
-    private static func fileURLToCachedBinary(dependency: Dependency, release: Release, asset: Release.Asset, baseURL: URL) -> URL {
-        // ~/Library/Caches/org.carthage.CarthageKit/binaries/ReactiveCocoa/v2.3.1/1234-ReactiveCocoa.framework.zip
-        return baseURL.appendingPathComponent("\(dependency.name)/\(release.tag)/\(asset.id)-\(asset.name)", isDirectory: false)
-    }
 }
 
+class ExternalTaskBinariesCache: BinariesCache {
+
+    let taskLaunchPath: String
+
+    init(taskLaunchPath: String) {
+        self.taskLaunchPath = taskLaunchPath
+    }
+
+    func matchingBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
+        let fileURL = GitHubBinariesCache.fileURL(for: dependency, pinnedVersion: pinnedVersion, cacheBaseURL: cacheBaseURL)
+        return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
+            .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock, CarthageError> in
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    return SignalProducer(value: urlLock)
+                } else {
+                    let versionString = pinnedVersion.displayString
+                    let task = Task(self.taskLaunchPath, arguments: [dependency.name, versionString, fileURL.path])
+                    return task.launch()
+                        .mapError(CarthageError.taskError)
+                        .on(started: {
+                            eventObserver?.send(value: .downloadingBinaries(dependency, versionString))
+                        })
+                        .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
+                }
+        }
+    }
+}
