@@ -343,7 +343,7 @@ public final class ProjectDependencyRetriever {
                     )
                     .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
                         lock = urlLock
-                        self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.displayString))
+                        self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
                         return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: dependency.name, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                     }
                     .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }

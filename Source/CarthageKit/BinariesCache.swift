@@ -19,7 +19,7 @@ extension BinariesCache {
 
         // Try to parse the semantic version out of the Swift version string
         let swiftVersionString: String = swiftVersion?.description ?? "Other"
-        let versionString = pinnedVersion.displayString
+        let versionString = pinnedVersion.description
         let effectiveFileName = fileName ?? dependency.name + ".framework.zip"
         return cacheBaseURL.appendingPathComponent("\(swiftVersionString)/\(dependency.name)/\(versionString)/\(configuration)/\(effectiveFileName)")
     }
@@ -63,7 +63,7 @@ class BinaryProjectCache: BinariesCache {
                     let urlRequest = URLRequest(url: url)
                     return URLSession.shared.reactive.download(with: urlRequest)
                         .on(started: {
-                            eventObserver?.send(value: .downloadingBinaries(dependency, version.displayString))
+                            eventObserver?.send(value: .downloadingBinaries(dependency, version.description))
                         })
                         .mapError { CarthageError.readFailed(url, $0 as NSError) }
                         .flatMap(.concat) { result -> SignalProducer<URLLock, CarthageError> in
@@ -189,7 +189,7 @@ class ExternalTaskBinariesCache: BinariesCache {
                 if FileManager.default.fileExists(atPath: fileURL.path) {
                     return SignalProducer(value: urlLock)
                 } else {
-                    let versionString = pinnedVersion.displayString
+                    let versionString = pinnedVersion.description
                     let task = Task(self.taskLaunchPath, arguments: [dependency.name, versionString, configuration, swiftVersion.description, fileURL.path])
                     return task.launch()
                         .mapError(CarthageError.taskError)

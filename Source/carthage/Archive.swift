@@ -11,14 +11,8 @@ public struct ArchiveCommand: CommandProtocol {
     public struct Options: OptionsProtocol {
         public let outputPath: String?
         public let directoryPath: String
-        public let schemeExcludeRegexPattern: String?
         public let colorOptions: ColorOptions
         public let frameworkNames: [String]
-
-        /// Matcher to only match a subset of schemes from the candidates for building
-        public var schemeMatcher: SchemeMatcher? {
-            return self.schemeExcludeRegexPattern.flatMap { RegexSchemeMatcher(pattern: $0, include: false) }
-        }
 
         public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
             let argumentUsage = "the names of the built frameworks to archive without any extension "
@@ -34,12 +28,10 @@ public struct ArchiveCommand: CommandProtocol {
                 defaultValue: FileManager.default.currentDirectoryPath,
                 usage: "the directory containing the Carthage project"
             )
-            let option3 = Option<String?>(key: "scheme-exclude-regex", defaultValue: nil, usage: "a regular expression for scheme names to exclude from building for all dependencies.")
 
             return curry(self.init)
                 <*> mode <| option1
                 <*> mode <| option2
-                <*> mode <| option3
                 <*> ColorOptions.evaluate(mode)
                 <*> mode <| Argument(defaultValue: [], usage: argumentUsage, usageParameter: "framework names")
         }

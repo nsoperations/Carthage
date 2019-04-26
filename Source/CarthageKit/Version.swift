@@ -246,10 +246,6 @@ public struct PinnedVersion: Hashable {
         }
     }
 
-    public var displayString: String {
-        return self.semanticVersion?.description ?? self.commitish
-    }
-
     public static func == (lhs: PinnedVersion, rhs: PinnedVersion) -> Bool {
         return lhs.commitish == rhs.commitish
     }
@@ -280,7 +276,7 @@ extension PinnedVersion: Scannable {
 
 extension PinnedVersion: CustomStringConvertible {
     public var description: String {
-        return displayString
+        return self.semanticVersion?.description ?? self.commitish
     }
 }
 

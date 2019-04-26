@@ -22,7 +22,6 @@ extension BuildOptions: OptionsProtocol {
         let option4 = Option(key: "cache-builds", defaultValue: false, usage: "use cached builds when possible")
         let option5 = Option(key: "use-binaries", defaultValue: true, usage: "don't use downloaded binaries when possible")
         let option6 = Option<String?>(key: "custom-cache-executable", defaultValue: nil, usage: "custom script or executable to download cached (binary) dependencies from a custom cache store. The executable receives five parameters: [dependencyName, pinnedVersion (either semantic or commit hash), configuration (e.g. Debug or Release), swiftVersion (e.g. 4.2.1), targetPath] and should move the cached file to the targetPath if successful. A non-zero exit code has to be returned otherwise.")
-        let option7 = Option<String?>(key: "scheme-exclude-regex", defaultValue: nil, usage: "a regular expression for scheme names to exclude from building for all dependencies.")
 
         return curry(self.init)
             <*> mode <| option1
@@ -32,7 +31,6 @@ extension BuildOptions: OptionsProtocol {
             <*> mode <| option4
             <*> mode <| option5
             <*> mode <| option6
-            <*> mode <| option7
     }
 }
 
@@ -56,7 +54,7 @@ public struct BuildCommand: CommandProtocol {
         /// Otherwise, this producer will be empty.
         public var archiveProducer: SignalProducer<URL, CarthageError> {
             if archive {
-                let options = ArchiveCommand.Options(outputPath: archiveOutputPath, directoryPath: directoryPath, schemeExcludeRegexPattern: buildOptions.schemeExcludeRegexPattern, colorOptions: colorOptions, frameworkNames: [])
+                let options = ArchiveCommand.Options(outputPath: archiveOutputPath, directoryPath: directoryPath, colorOptions: colorOptions, frameworkNames: [])
                 return ArchiveCommand().archiveWithOptions(options)
             } else {
                 return .empty
