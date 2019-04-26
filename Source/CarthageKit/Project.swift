@@ -101,12 +101,12 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     /// The file URL to the project's Cartfile.
     public var cartfileURL: URL {
-        return directoryURL.appendingPathComponent(Constants.Project.cartfilePath, isDirectory: false)
+        return Cartfile.url(in: directoryURL)
     }
 
     /// The file URL to the project's Cartfile.resolved.
     public var resolvedCartfileURL: URL {
-        return directoryURL.appendingPathComponent(Constants.Project.resolvedCartfilePath, isDirectory: false)
+        return ResolvedCartfile.url(in: directoryURL)
     }
 
     /// Whether to prefer HTTPS for cloning (vs. SSH).

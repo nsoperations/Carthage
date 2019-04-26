@@ -16,6 +16,12 @@ public struct BuildOptions {
     public var useBinaries: Bool
     /// Custom executable or shell script to perform the caching implementation: recieves five arguments: dependencyName, pinnedVersion, configuration, swiftVersion, targetFilePath
     public var customCacheExecutablePath: String?
+    /// Regex for scheme names to exclude from building
+    public var schemeExcludeRegexPattern: String?
+    /// Matcher to only match a subset of schemes from the candidates for building
+    public var schemeMatcher: SchemeMatcher? {
+        return self.schemeExcludeRegexPattern.flatMap { RegexSchemeMatcher(pattern: $0, include: false) }
+    }
 
     public init(
         configuration: String,
@@ -24,7 +30,8 @@ public struct BuildOptions {
         derivedDataPath: String? = nil,
         cacheBuilds: Bool = true,
         useBinaries: Bool = true,
-        customCacheExecutablePath: String? = nil
+        customCacheExecutablePath: String? = nil,
+        schemeExcludeRegexPattern: String? = nil
         ) {
         self.configuration = configuration
         self.platforms = platforms
@@ -33,5 +40,6 @@ public struct BuildOptions {
         self.cacheBuilds = cacheBuilds
         self.useBinaries = useBinaries
         self.customCacheExecutablePath = customCacheExecutablePath
+        self.schemeExcludeRegexPattern = schemeExcludeRegexPattern
     }
 }
