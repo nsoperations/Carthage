@@ -331,7 +331,7 @@ public final class ProjectDependencyRetriever {
             return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
                 .mapError { error in CarthageError.internalError(description: error.description) }
                 .flatMap(.concat) { localSwiftVersion -> SignalProducer<Bool, CarthageError> in
-                    var lock: Lock?
+                    var lock: URLLock?
                     return cache.matchingBinaries(
                         for: dependency,
                         pinnedVersion: pinnedVersion,
@@ -346,9 +346,12 @@ public final class ProjectDependencyRetriever {
                         self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
                         return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: dependency.name, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                     }
-                    .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
+                    .flatMap(.concat) { Files.removeItem(at: $0) }
                     .map { true }
                     .flatMapError { error in
+                        if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
+                            _ = try? FileManager.default.removeItem(at: url)
+                        }
                         self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
                         return SignalProducer(value: false)
                     }
@@ -371,7 +374,7 @@ public final class ProjectDependencyRetriever {
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
             .flatMap(.concat, { (localSwiftVersion) -> SignalProducer<(), CarthageError> in
-                var lock: Lock?
+                var lock: URLLock?
                 return self.downloadBinaryFrameworkDefinition(binary: binary)
                     .flatMap(.concat) { binaryProject in
                         return self.downloadBinary(dependency: Dependency.binary(binary), pinnedVersion: pinnedVersion, binaryProject: binaryProject, configuration: configuration, swiftVersion: localSwiftVersion)
@@ -380,9 +383,13 @@ public final class ProjectDependencyRetriever {
                         lock = urlLock
                         return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: projectName, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                     }
-                    .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
+                    .flatMap(.concat) { Files.removeItem(at: $0) }
+                    .on(failed: { error in
+                        if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
+                            _ = try? FileManager.default.removeItem(at: url)
+                        }
+                    })
                     .on(terminated: { lock?.unlock() })
-
             })
     }
 
@@ -631,7 +638,7 @@ public final class ProjectDependencyRetriever {
                 return Frameworks.frameworksInDirectory(directoryURL)
                     .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
                         return Frameworks.checkFrameworkCompatibility(url, swiftVersion: swiftVersion)
-                            .mapError { error in CarthageError.internalError(description: error.description) }
+                            .mapError { error in CarthageError.incompatibleFrameworkSwiftVersion(error.description) }
                     }
                     .flatMap(.merge, self.copyFrameworkToBuildFolder)
                     .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
@@ -689,15 +696,6 @@ public final class ProjectDependencyRetriever {
         let destinationDirectoryURL = frameworkURL.deletingLastPathComponent()
         return Frameworks.BCSymbolMapsForFramework(frameworkURL, inDirectoryURL: directoryURL)
             .copyFileURLsIntoDirectory(destinationDirectoryURL)
-    }
-    
-    /// Removes the file located at the given URL
-    ///
-    /// Sends empty value on successful removal
-    private static func removeItem(at url: URL) -> SignalProducer<(), CarthageError> {
-        return SignalProducer {
-            Result(at: url, attempt: FileManager.default.removeItem(at:))
-        }
     }
     
     /// Creates a .version file for all of the provided frameworks.

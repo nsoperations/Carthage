@@ -15,10 +15,10 @@ protocol BinariesCache {
 }
 
 extension BinariesCache {
-    fileprivate static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: Version?, fileName: String? = nil, cacheBaseURL: URL) -> URL {
+    fileprivate static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: Version, fileName: String? = nil, cacheBaseURL: URL) -> URL {
 
         // Try to parse the semantic version out of the Swift version string
-        let swiftVersionString: String = swiftVersion?.description ?? "Other"
+        let swiftVersionString: String = swiftVersion.description
         let versionString = pinnedVersion.description
         let effectiveFileName = fileName ?? dependency.name + ".framework.zip"
         return cacheBaseURL.appendingPathComponent("\(swiftVersionString)/\(dependency.name)/\(versionString)/\(configuration)/\(effectiveFileName)")
@@ -152,7 +152,7 @@ class GitHubBinariesCache: BinariesCache {
                         let fileName = "\(asset.id.string)-\(asset.name)"
 
                         //No support for specific swift version with Github API
-                        let fileURL = GitHubBinariesCache.fileURL(for: dependency, pinnedVersion: PinnedVersion(release.tag), configuration: configuration, swiftVersion: nil, fileName: fileName, cacheBaseURL: cacheBaseURL)
+                        let fileURL = GitHubBinariesCache.fileURL(for: dependency, pinnedVersion: PinnedVersion(release.tag), configuration: configuration, swiftVersion: swiftVersion, fileName: fileName, cacheBaseURL: cacheBaseURL)
                         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout).map { urlLock in
                             return (urlLock, asset)
                         }

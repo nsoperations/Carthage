@@ -100,6 +100,8 @@ public enum CarthageError: Error {
     case invalidResolvedCartfile([CompatibilityInfo])
 
     case lockError(url: URL, timeout: Int?)
+    
+    case incompatibleFrameworkSwiftVersion(String)
 }
 
 extension CarthageError {
@@ -192,6 +194,9 @@ extension CarthageError: Equatable {
 
         case let (.lockError(left, leftTimeout), .lockError(right, rightTimeout)):
             return left == right && leftTimeout == rightTimeout
+            
+        case let (.incompatibleFrameworkSwiftVersion(left), .incompatibleFrameworkSwiftVersion(right)):
+            return left == right
 
         default:
             return false
@@ -375,8 +380,12 @@ extension CarthageError: CustomStringConvertible {
                 }
                 .joined(separator: "\n")
             return message
+            
         case let .lockError(url, timeout):
             return "Failed to get lock\(timeout.map {  "within timeout of \($0)s" } ?? "") for directory: \(url.path)"
+            
+        case .incompatibleFrameworkSwiftVersion(let message):
+            return message
         }
     }
 }

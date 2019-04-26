@@ -410,7 +410,7 @@ extension VersionFile {
                     let frameworkName = url.deletingPathExtension().lastPathComponent
                     let platformName = url.deletingLastPathComponent().lastPathComponent
                     return Frameworks.frameworkSwiftVersionIfIsSwiftFramework(url)
-                        .mapError { swiftVersionError -> CarthageError in .unknownFrameworkSwiftVersion(swiftVersionError.description) }
+                        .mapError { swiftVersionError -> CarthageError in .incompatibleFrameworkSwiftVersion(swiftVersionError.description) }
                         .flatMap(.merge) { frameworkSwiftVersion -> SignalProducer<(String, FrameworkDetail), CarthageError> in
                             let frameworkDetail: FrameworkDetail = .init(platformName: platformName,
                                                                          frameworkName: frameworkName,

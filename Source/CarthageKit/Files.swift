@@ -89,6 +89,15 @@ final class Files {
                 })
         }
     }
+    
+    /// Removes the file located at the given URL
+    ///
+    /// Sends empty value on successful removal
+    static func removeItem(at url: URL) -> SignalProducer<(), CarthageError> {
+        return SignalProducer {
+            Result(at: url, attempt: FileManager.default.removeItem(at:))
+        }
+    }
 
 }
 
