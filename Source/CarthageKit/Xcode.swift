@@ -113,9 +113,11 @@ public final class Xcode {
                             
                             guard let dependency = dependency else {
                                 
-                                return VersionFile.createVersionFileForCurrentProject(platforms: options.platforms,
-                                                                          buildProducts: urls,
-                                                                          rootDirectoryURL: rootDirectoryURL
+                                return VersionFile.createVersionFileForCurrentProject(
+                                    platforms: options.platforms,
+                                    configuration: options.configuration,
+                                    buildProducts: urls,
+                                    rootDirectoryURL: rootDirectoryURL
                                     )
                                     .flatMapError { _ in .empty }
                             }
@@ -124,6 +126,7 @@ public final class Xcode {
                                 for: dependency.dependency,
                                 version: dependency.version,
                                 platforms: options.platforms,
+                                configuration: options.configuration,
                                 buildProducts: urls,
                                 rootDirectoryURL: rootDirectoryURL
                                 )

@@ -3,6 +3,7 @@ import Result
 import ReactiveSwift
 import XCDBLD
 import ReactiveTask
+import SPMUtility
 import struct Foundation.URL
 import enum XCDBLD.Platform
 
@@ -52,7 +53,7 @@ public enum FrameworkEvent {
 
 final class Frameworks {
     /// Determines the Swift version of a framework at a given `URL`.
-    static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<String?, SwiftVersionError> {
+    static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<Version?, SwiftVersionError> {
         guard isSwiftFramework(frameworkURL) else {
             return SignalProducer(value: nil)
         }
@@ -60,13 +61,13 @@ final class Frameworks {
     }
     
     /// Determines the Swift version of a framework at a given `URL`.
-    static func frameworkSwiftVersion(_ frameworkURL: URL) -> SignalProducer<String, SwiftVersionError> {
+    static func frameworkSwiftVersion(_ frameworkURL: URL) -> SignalProducer<Version, SwiftVersionError> {
         
         guard
             let swiftHeaderURL = frameworkURL.swiftHeaderURL(),
             let data = try? Data(contentsOf: swiftHeaderURL),
             let contents = String(data: data, encoding: .utf8),
-            let swiftVersion = SwiftToolchain.parseSwiftVersionCommand(output: contents)
+            let swiftVersion = SwiftToolchain.swiftVersion(from: contents)
             else {
                 return SignalProducer(error: .unknownFrameworkSwiftVersion(message: "Could not derive version from header file."))
         }
@@ -74,7 +75,7 @@ final class Frameworks {
         return SignalProducer(value: swiftVersion)
     }
     
-    static func dSYMSwiftVersion(_ dSYMURL: URL) -> SignalProducer<String, SwiftVersionError> {
+    static func dSYMSwiftVersion(_ dSYMURL: URL) -> SignalProducer<Version, SwiftVersionError> {
         
         // Pick one architecture
         guard let arch = architecturesInPackage(dSYMURL).first()?.value else {
@@ -95,7 +96,7 @@ final class Frameworks {
         //    0x0000000b: TAG_compile_unit [1] *
         //    AT_producer( "Apple Swift version 4.1.2 effective-3.3.2 (swiftlang-902.0.54 clang-902.0.39.2) -emit-object /Users/Tommaso/<redacted>
         
-        let versions: [String]?  = task.launch(standardInput: nil)
+        let versions: [Version]?  = task.launch(standardInput: nil)
             .ignoreTaskData()
             .map { String(data: $0, encoding: .utf8) ?? "" }
             .filter { !$0.isEmpty }
@@ -104,7 +105,7 @@ final class Frameworks {
             }
             .filter { $0.contains("AT_producer") }
             .uniqueValues()
-            .map { SwiftToolchain.parseSwiftVersionCommand(output: .some($0)) }
+            .map { SwiftToolchain.swiftVersion(from: .some($0)) }
             .skipNil()
             .uniqueValues()
             .collect()
@@ -117,11 +118,11 @@ final class Frameworks {
         }
         
         guard numberOfVersions == 1 else {
-            let versionsString = versions!.joined(separator: " ")
+            let versionsString = versions!.map { $0.description }.joined(separator: " ")
             return SignalProducer(error: .unknownFrameworkSwiftVersion(message: "More than one found in dSYM - \(versionsString) ."))
         }
         
-        return SignalProducer<String, SwiftVersionError>(value: versions!.first!)
+        return SignalProducer<Version, SwiftVersionError>(value: versions!.first!)
     }
     
     /// Determines whether a framework was built with Swift
@@ -328,18 +329,34 @@ final class Frameworks {
     
     /// Emits the framework URL if it matches the local Swift version and errors if not.
     static func checkSwiftFrameworkCompatibility(_ frameworkURL: URL, usingToolchain toolchain: String?) -> SignalProducer<URL, SwiftVersionError> {
-        return SignalProducer.combineLatest(SwiftToolchain.swiftVersion(usingToolchain: toolchain), frameworkSwiftVersion(frameworkURL))
-            .attemptMap { localSwiftVersion, frameworkSwiftVersion in
-                return localSwiftVersion == frameworkSwiftVersion
-                    ? .success(frameworkURL)
-                    : .failure(.incompatibleFrameworkSwiftVersions(local: localSwiftVersion, framework: frameworkSwiftVersion))
+        return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
+            .flatMap(.concat) { localSwiftVersion in
+                return checkSwiftFrameworkCompatibility(frameworkURL, swiftVersion: localSwiftVersion)
         }
+    }
+
+    static func checkSwiftFrameworkCompatibility(_ frameworkURL: URL, swiftVersion: Version) -> SignalProducer<URL, SwiftVersionError> {
+        return frameworkSwiftVersion(frameworkURL)
+            .attemptMap({ (frameworkSwiftVersion) -> Result<URL, SwiftVersionError> in
+                return swiftVersion == frameworkSwiftVersion
+                    ? .success(frameworkURL)
+                    : .failure(.incompatibleFrameworkSwiftVersions(local: swiftVersion.description, framework: frameworkSwiftVersion.description))
+            })
     }
     
     /// Emits the framework URL if it is compatible with the build environment and errors if not.
     static func checkFrameworkCompatibility(_ frameworkURL: URL, usingToolchain toolchain: String?) -> SignalProducer<URL, SwiftVersionError> {
         if Frameworks.isSwiftFramework(frameworkURL) {
             return checkSwiftFrameworkCompatibility(frameworkURL, usingToolchain: toolchain)
+        } else {
+            return SignalProducer(value: frameworkURL)
+        }
+    }
+
+    /// Emits the framework URL if it is compatible with the build environment and errors if not.
+    static func checkFrameworkCompatibility(_ frameworkURL: URL, swiftVersion: Version) -> SignalProducer<URL, SwiftVersionError> {
+        if Frameworks.isSwiftFramework(frameworkURL) {
+            return checkSwiftFrameworkCompatibility(frameworkURL, swiftVersion: swiftVersion)
         } else {
             return SignalProducer(value: frameworkURL)
         }

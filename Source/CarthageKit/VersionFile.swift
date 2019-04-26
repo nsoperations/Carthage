@@ -3,6 +3,10 @@ import ReactiveSwift
 import ReactiveTask
 import Result
 import XCDBLD
+import SPMUtility
+
+import struct Foundation.URL
+import enum XCDBLD.Platform
 
 struct CachedFramework: Codable {
     enum CodingKeys: String, CodingKey {
@@ -22,6 +26,7 @@ struct CachedFramework: Codable {
 struct VersionFile: Codable {
     enum CodingKeys: String, CodingKey {
         case commitish = "commitish"
+        case configuration = "configuration"
         case macOS = "Mac"
         case iOS = "iOS"
         case watchOS = "watchOS"
@@ -29,6 +34,7 @@ struct VersionFile: Codable {
     }
 
     let commitish: String
+    let configuration: String
 
     let macOS: [CachedFramework]?
     let iOS: [CachedFramework]?
@@ -56,12 +62,14 @@ struct VersionFile: Codable {
 
     init(
         commitish: String,
+        configuration: String,
         macOS: [CachedFramework]?,
         iOS: [CachedFramework]?,
         watchOS: [CachedFramework]?,
         tvOS: [CachedFramework]?
         ) {
         self.commitish = commitish
+        self.configuration = configuration
         self.macOS = macOS
         self.iOS = iOS
         self.watchOS = watchOS
@@ -138,7 +146,7 @@ struct VersionFile: Codable {
         for cachedFrameworks: [CachedFramework],
         platform: Platform,
         binariesDirectoryURL: URL,
-        localSwiftVersion: String
+        localSwiftVersion: Version
         ) -> SignalProducer<Bool, CarthageError> {
         return SignalProducer<CachedFramework, CarthageError>(cachedFrameworks)
             .flatMap(.concat) { cachedFramework -> SignalProducer<Bool, CarthageError> in
@@ -164,8 +172,9 @@ struct VersionFile: Codable {
     func satisfies(
         platform: Platform,
         commitish: String,
+        configuration: String,
         binariesDirectoryURL: URL,
-        localSwiftVersion: String
+        localSwiftVersion: Version
         ) -> SignalProducer<Bool, CarthageError> {
         guard let cachedFrameworks = self[platform] else {
             return SignalProducer(value: false)
@@ -190,6 +199,7 @@ struct VersionFile: Codable {
                 return self.satisfies(
                     platform: platform,
                     commitish: commitish,
+                    configuration: configuration,
                     hashes: hashes,
                     swiftVersionMatches: swiftVersionMatches
                 )
@@ -199,10 +209,11 @@ struct VersionFile: Codable {
     func satisfies(
         platform: Platform,
         commitish: String,
+        configuration: String,
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<Bool, CarthageError> {
-        guard let cachedFrameworks = self[platform], commitish == self.commitish else {
+        guard let cachedFrameworks = self[platform], commitish == self.commitish, configuration == self.configuration else {
             return SignalProducer(value: false)
         }
 
@@ -254,6 +265,7 @@ extension VersionFile {
     /// Returns a signal that succeeds once the file has been created.
     static func createVersionFileForCurrentProject(
         platforms: Set<Platform>,
+        configuration: String,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -333,6 +345,7 @@ extension VersionFile {
                     version,
                     dependencyName: currentProjectNameString,
                     platforms: platforms,
+                    configuration: configuration,
                     buildProducts: buildProducts,
                     rootDirectoryURL: rootDirectoryURL
                 )
@@ -350,6 +363,7 @@ extension VersionFile {
         for dependency: Dependency,
         version: PinnedVersion,
         platforms: Set<Platform>,
+        configuration: String,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -357,6 +371,7 @@ extension VersionFile {
             version.commitish,
             dependencyName: dependency.name,
             platforms: platforms,
+            configuration: configuration,
             buildProducts: buildProducts,
             rootDirectoryURL: rootDirectoryURL
         )
@@ -372,6 +387,7 @@ extension VersionFile {
         _ commitish: String,
         dependencyName: String,
         platforms: Set<Platform> = Set(Platform.supportedPlatforms),
+        configuration: String,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -398,7 +414,7 @@ extension VersionFile {
                         .flatMap(.merge) { frameworkSwiftVersion -> SignalProducer<(String, FrameworkDetail), CarthageError> in
                             let frameworkDetail: FrameworkDetail = .init(platformName: platformName,
                                                                          frameworkName: frameworkName,
-                                                                         frameworkSwiftVersion: frameworkSwiftVersion)
+                                                                         frameworkSwiftVersion: frameworkSwiftVersion?.description)
                             let details = SignalProducer<FrameworkDetail, CarthageError>(value: frameworkDetail)
                             let binaryURL = url.appendingPathComponent(frameworkName, isDirectory: false)
                             return SignalProducer.zip(hashForFileAtURL(binaryURL), details)
@@ -420,6 +436,7 @@ extension VersionFile {
                     createVersionFile(
                         commitish,
                         dependencyName: dependencyName,
+                        configuration: configuration,
                         rootDirectoryURL: rootDirectoryURL,
                         platformCaches: platformCaches
                     )
@@ -430,6 +447,7 @@ extension VersionFile {
             return createVersionFile(
                 commitish,
                 dependencyName: dependencyName,
+                configuration: configuration,
                 rootDirectoryURL: rootDirectoryURL,
                 platformCaches: platformCaches
             )
@@ -448,6 +466,7 @@ extension VersionFile {
         _ dependency: Dependency,
         version: PinnedVersion,
         platforms: Set<Platform>,
+        configuration: String,
         rootDirectoryURL: URL,
         toolchain: String?
         ) -> SignalProducer<Bool?, CarthageError> {
@@ -472,6 +491,7 @@ extension VersionFile {
                         return versionFile.satisfies(
                             platform: platform,
                             commitish: commitish,
+                            configuration: configuration,
                             binariesDirectoryURL: rootBinariesURL,
                             localSwiftVersion: localSwiftVersion
                         )
@@ -486,6 +506,7 @@ extension VersionFile {
     private static func createVersionFile(
         _ commitish: String,
         dependencyName: String,
+        configuration: String,
         rootDirectoryURL: URL,
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
@@ -498,6 +519,7 @@ extension VersionFile {
 
             let versionFile = VersionFile(
                 commitish: commitish,
+                configuration: configuration,
                 macOS: platformCaches[Platform.macOS.rawValue],
                 iOS: platformCaches[Platform.iOS.rawValue],
                 watchOS: platformCaches[Platform.watchOS.rawValue],

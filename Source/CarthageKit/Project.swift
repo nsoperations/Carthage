@@ -605,7 +605,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
                     self.dependencyRetriever.dependencySet(for: dependency, version: version),
-                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain)
+                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain)
                 )
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
@@ -641,12 +641,12 @@ public final class Project { // swiftlint:disable:this type_body_length
                             guard options.useBinaries else {
                                 return .empty
                             }
-                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, toolchain: options.toolchain, customCachingExecutablePath: options.customCacheExecutablePath)
+                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain, customCachingExecutablePath: options.customCacheExecutablePath)
                                 .filterMap { installed -> (Dependency, PinnedVersion)? in
                                     return installed ? (dependency, version) : nil
                             }
                         case let .binary(binary):
-                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, projectName: dependency.name, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, projectName: dependency.name, toolchain: options.toolchain)
                                 .then(.init(value: (dependency, version)))
                         }
                     }
@@ -695,6 +695,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                 return VersionFile.createVersionFileForCommitish(version.commitish,
                                                                      dependencyName: dependency.name,
                                                                      platforms: options.platforms,
+                                                                     configuration: options.configuration,
                                                                      buildProducts: [],
                                                                      rootDirectoryURL: self.directoryURL)
                                     .then(BuildSchemeProducer.empty)

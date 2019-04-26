@@ -4,38 +4,106 @@ import SPMUtility
 
 import struct Foundation.URL
 
+public struct BinaryProjectFile: Equatable {
+    let url: URL
+    let configuration: String
+    let swiftVersion: Version?
+
+    init(url: URL, configuration: String?, swiftVersion: Version?) {
+        self.url = url
+        self.configuration = configuration ?? "Release"
+        self.swiftVersion = swiftVersion
+    }
+}
+
 /// Represents a binary dependency
 public struct BinaryProject: Equatable {
-    private static let jsonDecoder = JSONDecoder()
 
-    public var versions: [PinnedVersion: URL]
+    private let definitions: [PinnedVersion: [BinaryProjectFile]]
+
+    public init(definitions: [PinnedVersion: [BinaryProjectFile]]) {
+        self.definitions = definitions
+    }
+
+    public init(urls: [PinnedVersion: URL]) {
+        self.definitions = urls.reduce(into: [PinnedVersion: [BinaryProjectFile]](), { (dict, entry) in
+            dict[entry.key] = [BinaryProjectFile(url: entry.value, configuration: nil, swiftVersion: nil)]
+        })
+    }
+
+    public var versions: [PinnedVersion] {
+        return Array(definitions.keys)
+    }
+
+    public func binaryURL(for version: PinnedVersion, configuration: String?, swiftVersion: Version?) -> URL? {
+        guard let binaryProjectFiles = definitions[version] else {
+            return nil
+        }
+
+        return binaryProjectFiles.first(where: { (binaryProjectFile) -> Bool in
+            binaryProjectFile.configuration == (configuration ?? "Release") && (binaryProjectFile.swiftVersion.map { swiftVersion == nil || $0 == swiftVersion } ?? true)
+        }).map {
+            $0.url
+        }
+    }
 
     public static func from(jsonData: Data) -> Result<BinaryProject, BinaryJSONError> {
-        return Result<[String: String], AnyError>(attempt: { try jsonDecoder.decode([String: String].self, from: jsonData) })
-            .mapError { .invalidJSON($0.error) }
-            .flatMap { json -> Result<BinaryProject, BinaryJSONError> in
-                var versions = [PinnedVersion: URL]()
-
-                for (key, value) in json {
-                    let pinnedVersion: PinnedVersion
-                    switch Version.from(Scanner(string: key)) {
-                    case .success:
-                        pinnedVersion = PinnedVersion(key)
-                    case let .failure(error):
-                        return .failure(BinaryJSONError.invalidVersion(error))
-                    }
-
-                    guard let binaryURL = URL(string: value) else {
-                        return .failure(BinaryJSONError.invalidURL(value))
-                    }
-                    guard binaryURL.scheme == "file" || binaryURL.scheme == "https" else {
-                        return .failure(BinaryJSONError.nonHTTPSURL(binaryURL))
-                    }
-
-                    versions[pinnedVersion] = binaryURL
-                }
-
-                return .success(BinaryProject(versions: versions))
+        do {
+            let result = try parse(jsonData: jsonData)
+            return .success(result)
+        } catch let error as BinaryJSONError {
+            return .failure(error)
+        } catch {
+            return .failure(BinaryJSONError.invalidJSON(error.localizedDescription))
         }
+    }
+
+    private static func parse(jsonData: Data) throws -> BinaryProject {
+
+        guard let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            throw BinaryJSONError.invalidJSON("Root level JSON object should be a dictionary")
+        }
+
+        var definitions = [PinnedVersion: [BinaryProjectFile]]()
+        for (key, value) in json {
+            let _ = try Version.from(commitish: key).mapError({ BinaryJSONError.invalidVersion($0) }).get()
+            let pinnedVersion = PinnedVersion(key)
+
+            if let stringValue = value as? String {
+                let binaryURL = try parseURL(stringValue: stringValue)
+                let projectFile = BinaryProjectFile(url: binaryURL, configuration: nil, swiftVersion: nil)
+                definitions[pinnedVersion, default: [BinaryProjectFile]()].append(projectFile)
+
+            } else if let dictValues = value as? [[String: String]] {
+                for dictValue in dictValues {
+                    var swiftVersion: Version?
+                    guard let urlString = dictValue["url"] else {
+                        throw BinaryJSONError.invalidJSON("No url property found for version: \(pinnedVersion)")
+                    }
+
+                    let binaryURL = try parseURL(stringValue: urlString)
+                    let configuration = dictValue["configuration"] ?? "Release"
+                    if let versionString = dictValue["swiftVersion"] {
+                        swiftVersion = try Version.from(commitish: versionString).mapError({ BinaryJSONError.invalidVersion($0) }).get()
+                    }
+
+                    let projectFile = BinaryProjectFile(url: binaryURL, configuration: configuration, swiftVersion: swiftVersion)
+                    definitions[pinnedVersion, default: [BinaryProjectFile]()].append(projectFile)
+                }
+            } else {
+                throw BinaryJSONError.invalidJSON("Value should either be a string or a dictionary containing the properties 'url', 'configuration' and 'swiftVersion'")
+            }
+        }
+        return BinaryProject(definitions: definitions)
+    }
+
+    private static func parseURL(stringValue: String) throws -> URL {
+        guard let binaryURL = URL(string: stringValue) else {
+            throw BinaryJSONError.invalidURL(stringValue)
+        }
+        guard binaryURL.scheme == "file" || binaryURL.scheme == "https" else {
+            throw BinaryJSONError.nonHTTPSURL(binaryURL)
+        }
+        return binaryURL
     }
 }

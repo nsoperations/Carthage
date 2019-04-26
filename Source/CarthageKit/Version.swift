@@ -6,12 +6,7 @@ import ReactiveSwift
 import SPMUtility
 
 extension Version {
-    /// Attempts to parse a semantic version from a PinnedVersion.
-    fileprivate static func from(pinnedVersion: PinnedVersion) -> Result<Version, ScannableError> {
-        return from(commitish: pinnedVersion.commitish)
-    }
-
-    fileprivate static func from(commitish: String) -> Result<Version, ScannableError> {
+    static func from(commitish: String) -> Result<Version, ScannableError> {
         let scanner = Scanner(string: commitish)
 
         // Skip leading characters, like "v" or "version-" or anything like
@@ -570,7 +565,6 @@ fileprivate final class LazyValue<T> {
 
     private let queue = DispatchQueue(label: "org.carthage.LazyValue")
     private var _value: T?
-    private var _computed = false
     private let _computation: () -> T
 
     init(computation: @escaping () -> T) {
@@ -580,8 +574,9 @@ fileprivate final class LazyValue<T> {
     var value: T {
         var ret: T!
         queue.sync {
-            if !self._computed {
-                _computed = true
+            if let value = _value {
+                ret = value
+            } else {
                 _value = _computation()
                 ret = _value
             }

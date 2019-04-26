@@ -37,7 +37,7 @@ class XcodeTests: XCTestCase {
 		_ = try? FileManager.default.removeItem(at: targetFolderURL)
 	}
 	
-	let currentSwiftVersion = SwiftToolchain.swiftVersion().single()?.value
+	let currentSwiftVersion = SwiftToolchain.rawSwiftVersion().single()?.value
 	#if !SWIFT_PACKAGE
 	let testSwiftFramework = "Quick.framework"
 	let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)

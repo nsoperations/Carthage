@@ -192,7 +192,7 @@ public final class ProjectDependencyRetriever {
         case let .binary(binary):
             fetchVersions = downloadBinaryFrameworkDefinition(binary: binary)
                 .flatMap(.concat) { binaryProject -> SignalProducer<PinnedVersion, CarthageError> in
-                    return SignalProducer(binaryProject.versions.keys)
+                    return SignalProducer(binaryProject.versions)
             }
         }
 
@@ -326,25 +326,36 @@ public final class ProjectDependencyRetriever {
     /// Installs binaries and debug symbols for the given project, if available.
     ///
     /// Sends a boolean indicating whether binaries were installed.
-    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, toolchain: String?, customCachingExecutablePath: String?) -> SignalProducer<Bool, CarthageError> {
-        let binariesCache: BinariesCache? = self.binariesCache(for: dependency, customCachingExecutablePath: customCachingExecutablePath)
-        if let binariesCache = binariesCache {
-            var lock: Lock?
-            return binariesCache.matchingBinaries(for: dependency, pinnedVersion: pinnedVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
-                .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
-                    lock = urlLock
-                    self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.displayString))
-                    return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: dependency.name, pinnedVersion: pinnedVersion, toolchain: toolchain)
-                }
-                .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
-                .map { true }
-                .flatMapError { error in
-                    self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
-                    return SignalProducer(value: false)
-                }
-                .concat(value: false)
-                .take(first: 1)
-                .on(terminated: { lock?.unlock() })
+    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, toolchain: String?, customCachingExecutablePath: String?) -> SignalProducer<Bool, CarthageError> {
+        if let cache = self.binariesCache(for: dependency, customCachingExecutablePath: customCachingExecutablePath) {
+            return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
+                .mapError { error in CarthageError.internalError(description: error.description) }
+                .flatMap(.concat) { localSwiftVersion -> SignalProducer<Bool, CarthageError> in
+                    var lock: Lock?
+                    return cache.matchingBinaries(
+                        for: dependency,
+                        pinnedVersion: pinnedVersion,
+                        configuration: configuration,
+                        swiftVersion: localSwiftVersion,
+                        cacheBaseURL: Constants.Dependency.assetsURL,
+                        eventObserver: self.projectEventsObserver,
+                        lockTimeout: self.lockTimeout
+                    )
+                    .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
+                        lock = urlLock
+                        self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.displayString))
+                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: dependency.name, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                    }
+                    .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
+                    .map { true }
+                    .flatMapError { error in
+                        self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
+                        return SignalProducer(value: false)
+                    }
+                    .concat(value: false)
+                    .take(first: 1)
+                    .on(terminated: { lock?.unlock() })
+            }
         } else {
             return SignalProducer(value: false)
         }
@@ -353,20 +364,26 @@ public final class ProjectDependencyRetriever {
     public func installBinariesForBinaryProject(
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,
+        configuration: String,
         projectName: String,
         toolchain: String?
         ) -> SignalProducer<(), CarthageError> {
-        var lock: Lock?
-        return self.downloadBinaryFrameworkDefinition(binary: binary)
-            .flatMap(.concat) { binaryProject in
-                return self.downloadBinary(dependency: Dependency.binary(binary), pinnedVersion: pinnedVersion, binaryProject: binaryProject)
-            }
-            .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
-                lock = urlLock
-                return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: projectName, pinnedVersion: pinnedVersion, toolchain: toolchain)
-            }
-            .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
-            .on(terminated: { lock?.unlock() })
+        return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
+            .mapError { error in CarthageError.internalError(description: error.description) }
+            .flatMap(.concat, { (localSwiftVersion) -> SignalProducer<(), CarthageError> in
+                var lock: Lock?
+                return self.downloadBinaryFrameworkDefinition(binary: binary)
+                    .flatMap(.concat) { binaryProject in
+                        return self.downloadBinary(dependency: Dependency.binary(binary), pinnedVersion: pinnedVersion, binaryProject: binaryProject, configuration: configuration, swiftVersion: localSwiftVersion)
+                    }
+                    .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
+                        lock = urlLock
+                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: projectName, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                    }
+                    .flatMap(.concat) { ProjectDependencyRetriever.removeItem(at: $0) }
+                    .on(terminated: { lock?.unlock() })
+
+            })
     }
 
     // MARK: - Private methods
@@ -510,9 +527,9 @@ public final class ProjectDependencyRetriever {
 
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
-    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject) -> SignalProducer<URLLock, CarthageError> {
+    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, swiftVersion: Version) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinaries(for: dependency, pinnedVersion: pinnedVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
+        return binariesCache.matchingBinaries(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
     }
     
     /// Creates symlink between the dependency checkouts and the root checkouts
@@ -604,7 +621,8 @@ public final class ProjectDependencyRetriever {
         zipFile: URL,
         projectName: String,
         pinnedVersion: PinnedVersion,
-        toolchain: String?
+        configuration: String,
+        swiftVersion: Version
         ) -> SignalProducer<URL, CarthageError> {
         
         return SignalProducer<URL, CarthageError>(value: zipFile)
@@ -612,7 +630,7 @@ public final class ProjectDependencyRetriever {
             .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
                 return Frameworks.frameworksInDirectory(directoryURL)
                     .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
-                        return Frameworks.checkFrameworkCompatibility(url, usingToolchain: toolchain)
+                        return Frameworks.checkFrameworkCompatibility(url, swiftVersion: swiftVersion)
                             .mapError { error in CarthageError.internalError(description: error.description) }
                     }
                     .flatMap(.merge, self.copyFrameworkToBuildFolder)
@@ -626,7 +644,8 @@ public final class ProjectDependencyRetriever {
                         return self.createVersionFilesForFrameworks(
                             frameworkURLs,
                             projectName: projectName,
-                            commitish: pinnedVersion.commitish
+                            commitish: pinnedVersion.commitish,
+                            configuration: configuration
                         )
                     }
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))
@@ -685,9 +704,14 @@ public final class ProjectDependencyRetriever {
     private func createVersionFilesForFrameworks(
         _ frameworkURLs: [URL],
         projectName: String,
-        commitish: String
+        commitish: String,
+        configuration: String
         ) -> SignalProducer<(), CarthageError> {
-        return VersionFile.createVersionFileForCommitish(commitish, dependencyName: projectName, buildProducts: frameworkURLs, rootDirectoryURL: self.directoryURL)
+        return VersionFile.createVersionFileForCommitish(commitish,
+                                                         dependencyName: projectName,
+                                                         configuration: configuration,
+                                                         buildProducts: frameworkURLs,
+                                                         rootDirectoryURL: self.directoryURL)
     }
 }
 

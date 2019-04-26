@@ -2,17 +2,42 @@ import Foundation
 import Result
 import ReactiveSwift
 import ReactiveTask
+import SPMUtility
+
+import struct Foundation.URL
 
 /// Swift compiler helper methods
 final class SwiftToolchain {
     
     /// Emits the currect Swift version
-    static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
+    static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<Version, SwiftVersionError> {
+        return rawSwiftVersion(usingToolchain: toolchain)
+            .attemptMap({ (versionString) -> Result<Version, SwiftVersionError> in
+                if let version = semanticVersion(from: versionString) {
+                    return .success(version)
+                } else {
+                    return .failure(.unknownLocalSwiftVersion)
+                }
+            })
+    }
+
+    static func swiftVersion(from commandOutput: String?) -> Version? {
+        return parseSwiftVersionCommand(output: commandOutput).flatMap { semanticVersion(from: $0) }
+    }
+
+    /// Emits the currect Swift version
+    static func rawSwiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
         return determineSwiftVersion(usingToolchain: toolchain).replayLazily(upTo: 1)
+    }
+
+    private static func semanticVersion(from swiftVersionString: String) -> Version? {
+        let index = swiftVersionString.firstIndex { $0.isWhitespace }
+        let trimmedVersionString = index.map ({ String(swiftVersionString.prefix(upTo: $0)) }) ?? swiftVersionString
+        return Version.from(commitish: trimmedVersionString).value
     }
     
     /// Parses output of `swift --version` for the version string.
-    static func parseSwiftVersionCommand(output: String?) -> String? {
+    private static func parseSwiftVersionCommand(output: String?) -> String? {
         guard
             let output = output,
             let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: []),

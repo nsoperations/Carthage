@@ -1,5 +1,6 @@
 {
   "commitish": "v1.0",
+  "configuration": "Debug",
   "iOS": [
     {
       "name": "TestFramework1",

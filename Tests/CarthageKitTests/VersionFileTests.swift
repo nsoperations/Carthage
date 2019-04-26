@@ -52,6 +52,7 @@ class VersionFileTests: XCTestCase {
 										hash: "TestHASH",
 										swiftToolchainVersion: "4.2 (swiftlang-1000.11.37.1 clang-1000.11.45.1)")
 		let versionFile = VersionFile(commitish: "v1.0",
+                                      configuration: "Debug",
 									  macOS: nil,
 									  iOS: [framework],
 									  watchOS: nil,
@@ -72,6 +73,7 @@ class VersionFileTests: XCTestCase {
 		expect(newVersionFile).notTo(beNil())
 		
 		expect(newVersionFile?.commitish) == versionFile.commitish
+        expect(newVersionFile?.configuration) == versionFile.configuration
 		
 		expect(newVersionFile?.iOS).toNot(beNil())
 		guard let newCachedFramework = newVersionFile?.iOS else {
@@ -88,6 +90,7 @@ class VersionFileTests: XCTestCase {
 	func testShouldEncodeAndDecodeCorrectly() {
 		let jsonDictionary: [String: Any] = [
 			"commitish": "v1.0",
+            "configuration": "Debug",
 			"iOS": [
 				[
 					"name": "TestFramework",
@@ -106,6 +109,7 @@ class VersionFileTests: XCTestCase {
 			return
 		}
 		expect(versionFile.commitish) == "v1.0"
+        expect(versionFile.configuration) == "Debug"
 		
 		// Check multiple frameworks
 		let iOSCache = versionFile.iOS
@@ -122,6 +126,7 @@ class VersionFileTests: XCTestCase {
 		}
 		
 		expect((newJSONDictionary["commitish"] as? String)) == "v1.0"
+        expect((newJSONDictionary["configuration"] as? String)) == "Debug"
 		guard let iosFramework = (newJSONDictionary["iOS"] as? [Any])?.first as? [String: String] else {
 			fail("Expected ios framework to be present")
 			return
@@ -131,9 +136,9 @@ class VersionFileTests: XCTestCase {
 		expect(iosFramework["swiftToolchainVersion"]) == "4.2 (swiftlang-1000.11.37.1 clang-1000.11.45.1)"
 	}
 	
-	func validate(file: VersionFile, matches: Bool, platform: Platform, commitish: String, hashes: [String?],
+    func validate(file: VersionFile, matches: Bool, platform: Platform, commitish: String, configuration: String = "Debug", hashes: [String?],
 				  swiftVersionMatches: [Bool], fileName: FileString = #file, line: UInt = #line) {
-		_ = file.satisfies(platform: platform, commitish: commitish, hashes: hashes, swiftVersionMatches: swiftVersionMatches)
+        _ = file.satisfies(platform: platform, commitish: commitish, configuration: configuration, hashes: hashes, swiftVersionMatches: swiftVersionMatches)
 			.on(value: { didMatch in
 				expect(didMatch, file: fileName, line: line) == matches
 			})
@@ -179,6 +184,11 @@ class VersionFileTests: XCTestCase {
 			file: versionFile, matches: true, platform: .tvOS,
 			commitish: "v1.0", hashes: [nil, nil], swiftVersionMatches: [true, true]
 		)
+
+        validate(
+            file: versionFile, matches: false, platform: .tvOS,
+            commitish: "v1.0", configuration: "Release", hashes: [nil, nil], swiftVersionMatches: [true, true]
+        )
 		
 		// Version file has no entry for platform, should match
 		validate(
@@ -190,6 +200,7 @@ class VersionFileTests: XCTestCase {
 	func testShouldDoProperValidationWithObjcFramework() {
 		let jsonDictionary: [String: Any] = [
 			"commitish": "v1.0",
+            "configuration": "Debug",
 			"iOS": [
 				[
 					"name": "TestObjCFramework",
@@ -199,7 +210,10 @@ class VersionFileTests: XCTestCase {
 			]
 		let jsonData = try! JSONSerialization.data(withJSONObject: jsonDictionary)
 		
-		let versionFile: VersionFile! = try? JSONDecoder().decode(VersionFile.self, from: jsonData)
+        guard let versionFile: VersionFile = try? JSONDecoder().decode(VersionFile.self, from: jsonData) else {
+            fail("Could not decode version file")
+            return
+        }
 		validate(
 			file: versionFile, matches: true, platform: .iOS,
 			commitish: "v1.0", hashes: ["TestHASH"], swiftVersionMatches: [true]

@@ -141,7 +141,7 @@ class ProjectBuildTests: XCTestCase {
             throw ProjectTestsError.assertion(message: "Could not get Swift header URL")
         }
 
-        guard let swiftVersionResult = SwiftToolchain.swiftVersion().first() else {
+        guard let swiftVersionResult = SwiftToolchain.rawSwiftVersion().first() else {
             throw ProjectTestsError.assertion(message: "Expected at least one swift version to be present")
         }
         expect(swiftVersionResult.error).to(beNil())
@@ -547,7 +547,7 @@ class ProjectFrameworkDefinitionTests: XCTestCase {
         let binary = BinaryURL(url: testDefinitionURL, resolvedDescription: testDefinitionURL.description)
         let actualDefinition = project.dependencyRetriever.downloadBinaryFrameworkDefinition(binary: binary).first()?.value
 
-        let expectedBinaryProject = BinaryProject(versions: [
+        let expectedBinaryProject = BinaryProject(urls: [
             PinnedVersion("1.0"): URL(string: "https://my.domain.com/release/1.0.0/framework.zip")!,
             PinnedVersion("1.0.1"): URL(string: "https://my.domain.com/release/1.0.1/framework.zip")!,
             ])
