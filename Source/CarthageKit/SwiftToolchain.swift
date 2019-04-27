@@ -31,7 +31,7 @@ final class SwiftToolchain {
     }
 
     private static func semanticVersion(from swiftVersionString: String) -> Version? {
-        let index = swiftVersionString.firstIndex { $0.isWhitespace }
+        let index = swiftVersionString.firstIndex { CharacterSet.whitespaces.contains($0) }
         let trimmedVersionString = index.map ({ String(swiftVersionString.prefix(upTo: $0)) }) ?? swiftVersionString
         return Version.from(commitish: trimmedVersionString).value
     }
@@ -73,5 +73,14 @@ final class SwiftToolchain {
         } else {
             return ["xcrun", "swift", "--version"]
         }
+    }
+}
+
+extension CharacterSet {
+    fileprivate func contains(_ character: Character) -> Bool {
+        guard let firstScalar = character.unicodeScalars.first else {
+            return false
+        }
+        return self.contains(firstScalar)
     }
 }
