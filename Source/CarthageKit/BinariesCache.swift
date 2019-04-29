@@ -176,21 +176,21 @@ class GitHubBinariesCache: BinariesCache {
 
 class ExternalTaskBinariesCache: BinariesCache {
 
-    let taskLaunchPath: String
+    let taskCommand: String
 
-    init(taskLaunchPath: String) {
-        self.taskLaunchPath = taskLaunchPath
+    init(taskCommand: String) {
+        self.taskCommand = taskCommand
     }
 
     func matchingBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: Version, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
         let fileURL = GitHubBinariesCache.fileURL(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: cacheBaseURL)
+        let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, swiftVersion: swiftVersion.description, targetFilePath: fileURL.path)
         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock, CarthageError> in
                 if FileManager.default.fileExists(atPath: fileURL.path) {
                     return SignalProducer(value: urlLock)
                 } else {
                     let versionString = pinnedVersion.description
-                    let task = Task(self.taskLaunchPath, arguments: [dependency.name, versionString, configuration, swiftVersion.description, fileURL.path])
                     return task.launch()
                         .mapError(CarthageError.taskError)
                         .on(started: {
@@ -199,5 +199,17 @@ class ExternalTaskBinariesCache: BinariesCache {
                         .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
                 }
         }
+    }
+
+    private func task(dependencyName: String, dependencyVersion: String, buildConfiguration: String, swiftVersion: String, targetFilePath: String) -> Task {
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CARTHAGE_CACHE_DEPENDENCY_NAME"] = dependencyName
+        environment["CARTHAGE_CACHE_DEPENDENCY_VERSION"] = dependencyVersion
+        environment["CARTHAGE_CACHE_BUILD_CONFIGURATION"] = buildConfiguration
+        environment["CARTHAGE_CACHE_SWIFT_VERSION"] = swiftVersion
+        environment["CARTHAGE_CACHE_TARGET_FILE_PATH"] = targetFilePath
+
+        return Task(launchCommand: self.taskCommand, environment: environment)
     }
 }

@@ -2,21 +2,31 @@ import CarthageKit
 import Foundation
 import Result
 
-internal func getEnvironmentVariable(_ variable: String) -> Result<String, CarthageError> {
-    let environment = ProcessInfo.processInfo.environment
+final class Environment {
 
-    if let value = environment[variable] {
-        return .success(value)
-    } else {
-        return .failure(CarthageError.missingEnvironmentVariable(variable: variable))
+    static func getVariable(_ variable: String, defaultValue: @autoclosure () -> String) -> String {
+        let environment = ProcessInfo.processInfo.environment
+        return environment[variable] ?? defaultValue()
     }
+
+    static func getVariable(_ variable: String) -> Result<String, CarthageError> {
+        let environment = ProcessInfo.processInfo.environment
+
+        if let value = environment[variable] {
+            return .success(value)
+        } else {
+            return .failure(CarthageError.missingEnvironmentVariable(variable: variable))
+        }
+    }
+
 }
 
+
 /// Information about the possible parent terminal.
-internal struct Terminal {
+struct Terminal {
     /// Terminal type retrieved from `TERM` environment variable.
     static var terminalType: String? {
-        return getEnvironmentVariable("TERM").value
+        return Environment.getVariable("TERM").value
     }
 
     /// Whether terminal type is `dumb`.

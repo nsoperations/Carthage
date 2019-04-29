@@ -14,8 +14,8 @@ public struct BuildOptions {
     public var cacheBuilds: Bool
     /// Whether to use downloaded binaries if possible.
     public var useBinaries: Bool
-    /// Custom executable or shell script to perform the caching implementation: recieves five arguments: dependencyName, pinnedVersion, configuration, swiftVersion, targetFilePath
-    public var customCacheExecutablePath: String?
+    /// Custom executable or shell script to perform the caching implementation: recieves five arguments: dependencyName, dependencyVersion, buildConfiguration, swiftVersion, targetFilePath
+    public var customCacheCommand: String?
 
     public init(
         configuration: String,
@@ -24,7 +24,7 @@ public struct BuildOptions {
         derivedDataPath: String? = nil,
         cacheBuilds: Bool = true,
         useBinaries: Bool = true,
-        customCacheExecutablePath: String? = nil
+        customCacheCommand: String? = nil
         ) {
         self.configuration = configuration
         self.platforms = platforms
@@ -32,6 +32,6 @@ public struct BuildOptions {
         self.derivedDataPath = derivedDataPath
         self.cacheBuilds = cacheBuilds
         self.useBinaries = useBinaries
-        self.customCacheExecutablePath = customCacheExecutablePath
+        self.customCacheCommand = customCacheCommand
     }
 }

@@ -641,7 +641,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                             guard options.useBinaries else {
                                 return .empty
                             }
-                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain, customCachingExecutablePath: options.customCacheExecutablePath)
+                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
                                 .filterMap { installed -> (Dependency, PinnedVersion)? in
                                     return installed ? (dependency, version) : nil
                             }

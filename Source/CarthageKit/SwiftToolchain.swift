@@ -75,12 +75,3 @@ final class SwiftToolchain {
         }
     }
 }
-
-extension CharacterSet {
-    fileprivate func contains(_ character: Character) -> Bool {
-        guard let firstScalar = character.unicodeScalars.first else {
-            return false
-        }
-        return self.contains(firstScalar)
-    }
-}

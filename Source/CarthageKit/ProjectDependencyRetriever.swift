@@ -326,8 +326,8 @@ public final class ProjectDependencyRetriever {
     /// Installs binaries and debug symbols for the given project, if available.
     ///
     /// Sends a boolean indicating whether binaries were installed.
-    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, toolchain: String?, customCachingExecutablePath: String?) -> SignalProducer<Bool, CarthageError> {
-        if let cache = self.binariesCache(for: dependency, customCachingExecutablePath: customCachingExecutablePath) {
+    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, toolchain: String?, customCacheCommand: String?) -> SignalProducer<Bool, CarthageError> {
+        if let cache = self.binariesCache(for: dependency, customCacheCommand: customCacheCommand) {
             return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
                 .mapError { error in CarthageError.internalError(description: error.description) }
                 .flatMap(.concat) { localSwiftVersion -> SignalProducer<Bool, CarthageError> in
@@ -481,9 +481,9 @@ public final class ProjectDependencyRetriever {
     }
 
     /// Effective binaries cache
-    private func binariesCache(for dependency: Dependency, customCachingExecutablePath: String?) -> BinariesCache? {
-        if let launchPath = customCachingExecutablePath {
-            return ExternalTaskBinariesCache(taskLaunchPath: launchPath)
+    private func binariesCache(for dependency: Dependency, customCacheCommand: String?) -> BinariesCache? {
+        if let cacheCommand = customCacheCommand {
+            return ExternalTaskBinariesCache(taskCommand: cacheCommand)
         } else {
             //Default binaries cache, only defined for GitHub dependencies
             switch dependency {

@@ -1,6 +1,7 @@
 import Foundation
 import Result
 import ReactiveSwift
+import ReactiveTask
 
 extension String {
     /// Returns a producer that will enumerate each line of the receiver, then
@@ -441,6 +442,82 @@ extension Reactive where Base: URLSession {
                 task.cancel()
             }
             task.resume()
+        }
+    }
+}
+
+extension CharacterSet {
+    func contains(_ character: Character) -> Bool {
+        guard let firstScalar = character.unicodeScalars.first else {
+            return false
+        }
+        return self.contains(firstScalar)
+    }
+}
+
+extension Task {
+
+    init(launchCommand: String, workingDirectoryPath: String? = nil, environment: [String: String]? = nil) {
+        let components = Task.parse(launchCommand: launchCommand)
+        let launchPath = components.first ?? ""
+        let arguments = components.count > 1 ? Array(components[1...]) : [String]()
+        self.init(launchPath, arguments: arguments, workingDirectoryPath: workingDirectoryPath, environment: environment)
+    }
+
+    private static func parse(launchCommand: String) -> [String] {
+        var inArgument = false
+        var escape = false
+        var currentQuote: Character? = nil
+        var currentArgument = ""
+        var arguments = [String]()
+
+        for character in launchCommand {
+            if !inArgument {
+                inArgument = !CharacterSet.whitespacesAndNewlines.contains(character)
+                if inArgument {
+                    // started argument
+                    currentArgument = ""
+                    if character == "'" || character == "\"" {
+                        currentQuote = character
+                        continue
+                    } else {
+                        currentQuote = nil
+                    }
+                }
+            }
+
+            if inArgument {
+                if !escape && character == "\\" {
+                    escape = true
+                    continue
+                }
+
+                if Task.isTerminatingCharacter(character, currentQuote: currentQuote, escape: escape) {
+                    arguments.append(currentArgument)
+                    inArgument = false
+                    continue
+                }
+
+                currentArgument.append(character)
+                escape = false
+            }
+        }
+
+        if inArgument {
+            arguments.append(currentArgument)
+        }
+
+        return arguments
+    }
+
+    private static func isTerminatingCharacter(_ character: Character, currentQuote: Character?, escape: Bool) -> Bool {
+        guard escape == false else {
+            return false
+        }
+        if let quote = currentQuote {
+            return character == quote
+        } else {
+            return CharacterSet.whitespacesAndNewlines.contains(character)
         }
     }
 }
