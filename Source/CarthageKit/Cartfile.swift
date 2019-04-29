@@ -237,7 +237,7 @@ extension ResolvedCartfile: CustomStringConvertible {
     public var description: String {
         return dependencies
             .sorted { $0.key.description < $1.key.description }
-            .map { "\($0.key) \($0.value)" }
+            .map { "\($0.key) \"\($0.value)\"" }
             .joined(separator: "\n")
             .appending("\n")
     }
