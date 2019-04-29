@@ -9,6 +9,11 @@ public final class Archive {
     // MARK: - Public
 
     public static func archiveFrameworks(frameworkNames: [String], directoryPath: String, configuration: String = "Release", customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+
+        if let definedOutputPath = customOutputPath, definedOutputPath.isEmpty {
+            return SignalProducer<URL, CarthageError>(error: CarthageError.invalidArgument(description: "Custom archive output path should not be empty"))
+        }
+
         let frameworks: SignalProducer<[String], CarthageError>
         if !frameworkNames.isEmpty {
             frameworks = .init(value: frameworkNames.map {
