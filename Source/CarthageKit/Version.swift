@@ -103,10 +103,6 @@ extension Version: Scannable {
             return .failure(error)
         }
 
-        guard (preRelease == nil && buildMetadata == nil) || hasPatchComponent else {
-            return .failure(ScannableError(message: "can not have pre-release or build metadata without patch, in \"\(version)\""))
-        }
-
         return .success(self.init(
             major,
             minor,

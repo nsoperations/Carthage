@@ -340,7 +340,7 @@ final class Frameworks {
             .attemptMap({ (frameworkSwiftVersion) -> Result<URL, SwiftVersionError> in
                 return swiftVersion == frameworkSwiftVersion
                     ? .success(frameworkURL)
-                    : .failure(.incompatibleFrameworkSwiftVersions(local: swiftVersion.description, framework: frameworkSwiftVersion.description))
+                    : .failure(.incompatibleFrameworkSwiftVersions(local: swiftVersion, framework: frameworkSwiftVersion))
             })
     }
     
