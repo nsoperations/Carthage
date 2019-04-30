@@ -12,10 +12,7 @@ class TaskTests: XCTestCase {
                 "/bin/some command.sh" --server "http://someurl.com" --file '/tmp/${FILE}' --title Some\\ Title --name "\\"name\\"" foo bar
                 """
 
-        guard let task = Task(launchCommand: command) else {
-            XCTFail("Expected launch command to be parsed successfully")
-            return
-        }
+        let task = Task(launchCommand: command)
 
         XCTAssertEqual("/bin/some command.sh", task.launchPath)
 
