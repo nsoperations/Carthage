@@ -272,7 +272,7 @@ extension PinnedVersion: Scannable {
 
 extension PinnedVersion: CustomStringConvertible {
     public var description: String {
-        return self.semanticVersion?.description ?? self.commitish
+        return self.commitish
     }
 }
 

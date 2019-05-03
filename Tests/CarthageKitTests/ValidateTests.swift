@@ -191,9 +191,9 @@ class ValidateTests: XCTestCase {
 		expect(error?.description) ==
 		"""
 		The following incompatibilities were found in Cartfile.resolved:
-		* Alamofire "5.0.0" is incompatible with Moya ~> 4.1.0
-		* Result "4.0.0" is incompatible with Moya ~> 3.1.0
-		* Result "4.0.0" is incompatible with ReactiveSwift ~> 3.2.1
+		* Alamofire 5.0.0 is incompatible with Moya ~> 4.1.0
+		* Result 4.0.0 is incompatible with Moya ~> 3.1.0
+		* Result 4.0.0 is incompatible with ReactiveSwift ~> 3.2.1
 		"""
 	}
 }

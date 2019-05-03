@@ -12,13 +12,13 @@ class VersionTests: XCTestCase {
 		expect(PinnedVersion("2.8.2-alpha+build234").semanticVersion) == Version(2, 8, 2, prereleaseIdentifiers: ["alpha"], buildMetadataIdentifiers: ["build234"])
 		expect(PinnedVersion("2.8.2+build234").semanticVersion) == Version(2, 8, 2, buildMetadataIdentifiers: ["build234"])
 		expect(PinnedVersion("2.8.2-alpha.2.1.0").semanticVersion) == Version(2, 8, 2, prereleaseIdentifiers: ["alpha", "2", "1", "0"])
+        expect(PinnedVersion("v2.8-alpha").semanticVersion) == Version(2, 8, 0, prereleaseIdentifiers: ["alpha"])
+        expect(PinnedVersion("v2.8+build345").semanticVersion)  == Version(2, 8, 0, buildMetadataIdentifiers: ["build345"])
 	}
 	
 	func testShouldFailOnInvalidSemanticVersions() {
 		expect(PinnedVersion("release#2").semanticVersion).to(beNil()) // not a valid SemVer
 		expect(PinnedVersion("v1").semanticVersion).to(beNil())
-		expect(PinnedVersion("v2.8-alpha").semanticVersion).to(beNil()) // pre-release should be after patch
-		expect(PinnedVersion("v2.8+build345").semanticVersion).to(beNil()) // build should be after patch
 		expect(PinnedVersion("null-string-beta-2").semanticVersion).to(beNil())
 		expect(PinnedVersion("1.4.5+").semanticVersion).to(beNil()) // missing build metadata after '+'
 		expect(PinnedVersion("1.4.5-alpha+").semanticVersion).to(beNil()) // missing build metadata after '+'

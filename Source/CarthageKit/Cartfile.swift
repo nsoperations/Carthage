@@ -195,8 +195,8 @@ public struct SchemeCartfile {
 
     public let schemes: Set<String>
 
-    public init(schemes: Set<String>) {
-        self.schemes = schemes
+    public init<T: Sequence>(schemes: T) where T.Element == String {
+        self.schemes = Set(schemes)
     }
 
     /// Returns the location where Cartfile.schemes should exist within the given
@@ -223,13 +223,25 @@ public struct SchemeCartfile {
                 continue
             }
             let scheme = line.trimmingCharacters(in: .whitespaces)
-            schemes.insert(scheme)
+
+            if !scheme.isEmpty {
+                schemes.insert(scheme)
+            }
         }
         return .success(SchemeCartfile(schemes: schemes))
     }
 
     public var matcher: SchemeMatcher {
         return LitteralSchemeMatcher(schemeNames: schemes)
+    }
+}
+
+extension SchemeCartfile: CustomStringConvertible {
+    public var description: String {
+        return schemes
+            .sorted { $0 < $1 }
+            .joined(separator: "\n")
+            .appending("\n")
     }
 }
 

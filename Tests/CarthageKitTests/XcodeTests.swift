@@ -67,10 +67,6 @@ class XcodeTests: XCTestCase {
 		expect(Frameworks.isSwiftFramework(frameworkURL)) == false
 	}
 	
-	func testShouldDetermineAValueForTheLocalSwiftVersion() {
-		expect(self.currentSwiftVersion) != nil
-	}
-	
 	#if !SWIFT_PACKAGE
 	func testShouldDetermineAFrameworksSwiftVersion() {
 		let result = frameworkSwiftVersion(testSwiftFrameworkURL).single()
@@ -269,7 +265,7 @@ class XcodeTests: XCTestCase {
 		expect(codesignResult.value).notTo(beNil())
 		expect(output).to(contain("satisfies its Designated Requirement"))
 	}
-	
+
 	func testShouldBuildAllSubprojectsForAllPlatformsByDefault() {
 		let multipleSubprojects = "SampleMultipleSubprojects"
 		guard let _directoryURL = Bundle(for: type(of: self)).url(forResource: multipleSubprojects, withExtension: nil) else {
@@ -305,15 +301,19 @@ class XcodeTests: XCTestCase {
 			fail("Could not load SchemeDiscoverySampleForCarthage from resources")
 			return
 		}
-		
+
+        var builtSchemes = [String]()
 		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
+                builtSchemes.append(scheme.name)
 			})
 			.wait()
 		
 		expect(result.error).to(beNil())
+
+        XCTAssertEqual(Set(builtSchemes), Set(arrayLiteral: "SchemeDiscoverySampleForCarthage-iOS", "SchemeDiscoverySampleForCarthage-Mac"))
 		
 		let macPath = buildFolderURL.appendingPathComponent("Mac/\(dependency).framework").path
 		let iOSPath = buildFolderURL.appendingPathComponent("iOS/\(dependency).framework").path
@@ -322,6 +322,33 @@ class XcodeTests: XCTestCase {
 			expect(path).to(beExistingDirectory())
 		}
 	}
+
+    func testShouldFilterWithSchemeCartfile() {
+        let dependency = "SchemeDiscoverySampleForCarthage"
+        guard let _directoryURL = Bundle(for: type(of: self)).url(forResource: "SchemeDiscoverySampleWithFilteringForCarthage-0.2", withExtension: nil) else {
+            fail("Could not load SchemeDiscoverySampleForCarthage from resources")
+            return
+        }
+
+        var builtSchemes = [String]()
+        let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+            .ignoreTaskData()
+            .on(value: { project, scheme in // swiftlint:disable:this end_closure
+                NSLog("Building scheme \"\(scheme)\" in \(project)")
+                builtSchemes.append(scheme.name)
+            })
+            .wait()
+
+        expect(result.error).to(beNil())
+
+        XCTAssertEqual(Set(builtSchemes), Set(arrayLiteral: "SchemeDiscoverySampleForCarthage-iOS"))
+
+        let macPath = buildFolderURL.appendingPathComponent("Mac/\(dependency).framework").path
+        let iOSPath = buildFolderURL.appendingPathComponent("iOS/\(dependency).framework").path
+
+        expect(iOSPath).to(beExistingDirectory())
+        expect(macPath).toNot(beExistingDirectory())
+    }
 	
 	func testShouldNotCopyBuildProductsFromNestedDependenciesProducedByWorkspace() {
 		guard let _directoryURL = Bundle(for: type(of: self)).url(forResource: "WorkspaceWithDependency", withExtension: nil) else {
