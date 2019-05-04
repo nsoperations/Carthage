@@ -49,10 +49,10 @@ class BinaryProjectTests: XCTestCase {
             let actualBinaryProject = try BinaryProject.from(jsonData: jsonData).get()
             let expectedBinaryProject = BinaryProject(definitions: [
                 PinnedVersion("1.0"): [
-                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-4.2.zip")!, configuration: "Debug", swiftVersion: Version.from(commitish: "4.2").value!),
-                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-4.2.zip")!, configuration: "Release", swiftVersion: Version.from(commitish: "4.2").value!),
-                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-5.0.zip")!, configuration: "Debug", swiftVersion: Version.from(commitish: "5.0").value!),
-                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-5.0.zip")!, configuration: "Release", swiftVersion: Version.from(commitish: "5.0").value!)
+                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-4.2.zip")!, configuration: "Debug", swiftVersion: PinnedVersion("4.2")),
+                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-4.2.zip")!, configuration: "Release", swiftVersion: PinnedVersion("4.2")),
+                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-5.0.zip")!, configuration: "Debug", swiftVersion: PinnedVersion("5.0")),
+                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-5.0.zip")!, configuration: "Release", swiftVersion: PinnedVersion("5.0"))
                 ],
                 PinnedVersion("1.0.1"): [
                     BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug.zip")!, configuration: "Debug", swiftVersion: nil),
@@ -94,14 +94,6 @@ class BinaryProjectTests: XCTestCase {
 		}
 	}
 	
-	func testShouldFailWithAnInvalidSemanticVersion() {
-		let jsonData = "{ \"1.a\": \"https://my.domain.com/release/1.0.0/framework.zip\" }".data(using: .utf8)!
-		
-		let actualError = BinaryProject.from(jsonData: jsonData).error
-		
-		expect(actualError) == .invalidVersion(ScannableError(message: "expected minor version number", currentLine: "1.a"))
-	}
-	
 	func testShouldFailWithANonParseableUrl() {
 		let jsonData = "{ \"1.0\": \"💩\" }".data(using: .utf8)!
 		
@@ -131,10 +123,10 @@ class BinaryProjectTests: XCTestCase {
     func testGetBinaryURL() {
         let binaryProject = BinaryProject(definitions: [
             PinnedVersion("1.0"): [
-                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-4.2.zip")!, configuration: "Debug", swiftVersion: Version.from(commitish: "4.2").value!),
-                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-4.2.zip")!, configuration: "Release", swiftVersion: Version.from(commitish: "4.2").value!),
-                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-5.0.zip")!, configuration: "Debug", swiftVersion: Version.from(commitish: "5.0").value!),
-                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-5.0.zip")!, configuration: "Release", swiftVersion: Version.from(commitish: "5.0").value!)
+                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-4.2.zip")!, configuration: "Debug", swiftVersion: PinnedVersion("4.2")),
+                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-4.2.zip")!, configuration: "Release", swiftVersion: PinnedVersion("4.2")),
+                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug-5.0.zip")!, configuration: "Debug", swiftVersion: PinnedVersion("5.0")),
+                BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-5.0.zip")!, configuration: "Release", swiftVersion: PinnedVersion("5.0"))
             ],
             PinnedVersion("1.0.1"): [
                 BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug.zip")!, configuration: "Debug", swiftVersion: nil),
@@ -150,12 +142,12 @@ class BinaryProjectTests: XCTestCase {
         XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug1", swiftVersion: nil))
 
         //Non existent swift version
-        XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: Version.from(commitish: "3.0").value!))
+        XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: PinnedVersion("3.0")))
 
-        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: Version.from(commitish: "4.2").value!))
-        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: Version.from(commitish: "5.0").value!))
-        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: nil, swiftVersion: Version.from(commitish: "5.0").value!))
-        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Release", swiftVersion: Version.from(commitish: "5.0").value!))
+        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: PinnedVersion("4.2")))
+        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: PinnedVersion("5.0")))
+        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: nil, swiftVersion: PinnedVersion("5.0")))
+        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Release", swiftVersion: PinnedVersion("5.0")))
         XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: nil))
     }
 }

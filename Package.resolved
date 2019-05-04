@@ -69,7 +69,7 @@
         "repositoryURL": "https://github.com/nsoperations/ReactiveTask.git",
         "state": {
           "branch": "fix/handle-launch-exceptions",
-          "revision": "60b66878b0ab801c47a4334fe6c52d8d47d4d428",
+          "revision": "7e2b7329397113b0c7e8cc282a185e32b023f3fd",
           "version": null
         }
       },

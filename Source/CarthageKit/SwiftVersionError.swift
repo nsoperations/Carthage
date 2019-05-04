@@ -9,7 +9,7 @@ internal enum SwiftVersionError: Error, Equatable {
     case unknownFrameworkSwiftVersion(message: String)
 
     /// The framework binary is not compatible with the local Swift version.
-    case incompatibleFrameworkSwiftVersions(local: Version, framework: Version)
+    case incompatibleFrameworkSwiftVersions(local: PinnedVersion, framework: PinnedVersion)
 
 }
 

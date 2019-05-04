@@ -146,7 +146,7 @@ struct VersionFile: Codable {
         for cachedFrameworks: [CachedFramework],
         platform: Platform,
         binariesDirectoryURL: URL,
-        localSwiftVersion: Version
+        localSwiftVersion: PinnedVersion
         ) -> SignalProducer<Bool, CarthageError> {
         return SignalProducer<CachedFramework, CarthageError>(cachedFrameworks)
             .flatMap(.concat) { cachedFramework -> SignalProducer<Bool, CarthageError> in
@@ -174,7 +174,7 @@ struct VersionFile: Codable {
         commitish: String,
         configuration: String,
         binariesDirectoryURL: URL,
-        localSwiftVersion: Version
+        localSwiftVersion: PinnedVersion
         ) -> SignalProducer<Bool, CarthageError> {
         guard let cachedFrameworks = self[platform] else {
             return SignalProducer(value: false)

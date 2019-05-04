@@ -534,7 +534,7 @@ public final class ProjectDependencyRetriever {
 
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
-    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, swiftVersion: Version) -> SignalProducer<URLLock, CarthageError> {
+    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
         return binariesCache.matchingBinaries(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
     }
@@ -629,7 +629,7 @@ public final class ProjectDependencyRetriever {
         projectName: String,
         pinnedVersion: PinnedVersion,
         configuration: String,
-        swiftVersion: Version
+        swiftVersion: PinnedVersion
         ) -> SignalProducer<URL, CarthageError> {
         
         return SignalProducer<URL, CarthageError>(value: zipFile)

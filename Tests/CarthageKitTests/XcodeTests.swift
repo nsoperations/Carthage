@@ -18,7 +18,7 @@ class XcodeTests: XCTestCase {
 	var projectURL: URL!
 	var buildFolderURL: URL!
 	var targetFolderURL: URL!
-    var currentSwiftVersion: Version!
+    var currentSwiftVersion: PinnedVersion!
 	
 	override func setUp() {
 		
@@ -92,7 +92,7 @@ class XcodeTests: XCTestCase {
 		}
 		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
 		
-		expect(result?.value) == "4.0.0"
+		expect(result?.value) == PinnedVersion("4.0")
 	}
 	
 	#if !SWIFT_PACKAGE
@@ -111,7 +111,7 @@ class XcodeTests: XCTestCase {
 		let result = Frameworks.checkSwiftFrameworkCompatibility(frameworkURL, usingToolchain: nil).single()
 		
 		expect(result?.value).to(beNil())
-		expect(result?.error) == .incompatibleFrameworkSwiftVersions(local: currentSwiftVersion, framework: "0.0.0")
+		expect(result?.error) == .incompatibleFrameworkSwiftVersions(local: currentSwiftVersion, framework: PinnedVersion("0.0.0"))
 	}
 	
 	func testShouldDetermineAFrameworksSwiftVersionForOssToolchainsFromSwiftOrg() {
@@ -121,7 +121,7 @@ class XcodeTests: XCTestCase {
 		}
 		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
 		
-		expect(result?.value) == "4.1.0-dev"
+		expect(result?.value) == PinnedVersion("4.1-dev")
 	}
 	
 	func relativePathsForProjectsInDirectory(_ directoryURL: URL) -> [String] {

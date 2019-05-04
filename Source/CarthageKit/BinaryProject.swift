@@ -7,9 +7,9 @@ import struct Foundation.URL
 public struct BinaryProjectFile: Equatable {
     let url: URL
     let configuration: String
-    let swiftVersion: Version?
+    let swiftVersion: PinnedVersion?
 
-    init(url: URL, configuration: String?, swiftVersion: Version?) {
+    init(url: URL, configuration: String?, swiftVersion: PinnedVersion?) {
         self.url = url
         self.configuration = configuration ?? "Release"
         self.swiftVersion = swiftVersion
@@ -35,7 +35,7 @@ public struct BinaryProject: Equatable {
         return Array(definitions.keys)
     }
 
-    public func binaryURL(for version: PinnedVersion, configuration: String?, swiftVersion: Version?) -> URL? {
+    public func binaryURL(for version: PinnedVersion, configuration: String?, swiftVersion: PinnedVersion?) -> URL? {
         guard let binaryProjectFiles = definitions[version] else {
             return nil
         }
@@ -66,9 +66,7 @@ public struct BinaryProject: Equatable {
 
         var definitions = [PinnedVersion: [BinaryProjectFile]]()
         for (key, value) in json {
-            let _ = try Version.from(commitish: key).mapError({ BinaryJSONError.invalidVersion($0) }).get()
             let pinnedVersion = PinnedVersion(key)
-
             if let stringValue = value as? String {
                 let binaryURL = try parseURL(stringValue: stringValue)
                 let projectFile = BinaryProjectFile(url: binaryURL, configuration: nil, swiftVersion: nil)
@@ -76,7 +74,7 @@ public struct BinaryProject: Equatable {
 
             } else if let dictValues = value as? [[String: String]] {
                 for dictValue in dictValues {
-                    var swiftVersion: Version?
+                    var swiftVersion: PinnedVersion?
                     guard let urlString = dictValue["url"] else {
                         throw BinaryJSONError.invalidJSON("No url property found for version: \(pinnedVersion)")
                     }
@@ -84,7 +82,7 @@ public struct BinaryProject: Equatable {
                     let binaryURL = try parseURL(stringValue: urlString)
                     let configuration = dictValue["configuration"] ?? "Release"
                     if let versionString = dictValue["swiftVersion"] {
-                        swiftVersion = try Version.from(commitish: versionString).mapError({ BinaryJSONError.invalidVersion($0) }).get()
+                        swiftVersion = PinnedVersion(versionString)
                     }
 
                     let projectFile = BinaryProjectFile(url: binaryURL, configuration: configuration, swiftVersion: swiftVersion)

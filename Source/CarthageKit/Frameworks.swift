@@ -53,7 +53,7 @@ public enum FrameworkEvent {
 
 final class Frameworks {
     /// Determines the Swift version of a framework at a given `URL`.
-    static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<Version?, SwiftVersionError> {
+    static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<PinnedVersion?, SwiftVersionError> {
         guard isSwiftFramework(frameworkURL) else {
             return SignalProducer(value: nil)
         }
@@ -61,7 +61,7 @@ final class Frameworks {
     }
     
     /// Determines the Swift version of a framework at a given `URL`.
-    static func frameworkSwiftVersion(_ frameworkURL: URL) -> SignalProducer<Version, SwiftVersionError> {
+    static func frameworkSwiftVersion(_ frameworkURL: URL) -> SignalProducer<PinnedVersion, SwiftVersionError> {
         
         guard
             let swiftHeaderURL = frameworkURL.swiftHeaderURL(),
@@ -75,7 +75,7 @@ final class Frameworks {
         return SignalProducer(value: swiftVersion)
     }
     
-    static func dSYMSwiftVersion(_ dSYMURL: URL) -> SignalProducer<Version, SwiftVersionError> {
+    static func dSYMSwiftVersion(_ dSYMURL: URL) -> SignalProducer<PinnedVersion, SwiftVersionError> {
         
         // Pick one architecture
         guard let arch = architecturesInPackage(dSYMURL).first()?.value else {
@@ -96,7 +96,7 @@ final class Frameworks {
         //    0x0000000b: TAG_compile_unit [1] *
         //    AT_producer( "Apple Swift version 4.1.2 effective-3.3.2 (swiftlang-902.0.54 clang-902.0.39.2) -emit-object /Users/Tommaso/<redacted>
         
-        let versions: [Version]?  = task.launch(standardInput: nil)
+        let versions: [PinnedVersion]?  = task.launch(standardInput: nil)
             .ignoreTaskData()
             .map { String(data: $0, encoding: .utf8) ?? "" }
             .filter { !$0.isEmpty }
@@ -122,7 +122,7 @@ final class Frameworks {
             return SignalProducer(error: .unknownFrameworkSwiftVersion(message: "More than one found in dSYM - \(versionsString) ."))
         }
         
-        return SignalProducer<Version, SwiftVersionError>(value: versions!.first!)
+        return SignalProducer<PinnedVersion, SwiftVersionError>(value: versions!.first!)
     }
     
     /// Determines whether a framework was built with Swift
@@ -335,7 +335,7 @@ final class Frameworks {
         }
     }
 
-    static func checkSwiftFrameworkCompatibility(_ frameworkURL: URL, swiftVersion: Version) -> SignalProducer<URL, SwiftVersionError> {
+    static func checkSwiftFrameworkCompatibility(_ frameworkURL: URL, swiftVersion: PinnedVersion) -> SignalProducer<URL, SwiftVersionError> {
         return frameworkSwiftVersion(frameworkURL)
             .attemptMap({ (frameworkSwiftVersion) -> Result<URL, SwiftVersionError> in
                 return swiftVersion == frameworkSwiftVersion
@@ -354,7 +354,7 @@ final class Frameworks {
     }
 
     /// Emits the framework URL if it is compatible with the build environment and errors if not.
-    static func checkFrameworkCompatibility(_ frameworkURL: URL, swiftVersion: Version) -> SignalProducer<URL, SwiftVersionError> {
+    static func checkFrameworkCompatibility(_ frameworkURL: URL, swiftVersion: PinnedVersion) -> SignalProducer<URL, SwiftVersionError> {
         if Frameworks.isSwiftFramework(frameworkURL) {
             return checkSwiftFrameworkCompatibility(frameworkURL, swiftVersion: swiftVersion)
         } else {

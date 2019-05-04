@@ -2,7 +2,6 @@ import Foundation
 import Result
 import ReactiveSwift
 import ReactiveTask
-import SPMUtility
 
 import struct Foundation.URL
 
@@ -10,19 +9,13 @@ import struct Foundation.URL
 final class SwiftToolchain {
     
     /// Emits the currect Swift version
-    static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<Version, SwiftVersionError> {
+    static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<PinnedVersion, SwiftVersionError> {
         return rawSwiftVersion(usingToolchain: toolchain)
-            .attemptMap({ (versionString) -> Result<Version, SwiftVersionError> in
-                if let version = semanticVersion(from: versionString) {
-                    return .success(version)
-                } else {
-                    return .failure(.unknownLocalSwiftVersion)
-                }
-            })
+            .map { pinnedVersion(from: $0) }
     }
 
-    static func swiftVersion(from commandOutput: String?) -> Version? {
-        return parseSwiftVersionCommand(output: commandOutput).flatMap { semanticVersion(from: $0) }
+    static func swiftVersion(from commandOutput: String?) -> PinnedVersion? {
+        return parseSwiftVersionCommand(output: commandOutput).map { pinnedVersion(from: $0) }
     }
 
     /// Emits the currect Swift version
@@ -30,10 +23,10 @@ final class SwiftToolchain {
         return determineSwiftVersion(usingToolchain: toolchain).replayLazily(upTo: 1)
     }
 
-    private static func semanticVersion(from swiftVersionString: String) -> Version? {
+    private static func pinnedVersion(from swiftVersionString: String) -> PinnedVersion {
         let index = swiftVersionString.firstIndex { CharacterSet.whitespaces.contains($0) }
         let trimmedVersionString = index.map ({ String(swiftVersionString.prefix(upTo: $0)) }) ?? swiftVersionString
-        return Version.from(commitish: trimmedVersionString).value
+        return PinnedVersion(trimmedVersionString)
     }
     
     /// Parses output of `swift --version` for the version string.
