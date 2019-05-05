@@ -463,6 +463,36 @@ extension Task {
         let arguments = components.count > 1 ? Array(components[1...]) : [String]()
         self.init(launchPath, arguments: arguments, workingDirectoryPath: workingDirectoryPath, environment: environment)
     }
+    
+    func getData() -> Result<(stdOut: Data, stdErr: Data), TaskError> {
+        var stdOutData = Data()
+        var stdErrData = Data()
+        return launch()
+            .on(value: { (taskEvent: TaskEvent<Data>) in
+                switch taskEvent {
+                case .standardError(let data):
+                    stdOutData += data
+                case .standardOutput(let data):
+                    stdErrData += data
+                default:
+                    break
+                }
+                }
+            )
+            .wait()
+            .map { return (stdOutData, stdErrData) }
+    }
+    
+    func getStdOutData() -> Result<Data, TaskError> {
+        return launch()
+            .ignoreTaskData()
+            .first() ?? Result.success(Data())
+    }
+    
+    func getStdOutString(encoding: String.Encoding = .utf8) -> Result<String, TaskError> {
+        return getStdOutData()
+            .map { String(data: $0, encoding: encoding) ?? "" }
+    }
 
     private static func parse(launchCommand: String) -> [String] {
         var inArgument = false
