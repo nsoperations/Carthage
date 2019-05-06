@@ -45,7 +45,7 @@ clean:
 test:
 	$(RM_SAFELY) ./.build/debug/CarthagePackageTests.xctest
 	swift build --build-tests
-    script/copy-test-resources ./.build/debug/CarthagePackageTests.xctest
+	script/copy-test-resources ./.build/debug/CarthagePackageTests.xctest
 	@if [ "$(TEST_FILTER)" == "" ]; then\
 		swift test --skip-build;\
 	else\
