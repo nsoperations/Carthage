@@ -18,74 +18,47 @@ final class DebugSymbolsMapper {
     // MARK: - Private
     
     private static func findSourcePathToMap(frameworkURL: URL, sourceURL: URL) throws -> String {
-        
-        
-        /*
- """
- 
- :type binary_path: string - can be a framework or a valid dwarf binary, FAT or thin.
- :type source_path: string
- """
- binary_path = normalize_binary_path(binary_path)
- 
- proc = subprocess.Popen('nm -pa "%s" | grep "SO /"' % binary_path, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
- (stdoutputdata, stderrdata) = proc.communicate()
- 
- lines = stdoutputdata.split("\n")
- 
- for line in lines:
- split_result = re.split(r"\s+", line)
- # A line looks like this
- # 0000000000000000 - 00 0000    SO /potential/path/in/remote/machine
- if len(split_result) >= 5:
- potential_original_path = split_result[5]
- potential_original_path_fragments = potential_original_path.split("/")
- 
- potential_path_suffix = ""
- 
- #
- # Here's an example of how the algorithm below works:
- #
- # let's assume that source_path             == /my/path
- #                   potential_original_path == /remote/place/foo/bar/baz
- #
- # Then we attempt to see if /my/path/baz exists, if not then /my/path/bar/baz, and then
- # /my/path/foo/bar/baz and if it does we return /remote/place/
- #
- for i in reversed(xrange(len(potential_original_path_fragments))):
- if potential_original_path_fragments[i] != "":
- potential_path_suffix = path.join(potential_original_path_fragments[i], potential_path_suffix)
- 
- if path.isdir(path.join(source_path, potential_path_suffix)):
- return potential_original_path[0:potential_original_path.index(potential_path_suffix)-1]
- 
- assert False, "Unable to find path match, sorry :-( failing miserably!"
- */
+        let pathSeparator: Character = "/"
         
         let binaryURL = try normalizedBinaryURL(url: frameworkURL)
         let stdoutString = try Task("/usr/bin/xcrun", arguments: ["nm", "-pa", binaryURL.path, "|", "grep", "SO /"]).getStdOutString().get()
+        let sourcePath = sourceURL.path
         
         let lines = stdoutString.split(separator: "\n")
         for line in lines {
             let components = line.split { $0.isWhitespace }
             if components.count > 5 {
-                let potentialOriginalPath = components[5]
-                let potentialOriginalPathComponents = potentialOriginalPath.split(separator: "/")
-                var potentialPathSuffixComponents = [String]()
+                let originalPath = components[5]
+                let originalPathComponents = originalPath.split(separator: pathSeparator)
+                var pathSuffix = ""
                 
-                for i in (0..<potentialOriginalPathComponents.count).reversed() {
-                    let comp = potentialOriginalPathComponents[i]
+                for i in (0..<originalPathComponents.count).reversed() {
+                    let comp = originalPathComponents[i]
                     if !comp.isEmpty {
-                        potentialPathSuffixComponents.insert(String(comp), at: 0)
+                        pathSuffix = String(pathSuffix.isEmpty ? comp : comp + pathSeparator.description + pathSuffix)
                         
-                        let candidateURL = sourceURL.appendingPathComponents(potentialPathSuffixComponents)
-                        FileManager.
+                        let candidatePath = sourcePath + pathSeparator.description + pathSuffix
+                        
+                        var isDirectory: ObjCBool = false
+                        
+                        let fileExists = FileManager.default.fileExists(atPath: candidatePath, isDirectory: &isDirectory)
+                        
+                        if fileExists && isDirectory.boolValue {
+                            var ret = ""
+                            for j in 0..<i {
+                                if !ret.isEmpty {
+                                    ret += pathSeparator.description
+                                }
+                                ret += originalPathComponents[j]
+                            }
+                            return ret
+                        }
                     }
                 }
             }
         }
         
-        return ""
+        throw CarthageError.internalError(description: "Unable to find path match")
     }
     
     private static func uuidsOfDwarf(_ binaryURL: URL) throws -> [String: String] {
@@ -113,11 +86,29 @@ final class DebugSymbolsMapper {
     }
     
     private static func verifyUUIDs(binaryUUIDs: [String: String], dsymUUIDs: [String: String]) throws {
-        
+        for (arch, uuid) in binaryUUIDs {
+            guard let dsymUUID = dsymUUIDs[arch] else {
+                throw CarthageError.internalError(description: "Could not find \(arch) architecture in dSYM")
+            }
+            guard dsymUUID == uuid else {
+                throw CarthageError.internalError(description: "UUID mismatch for architecture \(arch), binary UUID=\(uuid), dsym UUID=\(dsymUUID)")
+            }
+        }
     }
     
-    private static func generatePlistForDsym(dsymURL: URL, frameworkURL: URL, sourceURL: URL, sourcePathToMap: String, binaryUUIDs: [String]) throws {
+    private static func generatePlistForDsym(dsymURL: URL, frameworkURL: URL, sourceURL: URL, sourcePathToMap: String, binaryUUIDs: [String: String]) throws {
         
+        for (arch, uuid) in binaryUUIDs {
+            let plistDict: [String: String] = [
+                "DBGArchitecture": arch,
+                "DBGBuildSourcePath": sourcePathToMap,
+                "DBGSourcePath": sourceURL.path,
+                "DBGDSYMPath": try normalizedBinaryURL(url: dsymURL).path,
+                "DBGSymbolRichExecutable": try normalizedBinaryURL(url: frameworkURL).path
+            ]
+            let plistURL = dsymURL.appendingPathComponents(["Contents", "Resources", "\(uuid).plist"])
+            writePlist(at: plistURL, dict: plistDict)
+        }
     }
     
     private static func normalizedBinaryURL(url: URL) throws -> URL {
@@ -143,8 +134,18 @@ final class DebugSymbolsMapper {
         return result
     }
     
-    private static func readPlist(at: URL) throws -> [String: String] {
-        return [String: String]()
+    private static func readPlist(at url: URL) throws -> [String: String] {
+        let data = try Data(contentsOf: url)
+        let plist = try PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: nil)
+        guard let plistDict = plist as? [String: String] else {
+            throw CarthageError.internalError(description: "Unrecognized plist format, should be a dictionary of strings")
+        }
+        return plistDict
+    }
+    
+    private static func writePlist(at url: URL, dict: [String: String]) throws {
+        let plistData: Data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        try plistData.write(to: url, options: .atomic)
     }
 }
 
