@@ -307,6 +307,39 @@ extension URL {
         let dirContents = try? FileManager.default.contentsOfDirectory(at: headersURL, includingPropertiesForKeys: [], options: [])
         return dirContents?.first { $0.absoluteString.contains("swiftmodule") }
     }
+
+    internal func appendingPathComponents(_ components: [String]) -> URL {
+        var ret = self
+        for component in components {
+            ret = ret.appendingPathComponent(component)
+        }
+        return ret
+    }
+
+    internal func deletingLastPathComponents(count: Int) -> URL {
+        var ret = self
+        for _ in 0..<count {
+            ret = ret.deletingLastPathComponent()
+        }
+        return ret
+    }
+
+    internal var isExistingDirectory: Bool {
+        var isDirectory: ObjCBool = false
+        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
+        return fileExists && isDirectory.boolValue
+    }
+
+    internal var isExistingFile: Bool {
+        var isDirectory: ObjCBool = true
+        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
+        return fileExists && !isDirectory.boolValue
+    }
+
+    internal var isRoot: Bool {
+        let path = self.path
+        return path.isEmpty || path == "/"
+    }
 }
 
 extension FileManager: ReactiveExtensionsProvider {
@@ -457,13 +490,11 @@ extension CharacterSet {
 
 extension Task {
 
-    init(launchCommand: String, workingDirectoryPath: String? = nil, environment: [String: String]? = nil) {
-        let components = Task.parse(launchCommand: launchCommand)
-        let launchPath = components.first ?? ""
-        let arguments = components.count > 1 ? Array(components[1...]) : [String]()
-        self.init(launchPath, arguments: arguments, workingDirectoryPath: workingDirectoryPath, environment: environment)
+    init(launchCommand: String, shell: String = "/bin/sh", workingDirectoryPath: String? = nil, environment: [String: String]? = nil) {
+        let arguments = ["-c", launchCommand]
+        self.init(shell, arguments: arguments, workingDirectoryPath: workingDirectoryPath, environment: environment)
     }
-    
+
     func getData() -> Result<(stdOut: Data, stdErr: Data), TaskError> {
         var stdOutData = Data()
         var stdErrData = Data()
@@ -492,62 +523,5 @@ extension Task {
     func getStdOutString(encoding: String.Encoding = .utf8) -> Result<String, TaskError> {
         return getStdOutData()
             .map { String(data: $0, encoding: encoding) ?? "" }
-    }
-
-    private static func parse(launchCommand: String) -> [String] {
-        var inArgument = false
-        var escape = false
-        var currentQuote: Character? = nil
-        var currentArgument = ""
-        var arguments = [String]()
-
-        for character in launchCommand {
-            if !inArgument {
-                inArgument = !CharacterSet.whitespacesAndNewlines.contains(character)
-                if inArgument {
-                    // started argument
-                    currentArgument = ""
-                    if character == "'" || character == "\"" {
-                        currentQuote = character
-                        continue
-                    } else {
-                        currentQuote = nil
-                    }
-                }
-            }
-
-            if inArgument {
-                if !escape && character == "\\" {
-                    escape = true
-                    continue
-                }
-
-                if Task.isTerminatingCharacter(character, currentQuote: currentQuote, escape: escape) {
-                    arguments.append(currentArgument)
-                    inArgument = false
-                    continue
-                }
-
-                currentArgument.append(character)
-                escape = false
-            }
-        }
-
-        if inArgument {
-            arguments.append(currentArgument)
-        }
-
-        return arguments
-    }
-
-    private static func isTerminatingCharacter(_ character: Character, currentQuote: Character?, escape: Bool) -> Bool {
-        guard escape == false else {
-            return false
-        }
-        if let quote = currentQuote {
-            return character == quote
-        } else {
-            return CharacterSet.whitespacesAndNewlines.contains(character)
-        }
     }
 }

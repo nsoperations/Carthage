@@ -1,71 +1,96 @@
 import Foundation
 import ReactiveTask
+import Result
 
-/// Class with functionality to create a Plist for mapping the build location to the source location of debug symbols
+/// Class with functionality to create plists in dsym resources for mapping the build location to the source location of debug symbols.
+/// This is necessary because the absolute path of the original source files is stored in the dsyms. To be able
+/// to debug with those symbols with a different source location, a mapping has to exist.
+/// For the format see the original documentation: https://lldb.llvm.org/use/symbols.html
 final class DebugSymbolsMapper {
-    
-    static func mapSymbolLocations(frameworkURL: URL, dsymURL: URL, sourceURL: URL) throws {
-        let sourcePathToMap: String = try findSourcePathToMap(frameworkURL: frameworkURL, sourceURL: sourceURL)
-        
-        let binaryUUIDs = try uuidsOfDwarf(frameworkURL)
-        let dsymUUIDs = try uuidsOfDwarf(dsymURL)
-        
-        try verifyUUIDs(binaryUUIDs: binaryUUIDs, dsymUUIDs: dsymUUIDs)
-        
-        try generatePlistForDsym(dsymURL: dsymURL, frameworkURL: frameworkURL, sourceURL: sourceURL, sourcePathToMap: sourcePathToMap, binaryUUIDs: binaryUUIDs)
+
+    /// Creates plists for mapping the original source location of every architecture in the dsym at the specified url to the supplied source location.
+    /// The framework at the specified URL is parsed automatically to detect the original source location.
+    /// Upon success a plist for each architecture with corresponding uuid is written to the Resources directory of the dsym bundle with the mappings in place.
+    ///
+    /// - Parameter frameworkURL: The url pointing to the root directory of the framework
+    /// - Parameter dsymURL: The url pointing to the root of the corresponding expanded dsym archive (unzipped)
+    /// - Parameter sourceURL: The url pointing to the root of the local source tree
+    /// - Returns: Empty result if successful or a CarthageError on failure.
+    static func mapSymbolLocations(frameworkURL: URL, dsymURL: URL, sourceURL: URL) -> Result<(), CarthageError> {
+        do {
+            guard frameworkURL.isExistingDirectory else {
+                throw CarthageError.invalidFramework(frameworkURL, description: "No framework found at this location")
+            }
+            guard dsymURL.isExistingDirectory else {
+                throw CarthageError.invalidDebugSymbols(dsymURL, description: "No debug symbols found at this location")
+            }
+
+            let buildSourceURL: URL = try findBuildSourceURL(frameworkURL: frameworkURL, sourceURL: sourceURL)
+
+            let binaryUUIDs = try verifyUUIDs(frameworkURL: frameworkURL, dsymURL: dsymURL)
+
+            try generatePlistForDsym(dsymURL: dsymURL, frameworkURL: frameworkURL, sourceURL: sourceURL, buildSourceURL: buildSourceURL, binaryUUIDs: binaryUUIDs)
+            return .success(())
+        } catch let error as CarthageError {
+            return .failure(error)
+        } catch {
+            return .failure(CarthageError.internalError(description: error.localizedDescription))
+        }
     }
     
     // MARK: - Private
     
-    private static func findSourcePathToMap(frameworkURL: URL, sourceURL: URL) throws -> String {
-        let pathSeparator: Character = "/"
-        
+    private static func findBuildSourceURL(frameworkURL: URL, sourceURL: URL) throws -> URL {
         let binaryURL = try normalizedBinaryURL(url: frameworkURL)
-        let stdoutString = try Task("/usr/bin/xcrun", arguments: ["nm", "-pa", binaryURL.path, "|", "grep", "SO /"]).getStdOutString().get()
-        let sourcePath = sourceURL.path
-        
+        let stdoutString = try Task(launchCommand: "/usr/bin/xcrun nm -pa \"\(binaryURL.path)\"").getStdOutString().mapError(CarthageError.taskError).get()
         let lines = stdoutString.split(separator: "\n")
+        var buildSourceURL: URL? = nil
+
         for line in lines {
-            let components = line.split { $0.isWhitespace }
-            if components.count > 5 {
-                let originalPath = components[5]
-                let originalPathComponents = originalPath.split(separator: pathSeparator)
-                var pathSuffix = ""
-                
-                for i in (0..<originalPathComponents.count).reversed() {
-                    let comp = originalPathComponents[i]
-                    if !comp.isEmpty {
-                        pathSuffix = String(pathSuffix.isEmpty ? comp : comp + pathSeparator.description + pathSuffix)
-                        
-                        let candidatePath = sourcePath + pathSeparator.description + pathSuffix
-                        
-                        var isDirectory: ObjCBool = false
-                        
-                        let fileExists = FileManager.default.fileExists(atPath: candidatePath, isDirectory: &isDirectory)
-                        
-                        if fileExists && isDirectory.boolValue {
-                            var ret = ""
-                            for j in 0..<i {
-                                if !ret.isEmpty {
-                                    ret += pathSeparator.description
-                                }
-                                ret += originalPathComponents[j]
-                            }
-                            return ret
-                        }
-                    }
+            let lineComponents = line.split { CharacterSet.whitespaces.contains($0) }
+            let sourceLine: String? = (lineComponents.count > 5 && lineComponents[4] == "SO") ? String(lineComponents[5]) : nil
+
+            if let definedSourceLine = sourceLine {
+                if definedSourceLine.hasPrefix("/") {
+                    buildSourceURL = URL(fileURLWithPath: definedSourceLine)
+                } else if let definedBuildSourceURL = buildSourceURL {
+                    buildSourceURL = definedBuildSourceURL.appendingPathComponent(definedSourceLine)
                 }
+            } else if let definedBuildSourceURL = buildSourceURL {
+                if let matchURL = matchURL(sourceURL: sourceURL, buildSourceURL: definedBuildSourceURL) {
+                    return matchURL
+                }
+                buildSourceURL = nil
             }
         }
-        
-        throw CarthageError.internalError(description: "Unable to find path match")
+        if let definedBuildSourceURL = buildSourceURL, let matchURL = matchURL(sourceURL: sourceURL, buildSourceURL: definedBuildSourceURL) {
+            return matchURL
+        }
+        throw CarthageError.invalidFramework(frameworkURL, description: "Could not find an appropriate debug symbols mapping for source path: \(sourceURL.path)")
+    }
+
+    private static func matchURL(sourceURL: URL, buildSourceURL: URL) -> URL? {
+        var trailingPathComponents = [String]()
+        var matchURL = buildSourceURL
+
+        while !matchURL.isRoot {
+            let lastPathComponent = matchURL.lastPathComponent
+            trailingPathComponents.append(lastPathComponent)
+            matchURL = matchURL.deletingLastPathComponent()
+            let candidateURL = sourceURL.appendingPathComponents(trailingPathComponents.reversed())
+            if candidateURL.isExistingFile {
+                return matchURL
+            }
+        }
+        return nil
     }
     
     private static func uuidsOfDwarf(_ binaryURL: URL) throws -> [String: String] {
+
+        let normalizedURL = try normalizedBinaryURL(url: binaryURL)
+        let task = Task("/usr/bin/xcrun", arguments: ["dwarfdump", "--uuid", normalizedURL.path])
         
-        let task = Task("/usr/bin/xcrun", arguments: ["dwarfdump", "--uuid", binaryURL.path])
-        
-        let stdOutString = try task.getStdOutString().get()
+        let stdOutString = try task.getStdOutString().mapError(CarthageError.taskError).get()
         
         let lines = stdOutString.split(separator: "\n")
         
@@ -78,84 +103,95 @@ final class DebugSymbolsMapper {
             }
         }
         
-        if archsToUUIDs.count == 0 {
-            throw CarthageError.internalError(description: "Unable to obtain UUIDs for file at location \(binaryURL.path)")
-        }
-        
         return archsToUUIDs
     }
-    
-    private static func verifyUUIDs(binaryUUIDs: [String: String], dsymUUIDs: [String: String]) throws {
+
+    /// Verifies whether the UUIDs from the binary match the UUIDs from the debug symbols
+    private static func verifyUUIDs(frameworkURL: URL, dsymURL: URL) throws -> [String: String] {
+
+        let binaryUUIDs = try uuidsOfDwarf(frameworkURL)
+
+        guard !binaryUUIDs.isEmpty else {
+            throw CarthageError.invalidFramework(frameworkURL, description: "No architectures found")
+        }
+
+        let dsymUUIDs = try uuidsOfDwarf(dsymURL)
+
         for (arch, uuid) in binaryUUIDs {
             guard let dsymUUID = dsymUUIDs[arch] else {
                 throw CarthageError.internalError(description: "Could not find \(arch) architecture in dSYM")
             }
             guard dsymUUID == uuid else {
-                throw CarthageError.internalError(description: "UUID mismatch for architecture \(arch), binary UUID=\(uuid), dsym UUID=\(dsymUUID)")
+                throw CarthageError.invalidUUIDs(description: "UUID mismatch between framework at \(frameworkURL.path) and debug symbols at \(dsymURL.path) for architecture \(arch): binary UUID=\(uuid), dsym UUID=\(dsymUUID)")
             }
         }
+
+        return binaryUUIDs
     }
-    
-    private static func generatePlistForDsym(dsymURL: URL, frameworkURL: URL, sourceURL: URL, sourcePathToMap: String, binaryUUIDs: [String: String]) throws {
-        
+
+    /// Generates the relevant plist files in the dsym bundle at the specified URL using the arguments specified.
+    private static func generatePlistForDsym(dsymURL: URL, frameworkURL: URL, sourceURL: URL, buildSourceURL: URL, binaryUUIDs: [String: String]) throws {
         for (arch, uuid) in binaryUUIDs {
-            let plistDict: [String: String] = [
+            let plistDict: [String: Any] = [
                 "DBGArchitecture": arch,
-                "DBGBuildSourcePath": sourcePathToMap,
-                "DBGSourcePath": sourceURL.path,
+                "DBGBuildSourcePath": buildSourceURL.absoluteURL.path,
+                "DBGSourcePath": sourceURL.absoluteURL.path,
                 "DBGDSYMPath": try normalizedBinaryURL(url: dsymURL).path,
                 "DBGSymbolRichExecutable": try normalizedBinaryURL(url: frameworkURL).path
             ]
             let plistURL = dsymURL.appendingPathComponents(["Contents", "Resources", "\(uuid).plist"])
-            writePlist(at: plistURL, dict: plistDict)
+            try writePlist(at: plistURL, plistObject: plistDict as Any)
         }
     }
-    
-    private static func normalizedBinaryURL(url: URL) throws -> URL {
-        var result = url
-        if url.path.lowercased().hasSuffix(".framework") {
-            let plistDict: [String: String] = try readPlist(at: url.appendingPathComponent("Info.plist"))
-            guard let executableName = plistDict["CFBundleExecutable"] else {
-                throw CarthageError.internalError(description: "Info.plist for framework at \(url.path) does not contain CFBundleExecutable key")
-            }
-            result = url.appendingPathComponent(executableName)
-            
-        } else if url.path.lowercased().hasSuffix(".dsym") {
-            let dwarfURL = url
-                .appendingPathComponent("Contents")
-                .appendingPathComponent("Resources")
-                .appendingPathComponent("DWARF")
-            let fileNames = try FileManager.default.contentsOfDirectory(atPath: dwarfURL.path)
-            
-            if fileNames.count != 1 {
-                throw CarthageError.internalError(description: "Found more than one dwarf file in dsym at path \(url.path)")
-            }
-        }
-        return result
-    }
-    
-    private static func readPlist(at url: URL) throws -> [String: String] {
-        let data = try Data(contentsOf: url)
-        let plist = try PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: nil)
-        guard let plistDict = plist as? [String: String] else {
-            throw CarthageError.internalError(description: "Unrecognized plist format, should be a dictionary of strings")
-        }
-        return plistDict
-    }
-    
-    private static func writePlist(at url: URL, dict: [String: String]) throws {
-        let plistData: Data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
-        try plistData.write(to: url, options: .atomic)
-    }
-}
 
-extension URL {
-    
-    fileprivate func appendingPathComponents(_ components: [String]) -> URL {
-        var ret = self
-        for component in components {
-            ret = ret.appendingPathComponent(component)
+    /// Returns the absolute binary file URL for the directory at the specified path, which should be a .framework directory or a .dsym directory.
+    /// Will throw an error for any other url.
+    private static func normalizedBinaryURL(url: URL) throws -> URL {
+        if url.path.lowercased().hasSuffix(".framework") {
+            let plist = try readPlist(at: url.appendingPathComponent("Info.plist"))
+            guard let plistDict = plist as? [String: Any] else {
+                throw CarthageError.invalidFramework(url, description: "Unrecognized Info.plist format, should be a dictionary with string keys")
+            }
+            guard let value = plistDict["CFBundleExecutable"], let executableName = value as? String else {
+                throw CarthageError.invalidFramework(url, description: "Info.plist does not contain CFBundleExecutable key or value is not a String")
+            }
+            return url.appendingPathComponent(executableName).absoluteURL
+        } else if url.path.lowercased().hasSuffix(".dsym") {
+            let dwarfURL = url.appendingPathComponents(["Contents", "Resources", "DWARF"])
+            do {
+                let fileNames = try FileManager.default.contentsOfDirectory(atPath: dwarfURL.path)
+                if fileNames.isEmpty {
+                    throw CarthageError.invalidDebugSymbols(url, description: "Could not find DWARF file")
+                }
+                if fileNames.count > 1 {
+                    throw CarthageError.invalidDebugSymbols(url, description: "Found more than one DWARF file")
+                }
+                return dwarfURL.appendingPathComponent(fileNames[0]).absoluteURL
+            } catch let error as NSError {
+                throw CarthageError.readFailed(dwarfURL, error)
+            }
         }
-        return ret
+        throw CarthageError.internalError(description: "Unrecognized url specified to normalizedBinaryURL: \(url)")
+    }
+
+    /// Reads the plist at the specified url
+    private static func readPlist(at url: URL) throws -> Any {
+        do {
+            let data = try Data(contentsOf: url)
+            let plist = try PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: nil)
+            return plist
+        } catch {
+            throw CarthageError.readFailed(url, error as NSError)
+        }
+    }
+
+    /// Writes the plist at the specified URL
+    private static func writePlist(at url: URL, plistObject: Any) throws {
+        do {
+            let plistData = try PropertyListSerialization.data(fromPropertyList: plistObject, format: .xml, options: 0)
+            try plistData.write(to: url, options: .atomic)
+        } catch {
+            throw CarthageError.writeFailed(url, error as NSError)
+        }
     }
 }

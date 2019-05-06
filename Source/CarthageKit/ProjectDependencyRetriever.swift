@@ -344,7 +344,7 @@ public final class ProjectDependencyRetriever {
                     .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
                         lock = urlLock
                         self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
-                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: dependency.name, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                     }
                     .flatMap(.concat) { Files.removeItem(at: $0) }
                     .map { true }
@@ -368,7 +368,7 @@ public final class ProjectDependencyRetriever {
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,
         configuration: String,
-        projectName: String,
+        dependency: Dependency,
         toolchain: String?
         ) -> SignalProducer<(), CarthageError> {
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
@@ -381,7 +381,7 @@ public final class ProjectDependencyRetriever {
                     }
                     .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
                         lock = urlLock
-                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, projectName: projectName, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                     }
                     .flatMap(.concat) { Files.removeItem(at: $0) }
                     .on(failed: { error in
@@ -626,7 +626,7 @@ public final class ProjectDependencyRetriever {
     /// Sends the temporary URL of the unzipped directory
     private func unarchiveAndCopyBinaryFrameworks(
         zipFile: URL,
-        projectName: String,
+        dependency: Dependency,
         pinnedVersion: PinnedVersion,
         configuration: String,
         swiftVersion: PinnedVersion
@@ -644,13 +644,22 @@ public final class ProjectDependencyRetriever {
                     .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
                         return ProjectDependencyRetriever.copyDSYMToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL)
                             .then(ProjectDependencyRetriever.copyBCSymbolMapsToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL))
-                            .then(SignalProducer(value: frameworkURL))
+                            .then(SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
+                                let dsymURL = frameworkURL.appendingPathExtension("dSYM")
+                                let rootURL = frameworkURL.deletingLastPathComponents(count: 4)
+                                let sourceURL = rootURL.appendingPathComponent(dependency.relativePath)
+                                if sourceURL.isExistingDirectory {
+                                    return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkURL, dsymURL: dsymURL, sourceURL: sourceURL).map { frameworkURL }
+                                } else {
+                                    return .success(frameworkURL)
+                                }
+                            })
                     }
                     .collect()
                     .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
                         return self.createVersionFilesForFrameworks(
                             frameworkURLs,
-                            projectName: projectName,
+                            projectName: dependency.name,
                             commitish: pinnedVersion.commitish,
                             configuration: configuration
                         )

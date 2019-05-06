@@ -646,7 +646,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                     return installed ? (dependency, version) : nil
                             }
                         case let .binary(binary):
-                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, projectName: dependency.name, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, dependency: dependency, toolchain: options.toolchain)
                                 .then(.init(value: (dependency, version)))
                         }
                     }

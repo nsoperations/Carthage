@@ -63,6 +63,12 @@ public enum CarthageError: Error {
     /// An error occurred reading a dSYM or framework's UUIDs.
     case invalidUUIDs(description: String)
 
+    /// The framework at the specified URL was not valid
+    case invalidFramework(URL, description: String)
+
+    /// The symbols (dsym) at the specified url were not valid
+    case invalidDebugSymbols(URL, description: String)
+
     /// The project is not sharing any framework schemes, so Carthage cannot
     /// discover them.
     case noSharedFrameworkSchemes(Dependency, Set<Platform>)
@@ -194,9 +200,15 @@ extension CarthageError: Equatable {
 
         case let (.lockError(left, leftTimeout), .lockError(right, rightTimeout)):
             return left == right && leftTimeout == rightTimeout
-            
+
         case let (.incompatibleFrameworkSwiftVersion(left), .incompatibleFrameworkSwiftVersion(right)):
             return left == right
+
+        case let (.invalidFramework(leftUrl, leftMessage), .invalidFramework(rightUrl, rightMessage)):
+            return leftUrl == rightUrl && leftMessage == rightMessage
+
+        case let (.invalidDebugSymbols(leftUrl, leftMessage), .invalidDebugSymbols(rightUrl, rightMessage)):
+            return leftUrl == rightUrl && leftMessage == rightMessage
 
         default:
             return false
@@ -386,6 +398,12 @@ extension CarthageError: CustomStringConvertible {
             
         case .incompatibleFrameworkSwiftVersion(let message):
             return message
+
+        case .invalidFramework(let url, let message):
+            return "Framework at path \(url.path) was invalid: \(message)"
+
+        case .invalidDebugSymbols(let url, let message):
+            return "Debug symbols at path \(url.path) were invalid: \(message)"
         }
     }
 }
