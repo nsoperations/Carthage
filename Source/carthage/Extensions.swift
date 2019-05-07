@@ -107,9 +107,8 @@ internal struct ProjectEventSink {
 
         case let .skippedInstallingBinaries(dependency, error):
             let output = """
-            \(formatting.bullets) Skipped installing \(formatting.projectName(dependency.name)).framework binary due to the error:
+            \(formatting.bullets)Skipped installing \(formatting.projectName(dependency.name)).framework binary:
             \(formatting.quote(String(describing: error)))
-
             Falling back to building from the source
             """
             carthage.println(output)

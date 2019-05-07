@@ -646,8 +646,7 @@ public final class ProjectDependencyRetriever {
                             .then(ProjectDependencyRetriever.copyBCSymbolMapsToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL))
                             .then(SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
                                 let dsymURL = frameworkURL.appendingPathExtension("dSYM")
-                                let rootURL = frameworkURL.deletingLastPathComponents(count: 4)
-                                let sourceURL = rootURL.appendingPathComponent(dependency.relativePath)
+                                let sourceURL = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
                                 if sourceURL.isExistingDirectory {
                                     return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkURL, dsymURL: dsymURL, sourceURL: sourceURL).map { frameworkURL }
                                 } else {

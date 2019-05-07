@@ -90,11 +90,17 @@ public enum CarthageError: Error {
     /// A request to the GitHub API failed.
     case gitHubAPIRequestFailed(Client.Error)
 
+    /// GitHub API timeout failure
     case gitHubAPITimeout
 
+    /// Build failure
     case buildFailed(TaskError, log: URL?)
 
+    /// Unknown or unparsable Swift version of framework
     case unknownFrameworkSwiftVersion(String)
+
+    /// Incompatible Swift version for framework
+    case incompatibleFrameworkSwiftVersion(String)
 
     /// An error occurred while shelling out.
     case taskError(TaskError)
@@ -105,9 +111,8 @@ public enum CarthageError: Error {
     /// Cartfile.resolved contains incompatible versions
     case invalidResolvedCartfile([CompatibilityInfo])
 
+    /// Error acquiring file system lock within the specified timeout
     case lockError(url: URL, timeout: Int?)
-    
-    case incompatibleFrameworkSwiftVersion(String)
 }
 
 extension CarthageError {
