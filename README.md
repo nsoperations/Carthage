@@ -1,12 +1,12 @@
 ![](Logo/PNG/header.png)
 
-# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/nsoperations/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/carthage/carthage.svg)](https://github.com/nsoperations/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
+# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/nsoperations/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/nsoperations/carthage.svg)](https://github.com/nsoperations/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
 
 Carthage is intended to be the simplest way to add frameworks to your Cocoa application.
 
 Carthage builds your dependencies and provides you with binary frameworks, but you retain full control over your project structure and setup. Carthage does not automatically modify your project files or your build settings.
 
-This is a fork on the official [![Carthage](https://github.com/Carthage/Carthage)] which fixes a lot of issues, most importantly:
+This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) which fixes a lot of issues, most importantly:
 
 - Fixes resolver issues: replaces both the original and new resolver with a completely rewritten resolver which passes all (performance) tests. Also added a lot more tests based on JSON fixtures for problematic dependency trees. The flag --new-resolver does not exist anymore
 - Adds the carthage `diagnose` command for creating new test fixtures for problematic dependency trees.
