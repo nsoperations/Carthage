@@ -20,7 +20,7 @@ public struct Cartfile {
     /// Returns the location where Cartfile should exist within the given
     /// directory.
     public static func url(in directoryURL: URL) -> URL {
-        return directoryURL.appendingPathComponent("Cartfile")
+        return directoryURL.appendingPathComponent(Constants.Project.cartfilePath)
     }
 
     /// Attempts to parse Cartfile information from a string.
@@ -168,7 +168,7 @@ public struct ResolvedCartfile {
     /// Returns the location where Cartfile.resolved should exist within the given
     /// directory.
     public static func url(in directoryURL: URL) -> URL {
-        return directoryURL.appendingPathComponent("Cartfile.resolved")
+        return directoryURL.appendingPathComponent(Constants.Project.resolvedCartfilePath, isDirectory: false)
     }
 
     /// Attempts to parse Cartfile.resolved information from a string.
@@ -191,11 +191,65 @@ public struct ResolvedCartfile {
     }
 }
 
+public struct SchemeCartfile {
+
+    public let schemes: Set<String>
+
+    public init<T: Sequence>(schemes: T) where T.Element == String {
+        self.schemes = Set(schemes)
+    }
+
+    /// Returns the location where Cartfile.schemes should exist within the given
+    /// directory.
+    public static func url(in directoryURL: URL) -> URL {
+        return directoryURL.appendingPathComponent(Constants.Project.schemesCartfilePath, isDirectory: false)
+    }
+
+    public static func from(url: URL) -> Result<SchemeCartfile, CarthageError> {
+        return Result(catching: { try String(contentsOf: url, encoding: .utf8) })
+            .mapError { .readFailed(url, $0) }
+            .flatMap(SchemeCartfile.from)
+    }
+
+    public static func from(directoryURL: URL) -> Result<SchemeCartfile, CarthageError> {
+        return from(url: url(in: directoryURL))
+    }
+
+    public static func from(string: String) -> Result<SchemeCartfile, CarthageError> {
+        var schemes = Set<String>()
+        let lines = string.components(separatedBy: .newlines)
+        for line in lines {
+            if line.hasPrefix(Cartfile.commentIndicator) {
+                continue
+            }
+            let scheme = line.trimmingCharacters(in: .whitespaces)
+
+            if !scheme.isEmpty {
+                schemes.insert(scheme)
+            }
+        }
+        return .success(SchemeCartfile(schemes: schemes))
+    }
+
+    public var matcher: SchemeMatcher {
+        return LitteralSchemeMatcher(schemeNames: schemes)
+    }
+}
+
+extension SchemeCartfile: CustomStringConvertible {
+    public var description: String {
+        return schemes
+            .sorted { $0 < $1 }
+            .joined(separator: "\n")
+            .appending("\n")
+    }
+}
+
 extension ResolvedCartfile: CustomStringConvertible {
     public var description: String {
         return dependencies
             .sorted { $0.key.description < $1.key.description }
-            .map { "\($0.key) \($0.value)" }
+            .map { "\($0.key) \"\($0.value)\"" }
             .joined(separator: "\n")
             .appending("\n")
     }

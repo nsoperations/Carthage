@@ -66,11 +66,11 @@
       },
       {
         "package": "ReactiveTask",
-        "repositoryURL": "https://github.com/Carthage/ReactiveTask.git",
+        "repositoryURL": "https://github.com/nsoperations/ReactiveTask.git",
         "state": {
-          "branch": null,
-          "revision": "0f3be6022e2435e1bb91679bc2aabeff13eb794c",
-          "version": "0.15.0"
+          "branch": "fix/handle-launch-exceptions",
+          "revision": "7e2b7329397113b0c7e8cc282a185e32b023f3fd",
+          "version": null
         }
       },
       {

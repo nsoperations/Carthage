@@ -8,7 +8,12 @@ public final class Archive {
 
     // MARK: - Public
 
-    public static func archiveFrameworks(frameworkNames: [String], directoryPath: String, customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+    public static func archiveFrameworks(frameworkNames: [String], directoryPath: String, configuration: String = "Release", customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+
+        if let definedOutputPath = customOutputPath, definedOutputPath.isEmpty {
+            return SignalProducer<URL, CarthageError>(error: CarthageError.invalidArgument(description: "Custom archive output path should not be empty"))
+        }
+
         let frameworks: SignalProducer<[String], CarthageError>
         if !frameworkNames.isEmpty {
             frameworks = .init(value: frameworkNames.map {
@@ -16,9 +21,10 @@ public final class Archive {
             })
         } else {
             let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
-            frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: "Release")
+            let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
+            frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: configuration, schemeMatcher: schemeMatcher)
                 .flatMap(.merge) { scheme, project -> SignalProducer<BuildSettings, CarthageError> in
-                    let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: "Release")
+                    let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
                     return Xcode.loadBuildSettings(with: buildArguments)
                 }
                 .flatMap(.concat) { settings -> SignalProducer<String, CarthageError> in

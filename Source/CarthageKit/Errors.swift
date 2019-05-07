@@ -63,6 +63,12 @@ public enum CarthageError: Error {
     /// An error occurred reading a dSYM or framework's UUIDs.
     case invalidUUIDs(description: String)
 
+    /// The framework at the specified URL was not valid
+    case invalidFramework(URL, description: String)
+
+    /// The symbols (dsym) at the specified url were not valid
+    case invalidDebugSymbols(URL, description: String)
+
     /// The project is not sharing any framework schemes, so Carthage cannot
     /// discover them.
     case noSharedFrameworkSchemes(Dependency, Set<Platform>)
@@ -84,11 +90,17 @@ public enum CarthageError: Error {
     /// A request to the GitHub API failed.
     case gitHubAPIRequestFailed(Client.Error)
 
+    /// GitHub API timeout failure
     case gitHubAPITimeout
 
+    /// Build failure
     case buildFailed(TaskError, log: URL?)
 
+    /// Unknown or unparsable Swift version of framework
     case unknownFrameworkSwiftVersion(String)
+
+    /// Incompatible Swift version for framework
+    case incompatibleFrameworkSwiftVersion(String)
 
     /// An error occurred while shelling out.
     case taskError(TaskError)
@@ -99,6 +111,7 @@ public enum CarthageError: Error {
     /// Cartfile.resolved contains incompatible versions
     case invalidResolvedCartfile([CompatibilityInfo])
 
+    /// Error acquiring file system lock within the specified timeout
     case lockError(url: URL, timeout: Int?)
 }
 
@@ -192,6 +205,15 @@ extension CarthageError: Equatable {
 
         case let (.lockError(left, leftTimeout), .lockError(right, rightTimeout)):
             return left == right && leftTimeout == rightTimeout
+
+        case let (.incompatibleFrameworkSwiftVersion(left), .incompatibleFrameworkSwiftVersion(right)):
+            return left == right
+
+        case let (.invalidFramework(leftUrl, leftMessage), .invalidFramework(rightUrl, rightMessage)):
+            return leftUrl == rightUrl && leftMessage == rightMessage
+
+        case let (.invalidDebugSymbols(leftUrl, leftMessage), .invalidDebugSymbols(rightUrl, rightMessage)):
+            return leftUrl == rightUrl && leftMessage == rightMessage
 
         default:
             return false
@@ -375,8 +397,18 @@ extension CarthageError: CustomStringConvertible {
                 }
                 .joined(separator: "\n")
             return message
+            
         case let .lockError(url, timeout):
             return "Failed to get lock\(timeout.map {  "within timeout of \($0)s" } ?? "") for directory: \(url.path)"
+            
+        case .incompatibleFrameworkSwiftVersion(let message):
+            return message
+
+        case .invalidFramework(let url, let message):
+            return "Framework at path \(url.path) was invalid: \(message)"
+
+        case .invalidDebugSymbols(let url, let message):
+            return "Debug symbols at path \(url.path) were invalid: \(message)"
         }
     }
 }

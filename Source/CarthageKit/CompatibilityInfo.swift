@@ -57,7 +57,7 @@ public struct CompatibilityInfo: Equatable {
         return CompatibilityInfo.invert(requirements: requirements)
             .map { invertedRequirements -> [CompatibilityInfo] in
                 return dependencies.compactMap { dependency, version in
-                    if case .success = Version.from(version), let requirements = invertedRequirements[dependency] {
+                    if version.isSemantic, let requirements = invertedRequirements[dependency] {
                         return CompatibilityInfo(dependency: dependency, pinnedVersion: version, requirements: requirements)
                     }
                     return nil

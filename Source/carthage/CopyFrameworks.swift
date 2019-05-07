@@ -49,13 +49,13 @@ public struct CopyFrameworksCommand: CommandProtocol {
             .flatMap { (codeSigningAllowed: Bool) -> Result<String?, CarthageError> in
                 guard codeSigningAllowed == true else { return .success(nil) }
                 
-                return getEnvironmentVariable("EXPANDED_CODE_SIGN_IDENTITY")
+                return Environment.getVariable("EXPANDED_CODE_SIGN_IDENTITY")
                     .map { $0.isEmpty ? nil : $0 }
                     .flatMapError {
                         // See https://github.com/Carthage/Carthage/issues/2472#issuecomment-395134166 regarding Xcode 10 betas
                         // … or potentially non-beta Xcode releases of major version 10 or later.
                         
-                        switch getEnvironmentVariable("XCODE_PRODUCT_BUILD_VERSION") {
+                        switch Environment.getVariable("XCODE_PRODUCT_BUILD_VERSION") {
                         case .success:
                             // See the above issue.
                             return .success(nil)
@@ -71,12 +71,12 @@ public struct CopyFrameworksCommand: CommandProtocol {
     }
     
     private func codeSigningAllowed() -> Bool {
-        return getEnvironmentVariable("CODE_SIGNING_ALLOWED")
+        return Environment.getVariable("CODE_SIGNING_ALLOWED")
             .map { $0 == "YES" }.value ?? false
     }
     
     private func shouldStripDebugSymbols() -> Bool {
-        return getEnvironmentVariable("COPY_PHASE_STRIP")
+        return Environment.getVariable("COPY_PHASE_STRIP")
             .map { $0 == "YES" }.value ?? false
     }
     
@@ -90,32 +90,32 @@ public struct CopyFrameworksCommand: CommandProtocol {
     }
     
     private func builtProductsFolder() -> Result<URL, CarthageError> {
-        return getEnvironmentVariable("BUILT_PRODUCTS_DIR")
+        return Environment.getVariable("BUILT_PRODUCTS_DIR")
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
     
     private func targetBuildFolder() -> Result<URL, CarthageError> {
-        return getEnvironmentVariable("TARGET_BUILD_DIR")
+        return Environment.getVariable("TARGET_BUILD_DIR")
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
     
     private func frameworksFolder() -> Result<URL, CarthageError> {
         return appropriateDestinationFolder()
             .flatMap { url -> Result<URL, CarthageError> in
-                getEnvironmentVariable("FRAMEWORKS_FOLDER_PATH")
+                Environment.getVariable("FRAMEWORKS_FOLDER_PATH")
                     .map { url.appendingPathComponent($0, isDirectory: true) }
         }
     }
     
     private func validArchitectures() -> Result<[String], CarthageError> {
-        return getEnvironmentVariable("VALID_ARCHS").map { architectures -> [String] in
+        return Environment.getVariable("VALID_ARCHS").map { architectures -> [String] in
             return architectures.components(separatedBy: " ")
         }
     }
     
     private func buildActionIsArchiveOrInstall() -> Bool {
         // archives use ACTION=install
-        return getEnvironmentVariable("ACTION").value == "install"
+        return Environment.getVariable("ACTION").value == "install"
     }
     
     private func inputFiles() -> SignalProducer<URL, CarthageError> {
@@ -126,10 +126,10 @@ public struct CopyFrameworksCommand: CommandProtocol {
     }
     
     private func scriptInputFiles() -> SignalProducer<String, CarthageError> {
-        switch getEnvironmentVariable("SCRIPT_INPUT_FILE_COUNT") {
+        switch Environment.getVariable("SCRIPT_INPUT_FILE_COUNT") {
         case .success(let count):
             if let count = Int(count) {
-                return SignalProducer<Int, CarthageError>(0..<count).attemptMap { getEnvironmentVariable("SCRIPT_INPUT_FILE_\($0)") }
+                return SignalProducer<Int, CarthageError>(0..<count).attemptMap { Environment.getVariable("SCRIPT_INPUT_FILE_\($0)") }
             } else {
                 return SignalProducer(error: .invalidArgument(description: "SCRIPT_INPUT_FILE_COUNT did not specify a number"))
             }
@@ -139,11 +139,11 @@ public struct CopyFrameworksCommand: CommandProtocol {
     }
     
     private func scriptInputFileLists() -> SignalProducer<String, CarthageError> {
-        switch getEnvironmentVariable("SCRIPT_INPUT_FILE_LIST_COUNT") {
+        switch Environment.getVariable("SCRIPT_INPUT_FILE_LIST_COUNT") {
         case .success(let count):
             if let count = Int(count) {
                 return SignalProducer<Int, CarthageError>(0..<count)
-                    .attemptMap { getEnvironmentVariable("SCRIPT_INPUT_FILE_LIST_\($0)") }
+                    .attemptMap { Environment.getVariable("SCRIPT_INPUT_FILE_LIST_\($0)") }
                     .flatMap(.merge) { fileList -> SignalProducer<String, CarthageError> in
                         let fileListURL = URL(fileURLWithPath: fileList, isDirectory: true)
                         return SignalProducer<String, NSError>(result: Result(catching: { try String(contentsOfFile: fileList) }))

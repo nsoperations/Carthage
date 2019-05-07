@@ -52,8 +52,8 @@ internal struct Simulator: Decodable {
         let allTargetSimulators = devices.reduce(into: [:], reducePlatformNames)
         func sortedByVersion(_ osNames: [String]) -> [String] {
             return osNames.sorted { lhs, rhs in
-                guard let lhsVersion = Version.from(PinnedVersion(lhs)).value,
-                    let rhsVersion = Version.from(PinnedVersion(rhs)).value else {
+                guard let lhsVersion = PinnedVersion(lhs).semanticVersion,
+                    let rhsVersion = PinnedVersion(rhs).semanticVersion else {
                         return lhs < rhs
                 }
                 return lhsVersion < rhsVersion

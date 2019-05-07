@@ -20,13 +20,7 @@ struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
 
     public init(pinnedVersion: PinnedVersion) {
         self.pinnedVersion = pinnedVersion
-        let result = Version.from(pinnedVersion)
-        switch result {
-        case .success(let semanticVersion):
-            self.semanticVersion = semanticVersion
-        default:
-            self.semanticVersion = nil
-        }
+        self.semanticVersion = pinnedVersion.semanticVersion
         self.isUpperBound = false
         self.hash = pinnedVersion.hashValue
     }

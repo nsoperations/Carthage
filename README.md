@@ -1,10 +1,21 @@
 ![](Logo/PNG/header.png)
 
-# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/Carthage/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/carthage/carthage.svg)](https://github.com/Carthage/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
+# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/nsoperations/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/carthage/carthage.svg)](https://github.com/nsoperations/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
 
 Carthage is intended to be the simplest way to add frameworks to your Cocoa application.
 
 Carthage builds your dependencies and provides you with binary frameworks, but you retain full control over your project structure and setup. Carthage does not automatically modify your project files or your build settings.
+
+This is a fork on the official [![Carthage](https://github.com/Carthage/Carthage)] which fixes a lot of issues, most importantly:
+
+- Fixes resolver issues: replaces both the original and new resolver with a completely rewritten resolver which passes all (performance) tests. Also added a lot more tests based on JSON fixtures for problematic dependency trees. The flag --new-resolver does not exist anymore
+- Adds the carthage `diagnose` command for creating new test fixtures for problematic dependency trees.
+- Fixes concurrency issues: all file system actions upon potentially shared resource (checkout cache, derived data folder, binaries cache, etc) are now protected with locks based on the system utility shlock. This ensures that CI systems can run multiple Carthage jobs in parallel. An option `--lock-timeout` has been added to relevant commands to specify a custom time-out in seconds for acquiring locks (default is no time-out).
+- Fixes the DWARFs symbol problem for pre-built cached binaries by automatically creating mapping plists in the dSYM bundles for the relevant sources. This allows for debugging Carthage dependencies which were not built on the developer machine.
+- Adds a plugable caching mechanism, enabled by the option `--cache-command` for all build-related commands. A custom shell script or executable can be specified to retrieve cached binaries from arbitrary back-ends. By default the CARTHAGE_CACHE_COMMAND environment variable is used for this command, or if not defined, falls back to the default GitHub API based caching.
+- Adds support for a Cartfile.schemes file, which can be added to a project to limit the schemes considered by Carthage for building. Just add the scheme names to consider to this file (one per line).
+
+## Contents
 
 - [Quick Start](#quick-start)
 - [Installing Carthage](#installing-carthage)
@@ -31,22 +42,20 @@ Carthage builds your dependencies and provides you with binary frameworks, but y
 		- [Use travis-ci to upload your tagged prebuilt frameworks](#use-travis-ci-to-upload-your-tagged-prebuilt-frameworks)
 	- [Build static frameworks to speed up your app’s launch times](#build-static-frameworks-to-speed-up-your-apps-launch-times)
 	- [Declare your compatibility](#declare-your-compatibility)
-- [Known issues](#known-issues)
-	- [DWARFs symbol problem](#dwarfs-symbol-problem)
 - [CarthageKit](#carthagekit)
 - [Differences between Carthage and CocoaPods](#differences-between-carthage-and-cocoapods)
 - [License](#license)
 
 ## Quick Start
 
-1. Get Carthage by running `brew install carthage` or choose [another installation method](#installing-carthage)
+1. Get Carthage by running `brew tap nsoperations/formulas && brew install -s nsoperations/formulas/carthage` or choose [another installation method](#installing-carthage)
 1. Create a [Cartfile][] in the same directory where your `.xcodeproj` or `.xcworkspace` is
 1. List the desired dependencies in the [Cartfile][], for example:
 
 	```
 	github "Alamofire/Alamofire" ~> 4.7.2
 	```
-	
+
 1. Run `carthage update`
 1. A `Cartfile.resolved` file and a `Carthage` directory will appear in the same directory where your `.xcodeproj` or `.xcworkspace` is
 1. Drag the built `.framework` binaries from `Carthage/Build/<platform>` into your application’s Xcode project.
@@ -75,13 +84,11 @@ For an in depth guide, read on from [Adding frameworks to an application](#addin
 
 There are multiple options for installing Carthage:
 
-* **Installer:** Download and run the `Carthage.pkg` file for the latest [release](https://github.com/Carthage/Carthage/releases), then follow the on-screen instructions. If you are installing the pkg via CLI, you might need to run `sudo chown -R $(whoami) /usr/local` first.
+* **Installer:** Download and run the `Carthage.pkg` file for the latest [release](https://github.com/nsoperations/Carthage/releases), then follow the on-screen instructions. If you are installing the pkg via CLI, you might need to run `sudo chown -R $(whoami) /usr/local` first.
 
-* **Homebrew:** You can use [Homebrew](http://brew.sh) and install the `carthage` tool on your system simply by running `brew update` and `brew install carthage`. (note: if you previously installed the binary version of Carthage, you should delete `/Library/Frameworks/CarthageKit.framework`).
+* **Homebrew:** You can use [Homebrew](http://brew.sh) and install the `carthage` tool on your system. Since this is a fork you need to first tap the forked formula by `brew tap nsoperations/formulas`. Then run simply run `brew update` and `brew install -s nsoperations/formulas/carthage`. (note: if you previously installed the binary version of Carthage, you should delete `/Library/Frameworks/CarthageKit.framework`. If you installed the official carthage via brew, first remove it via `brew uninstall carthage`).
 
-* **MacPorts:** You can use [MacPorts](https://www.macports.org/) and install the `carthage` tool on your system simply by running `sudo port selfupdate` and `sudo port install carthage`. (note: if you previously installed the binary version of Carthage, you should delete `/Library/Frameworks/CarthageKit.framework`).
-
-* **From source:** If you’d like to run the latest development version (which may be highly unstable or incompatible), simply clone the `master` branch of the repository, then run `make install`. Requires Xcode 9.4 (Swift 4.1).
+* **From source:** If you’d like to run the latest development version (which may be highly unstable or incompatible), simply clone the `master` branch of the repository, then run `make install` or `make prefix_install PREFIX="<INSTALL_DIR>"`. Requires Xcode 9.4 (Swift 4.1).
 
 ## Adding frameworks to an application
 
@@ -376,11 +383,6 @@ Want to advertise that your project can be used with Carthage? You can add a com
 ```markdown
 [![Carthage compatible](https://img.shields.io/badge/Carthage-compatible-4BC51D.svg?style=flat)](https://github.com/Carthage/Carthage)
 ```
-## Known issues
-
-##### DWARFs symbol problem
-Pre-built framework cannot be debugged using step execution on other machine than on which the framework was built. Simply `carthage bootstrap/build/update --no-use-binaries` should fix this, but for more automated workaround, see [#924](https://github.com/Carthage/Carthage/issues/924). Dupe [rdar://23551273](http://www.openradar.me/23551273) if you want Apple to fix the root cause of this problem.
-
 ## CarthageKit
 
 Most of the functionality of the `carthage` command line tool is actually encapsulated in a framework named CarthageKit.

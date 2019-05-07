@@ -85,7 +85,9 @@ final class FileLock: Lock {
                 onWait?(self)
                 waiting = true
             }
-            Thread.sleep(forTimeInterval: FileLock.retryInterval)
+            
+            let sleepDate = Date(timeIntervalSinceNow: FileLock.retryInterval)
+            Thread.sleep(until: min(timeoutDate ?? sleepDate, sleepDate))
         }
         return false
     }

@@ -182,3 +182,35 @@ class ResolvedCartfileTests: XCTestCase {
 			+ "\"v1.0.0\"\ngithub \"antitypical/Result\" \"3.0.0\"\n"
 	}
 }
+
+class SchemeCartfileTests: XCTestCase {
+
+    func testSchemefileParse() {
+        let cartfileString = """
+        # Some comment
+        c
+        b
+        a f
+
+
+        d
+
+        """
+
+        guard let schemeCartfile = SchemeCartfile.from(string: cartfileString).value else {
+            XCTFail("Expected scheme cartfile to be parsed successfully")
+            return
+        }
+
+        XCTAssertEqual(schemeCartfile.schemes, Set(["a f", "b", "c", "d"]))
+    }
+
+    func testSchemeCartfileDescription() {
+
+        let schemeCartfile = SchemeCartfile(schemes: ["b", "b", "c", "a"])
+
+        XCTAssertEqual(schemeCartfile.schemes, Set(["a", "b", "c"]))
+
+        expect(schemeCartfile.description) == "a\nb\nc\n"
+    }
+}

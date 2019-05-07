@@ -10,7 +10,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/antitypical/Result.git", from: "4.1.0"),
-        .package(url: "https://github.com/Carthage/ReactiveTask.git", from: "0.15.0"),
+        .package(url: "https://github.com/nsoperations/ReactiveTask.git", .branch("fix/handle-launch-exceptions")),
         .package(url: "https://github.com/Carthage/Commandant.git", from: "0.15.0"),
         .package(url: "https://github.com/jdhealy/PrettyColors.git", from: "5.0.2"),
         .package(url: "https://github.com/ReactiveCocoa/ReactiveSwift.git", from: "4.0.0"),

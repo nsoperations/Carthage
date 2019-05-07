@@ -69,12 +69,16 @@ public final class Xcode {
         return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath ?? Constants.Dependency.derivedDataURL.path), timeout: lockTimeout)
             .flatMap(.merge) { (urlLock) -> BuildSchemeProducer in
                 lock = urlLock
+
+                let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
+
                 return BuildSchemeProducer { observer, lifetime in
                     // Use SignalProducer.replayLazily to avoid enumerating the given directory
                     // multiple times.
                     buildableSchemesInDirectory(directoryURL,
                                                 withConfiguration: options.configuration,
-                                                forPlatforms: options.platforms
+                                                forPlatforms: options.platforms,
+                                                schemeMatcher: schemeMatcher
                         )
                         .flatMap(.concat) { (scheme: Scheme, project: ProjectLocator) -> SignalProducer<TaskEvent<URL>, CarthageError> in
                             let initialValue = (project, scheme)
@@ -113,9 +117,11 @@ public final class Xcode {
                             
                             guard let dependency = dependency else {
                                 
-                                return VersionFile.createVersionFileForCurrentProject(platforms: options.platforms,
-                                                                          buildProducts: urls,
-                                                                          rootDirectoryURL: rootDirectoryURL
+                                return VersionFile.createVersionFileForCurrentProject(
+                                    platforms: options.platforms,
+                                    configuration: options.configuration,
+                                    buildProducts: urls,
+                                    rootDirectoryURL: rootDirectoryURL
                                     )
                                     .flatMapError { _ in .empty }
                             }
@@ -124,6 +130,7 @@ public final class Xcode {
                                 for: dependency.dependency,
                                 version: dependency.version,
                                 platforms: options.platforms,
+                                configuration: options.configuration,
                                 buildProducts: urls,
                                 rootDirectoryURL: rootDirectoryURL
                                 )
@@ -154,7 +161,8 @@ public final class Xcode {
     static func buildableSchemesInDirectory( // swiftlint:disable:this static function_body_length
         _ directoryURL: URL,
         withConfiguration configuration: String,
-        forPlatforms platforms: Set<Platform> = []
+        forPlatforms platforms: Set<Platform> = [],
+        schemeMatcher: SchemeMatcher?
         ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
         precondition(directoryURL.isFileURL)
         let locator = ProjectLocator
@@ -186,7 +194,7 @@ public final class Xcode {
                 /// from a workspace, then it might include additional targets that would trigger our
                 /// check.
                 let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
-                return shouldBuildScheme(buildArguments, platforms)
+                return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
                     .filter { $0 }
                     .map { _ in (scheme, project) }
             }
@@ -200,7 +208,7 @@ public final class Xcode {
                         switch project {
                         case .workspace where schemes.contains(scheme):
                             let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
-                            return shouldBuildScheme(buildArguments, platforms)
+                            return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
                                 .filter { $0 }
                                 .map { _ in project }
 
@@ -381,7 +389,7 @@ public final class Xcode {
         let target = settings.wrapperName.map(directoryURL.appendingPathComponent)
         return SignalProducer(result: target.fanout(settings.wrapperURL))
             .flatMap(.merge) { target, source in
-                return Files.copyProduct(source.resolvingSymlinksInPath(), target)
+                return Files.copyFile(from: source.resolvingSymlinksInPath(), to: target)
             }
             .flatMap(.merge) { url in
                 return copyBCSymbolMapsForBuildProductIntoDirectory(directoryURL, settings)
@@ -495,9 +503,13 @@ public final class Xcode {
     }
     
     /// Determines whether the given scheme should be built automatically.
-    private static func shouldBuildScheme(_ buildArguments: BuildArguments, _ forPlatforms: Set<Platform>) -> SignalProducer<Bool, CarthageError> {
+    private static func shouldBuildScheme(_ buildArguments: BuildArguments, forPlatforms: Set<Platform>, schemeMatcher: SchemeMatcher?) -> SignalProducer<Bool, CarthageError> {
         precondition(buildArguments.scheme != nil)
-        
+
+        guard schemeMatcher?.matches(scheme: buildArguments.scheme!) ?? true else {
+            return SignalProducer(value: false)
+        }
+
         return loadBuildSettings(with: buildArguments)
             .flatMap(.concat) { settings -> SignalProducer<FrameworkType?, CarthageError> in
                 let frameworkType = SignalProducer(result: settings.frameworkType)

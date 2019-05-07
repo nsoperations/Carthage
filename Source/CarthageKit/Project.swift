@@ -30,6 +30,9 @@ public enum ProjectEvent {
     /// there weren't any viable binaries after all.
     case downloadingBinaries(Dependency, String)
 
+    /// Installing binaries from local cache
+    case installingBinaries(Dependency, String)
+
     /// Downloading any available binaries of the project is being skipped,
     /// because of a GitHub API request failure which is due to authentication
     /// or rate-limiting.
@@ -98,12 +101,12 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     /// The file URL to the project's Cartfile.
     public var cartfileURL: URL {
-        return directoryURL.appendingPathComponent(Constants.Project.cartfilePath, isDirectory: false)
+        return Cartfile.url(in: directoryURL)
     }
 
     /// The file URL to the project's Cartfile.resolved.
     public var resolvedCartfileURL: URL {
-        return directoryURL.appendingPathComponent(Constants.Project.resolvedCartfilePath, isDirectory: false)
+        return ResolvedCartfile.url(in: directoryURL)
     }
 
     /// Whether to prefer HTTPS for cloning (vs. SSH).
@@ -300,7 +303,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .map { currentDependencies, updatedDependencies, latestDependencies -> [OutdatedDependency] in
                 return updatedDependencies.compactMap { project, version -> OutdatedDependency? in
                     if let resolved = currentDependencies[project], let latest = latestDependencies[project], resolved != version || resolved != latest {
-                        if Version.from(resolved).value == nil, version == resolved {
+                        if resolved.semanticVersion == nil, version == resolved {
                             // If resolved version is not a semantic version but a commit
                             // it is a false-positive if `version` and `resolved` are the same
                             return nil
@@ -602,7 +605,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
                     self.dependencyRetriever.dependencySet(for: dependency, version: version),
-                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain)
+                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain)
                 )
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
@@ -638,12 +641,12 @@ public final class Project { // swiftlint:disable:this type_body_length
                             guard options.useBinaries else {
                                 return .empty
                             }
-                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
                                 .filterMap { installed -> (Dependency, PinnedVersion)? in
                                     return installed ? (dependency, version) : nil
                             }
                         case let .binary(binary):
-                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, projectName: dependency.name, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, dependency: dependency, toolchain: options.toolchain)
                                 .then(.init(value: (dependency, version)))
                         }
                     }
@@ -692,6 +695,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                 return VersionFile.createVersionFileForCommitish(version.commitish,
                                                                      dependencyName: dependency.name,
                                                                      platforms: options.platforms,
+                                                                     configuration: options.configuration,
                                                                      buildProducts: [],
                                                                      rootDirectoryURL: self.directoryURL)
                                     .then(BuildSchemeProducer.empty)

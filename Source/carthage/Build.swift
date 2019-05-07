@@ -21,6 +21,7 @@ extension BuildOptions: OptionsProtocol {
         let option3 = Option<String?>(key: "derived-data", defaultValue: nil, usage: "path to the custom derived data folder")
         let option4 = Option(key: "cache-builds", defaultValue: false, usage: "use cached builds when possible")
         let option5 = Option(key: "use-binaries", defaultValue: true, usage: "don't use downloaded binaries when possible")
+        let option6 = Option<String?>(key: "cache-command", defaultValue: Environment.getVariable("CARTHAGE_CACHE_COMMAND").value, usage: "custom command to execute to download cached (binary) dependencies from a custom cache store. Five environment variables will be set which can be used by the command if needed: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]. The executable should move the cached file to the targetFilePath if successful and return a non-zero exit code otherwise. The CARTHAGE_CACHE_COMMAND environment variable is read for a default for this value. If not specified, caching will revert to caching based on the GitHub API which only works for GitHub dependencies.")
 
         return curry(self.init)
             <*> mode <| option1
@@ -29,6 +30,7 @@ extension BuildOptions: OptionsProtocol {
             <*> mode <| option3
             <*> mode <| option4
             <*> mode <| option5
+            <*> mode <| option6
     }
 }
 
@@ -42,6 +44,7 @@ public struct BuildCommand: CommandProtocol {
         public let directoryPath: String
         public let logPath: String?
         public let archive: Bool
+        public let archiveOutputPath: String?
         public let lockTimeout: Int?
         public let dependenciesToBuild: [String]?
 
@@ -51,7 +54,7 @@ public struct BuildCommand: CommandProtocol {
         /// Otherwise, this producer will be empty.
         public var archiveProducer: SignalProducer<URL, CarthageError> {
             if archive {
-                let options = ArchiveCommand.Options(outputPath: nil, directoryPath: directoryPath, colorOptions: colorOptions, frameworkNames: [])
+                let options = ArchiveCommand.Options(outputPath: archiveOutputPath, directoryPath: directoryPath, colorOptions: colorOptions, frameworkNames: [])
                 return ArchiveCommand().archiveWithOptions(options)
             } else {
                 return .empty
@@ -65,7 +68,12 @@ public struct BuildCommand: CommandProtocol {
             let option3 = Option(key: "project-directory", defaultValue: FileManager.default.currentDirectoryPath, usage: "the directory containing the Carthage project")
             let option4 = Option<String?>(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
             let option5 = Option(key: "archive", defaultValue: false, usage: "archive built frameworks from the current project (implies --no-skip-current)")
-            let option6 = Option<Int?>(key: "lock-timeout", defaultValue: nil, usage: "timeout in seconds to wait for an exclusive lock on shared files, defaults to no timeout")
+            let option6 = Option<String?>(
+                key: "archive-output",
+                defaultValue: nil,
+                usage: "the path at which to create the archive zip file (or blank to infer it from the first one of the framework names)"
+            )
+            let option7 = Option<Int?>(key: "lock-timeout", defaultValue: nil, usage: "timeout in seconds to wait for an exclusive lock on shared files, defaults to no timeout")
 
             return curry(self.init)
                 <*> BuildOptions.evaluate(mode)
@@ -76,6 +84,7 @@ public struct BuildCommand: CommandProtocol {
                 <*> mode <| option4
                 <*> mode <| option5
                 <*> mode <| option6
+                <*> mode <| option7
                 <*> (mode <| Argument(defaultValue: [], usage: "the dependency names to build", usageParameter: "dependency names")).map { $0.isEmpty ? nil : $0 }
         }
     }

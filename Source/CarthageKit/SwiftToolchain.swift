@@ -3,16 +3,34 @@ import Result
 import ReactiveSwift
 import ReactiveTask
 
+import struct Foundation.URL
+
 /// Swift compiler helper methods
 final class SwiftToolchain {
     
     /// Emits the currect Swift version
-    static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
+    static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<PinnedVersion, SwiftVersionError> {
+        return rawSwiftVersion(usingToolchain: toolchain)
+            .map { pinnedVersion(from: $0) }
+    }
+
+    static func swiftVersion(from commandOutput: String?) -> PinnedVersion? {
+        return parseSwiftVersionCommand(output: commandOutput).map { pinnedVersion(from: $0) }
+    }
+
+    /// Emits the currect Swift version
+    static func rawSwiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
         return determineSwiftVersion(usingToolchain: toolchain).replayLazily(upTo: 1)
+    }
+
+    private static func pinnedVersion(from swiftVersionString: String) -> PinnedVersion {
+        let index = swiftVersionString.firstIndex { CharacterSet.whitespaces.contains($0) }
+        let trimmedVersionString = index.map ({ String(swiftVersionString.prefix(upTo: $0)) }) ?? swiftVersionString
+        return PinnedVersion(trimmedVersionString)
     }
     
     /// Parses output of `swift --version` for the version string.
-    static func parseSwiftVersionCommand(output: String?) -> String? {
+    private static func parseSwiftVersionCommand(output: String?) -> String? {
         guard
             let output = output,
             let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: []),

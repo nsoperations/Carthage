@@ -1,6 +1,7 @@
 import Foundation
 import Result
 import ReactiveSwift
+import ReactiveTask
 
 extension String {
     /// Returns a producer that will enumerate each line of the receiver, then
@@ -306,6 +307,39 @@ extension URL {
         let dirContents = try? FileManager.default.contentsOfDirectory(at: headersURL, includingPropertiesForKeys: [], options: [])
         return dirContents?.first { $0.absoluteString.contains("swiftmodule") }
     }
+
+    internal func appendingPathComponents(_ components: [String]) -> URL {
+        var ret = self
+        for component in components {
+            ret = ret.appendingPathComponent(component)
+        }
+        return ret
+    }
+
+    internal func deletingLastPathComponents(count: Int) -> URL {
+        var ret = self
+        for _ in 0..<count {
+            ret = ret.deletingLastPathComponent()
+        }
+        return ret
+    }
+
+    internal var isExistingDirectory: Bool {
+        var isDirectory: ObjCBool = false
+        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
+        return fileExists && isDirectory.boolValue
+    }
+
+    internal var isExistingFile: Bool {
+        var isDirectory: ObjCBool = true
+        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
+        return fileExists && !isDirectory.boolValue
+    }
+
+    internal var isRoot: Bool {
+        let path = self.path
+        return path.isEmpty || path == "/"
+    }
 }
 
 extension FileManager: ReactiveExtensionsProvider {
@@ -442,5 +476,52 @@ extension Reactive where Base: URLSession {
             }
             task.resume()
         }
+    }
+}
+
+extension CharacterSet {
+    func contains(_ character: Character) -> Bool {
+        guard let firstScalar = character.unicodeScalars.first else {
+            return false
+        }
+        return self.contains(firstScalar)
+    }
+}
+
+extension Task {
+
+    init(launchCommand: String, shell: String = "/bin/sh", workingDirectoryPath: String? = nil, environment: [String: String]? = nil) {
+        let arguments = ["-c", launchCommand]
+        self.init(shell, arguments: arguments, workingDirectoryPath: workingDirectoryPath, environment: environment)
+    }
+
+    func getData() -> Result<(stdOut: Data, stdErr: Data), TaskError> {
+        var stdOutData = Data()
+        var stdErrData = Data()
+        return launch()
+            .on(value: { (taskEvent: TaskEvent<Data>) in
+                switch taskEvent {
+                case .standardError(let data):
+                    stdOutData += data
+                case .standardOutput(let data):
+                    stdErrData += data
+                default:
+                    break
+                }
+                }
+            )
+            .wait()
+            .map { return (stdOutData, stdErrData) }
+    }
+    
+    func getStdOutData() -> Result<Data, TaskError> {
+        return launch()
+            .ignoreTaskData()
+            .first() ?? Result.success(Data())
+    }
+    
+    func getStdOutString(encoding: String.Encoding = .utf8) -> Result<String, TaskError> {
+        return getStdOutData()
+            .map { String(data: $0, encoding: encoding) ?? "" }
     }
 }

@@ -18,17 +18,20 @@ public struct ArchiveCommand: CommandProtocol {
             let argumentUsage = "the names of the built frameworks to archive without any extension "
                 + "(or blank to pick up the frameworks in the current project built by `--no-skip-current`)"
 
+            let option1 = Option<String?>(
+                key: "output",
+                defaultValue: nil,
+                usage: "the path at which to create the zip file (or blank to infer it from the first one of the framework names)"
+            )
+            let option2 = Option(
+                key: "project-directory",
+                defaultValue: FileManager.default.currentDirectoryPath,
+                usage: "the directory containing the Carthage project"
+            )
+
             return curry(self.init)
-                <*> mode <| Option(
-                    key: "output",
-                    defaultValue: nil,
-                    usage: "the path at which to create the zip file (or blank to infer it from the first one of the framework names)"
-                )
-                <*> mode <| Option(
-                    key: "project-directory",
-                    defaultValue: FileManager.default.currentDirectoryPath,
-                    usage: "the directory containing the Carthage project"
-                )
+                <*> mode <| option1
+                <*> mode <| option2
                 <*> ColorOptions.evaluate(mode)
                 <*> mode <| Argument(defaultValue: [], usage: argumentUsage, usageParameter: "framework names")
         }
@@ -48,7 +51,7 @@ public struct ArchiveCommand: CommandProtocol {
         let formatting = options.colorOptions.formatting
         let frameworkNames = options.frameworkNames
         let directoryPath = options.directoryPath
-        let customOutputPath = options.outputPath
+        let customOutputPath = options.outputPath.flatMap { $0.isEmpty ? nil : $0 }
 
         return Archive.archiveFrameworks(frameworkNames: frameworkNames, directoryPath: directoryPath, customOutputPath: customOutputPath, frameworkFoundHandler: { path in
             carthage.println(formatting.bullets + "Found " + formatting.path(path))

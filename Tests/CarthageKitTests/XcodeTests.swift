@@ -7,6 +7,9 @@ import ReactiveSwift
 import ReactiveTask
 import Tentacle
 import XCDBLD
+import SPMUtility
+
+import struct Foundation.URL
 
 class XcodeTests: XCTestCase {
 	
@@ -15,6 +18,7 @@ class XcodeTests: XCTestCase {
 	var projectURL: URL!
 	var buildFolderURL: URL!
 	var targetFolderURL: URL!
+    var currentSwiftVersion: PinnedVersion!
 	
 	override func setUp() {
 		
@@ -22,6 +26,12 @@ class XcodeTests: XCTestCase {
 			fail("Expected carthage-fixtures-ReactiveCocoaLayout-master to be loadable from resources")
 			return
 		}
+
+        guard let swiftVersion = SwiftToolchain.swiftVersion().single()?.value else {
+            fail("Expected swift version to not be nil")
+            return
+        }
+        currentSwiftVersion = swiftVersion
 		directoryURL = nonNilURL
 		projectURL = directoryURL.appendingPathComponent("ReactiveCocoaLayout.xcodeproj")
 		buildFolderURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
@@ -36,8 +46,7 @@ class XcodeTests: XCTestCase {
 	override func tearDown() {
 		_ = try? FileManager.default.removeItem(at: targetFolderURL)
 	}
-	
-	let currentSwiftVersion = SwiftToolchain.swiftVersion().single()?.value
+
 	#if !SWIFT_PACKAGE
 	let testSwiftFramework = "Quick.framework"
 	let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
@@ -56,10 +65,6 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		expect(Frameworks.isSwiftFramework(frameworkURL)) == false
-	}
-	
-	func testShouldDetermineAValueForTheLocalSwiftVersion() {
-		expect(self.currentSwiftVersion?.isEmpty) == false
 	}
 	
 	#if !SWIFT_PACKAGE
@@ -87,7 +92,7 @@ class XcodeTests: XCTestCase {
 		}
 		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
 		
-		expect(result?.value) == "4.0 (swiftlang-900.0.43 clang-900.0.22.8)"
+		expect(result?.value) == PinnedVersion("4.0")
 	}
 	
 	#if !SWIFT_PACKAGE
@@ -106,7 +111,7 @@ class XcodeTests: XCTestCase {
 		let result = Frameworks.checkSwiftFrameworkCompatibility(frameworkURL, usingToolchain: nil).single()
 		
 		expect(result?.value).to(beNil())
-		expect(result?.error) == .incompatibleFrameworkSwiftVersions(local: currentSwiftVersion ?? "", framework: "0.0.0 (swiftlang-800.0.63 clang-800.0.42.1)")
+		expect(result?.error) == .incompatibleFrameworkSwiftVersions(local: currentSwiftVersion, framework: PinnedVersion("0.0.0"))
 	}
 	
 	func testShouldDetermineAFrameworksSwiftVersionForOssToolchainsFromSwiftOrg() {
@@ -116,7 +121,7 @@ class XcodeTests: XCTestCase {
 		}
 		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
 		
-		expect(result?.value) == "4.1-dev (LLVM 0fcc19c0d8, Clang 1696f82ad2, Swift 691139445e)"
+		expect(result?.value) == PinnedVersion("4.1-dev")
 	}
 	
 	func relativePathsForProjectsInDirectory(_ directoryURL: URL) -> [String] {
@@ -207,7 +212,7 @@ class XcodeTests: XCTestCase {
 		// Copy ReactiveCocoaLayout.framework to the temporary folder.
 		let targetURL = targetFolderURL.appendingPathComponent("ReactiveCocoaLayout.framework", isDirectory: true)
 		
-		let resultURL = Files.copyProduct(frameworkFolderURL, targetURL).single()
+        let resultURL = Files.copyFile(from: frameworkFolderURL, to: targetURL).single()
 		expect(resultURL?.value) == targetURL
 		expect(targetURL.path).to(beExistingDirectory())
 		
@@ -260,7 +265,7 @@ class XcodeTests: XCTestCase {
 		expect(codesignResult.value).notTo(beNil())
 		expect(output).to(contain("satisfies its Designated Requirement"))
 	}
-	
+
 	func testShouldBuildAllSubprojectsForAllPlatformsByDefault() {
 		let multipleSubprojects = "SampleMultipleSubprojects"
 		guard let _directoryURL = Bundle(for: type(of: self)).url(forResource: multipleSubprojects, withExtension: nil) else {
@@ -296,15 +301,19 @@ class XcodeTests: XCTestCase {
 			fail("Could not load SchemeDiscoverySampleForCarthage from resources")
 			return
 		}
-		
+
+        var builtSchemes = [String]()
 		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
+                builtSchemes.append(scheme.name)
 			})
 			.wait()
 		
 		expect(result.error).to(beNil())
+
+        XCTAssertEqual(Set(builtSchemes), Set(arrayLiteral: "SchemeDiscoverySampleForCarthage-iOS", "SchemeDiscoverySampleForCarthage-Mac"))
 		
 		let macPath = buildFolderURL.appendingPathComponent("Mac/\(dependency).framework").path
 		let iOSPath = buildFolderURL.appendingPathComponent("iOS/\(dependency).framework").path
@@ -313,6 +322,33 @@ class XcodeTests: XCTestCase {
 			expect(path).to(beExistingDirectory())
 		}
 	}
+
+    func testShouldFilterWithSchemeCartfile() {
+        let dependency = "SchemeDiscoverySampleForCarthage"
+        guard let _directoryURL = Bundle(for: type(of: self)).url(forResource: "SchemeDiscoverySampleWithFilteringForCarthage-0.2", withExtension: nil) else {
+            fail("Could not load SchemeDiscoverySampleForCarthage from resources")
+            return
+        }
+
+        var builtSchemes = [String]()
+        let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+            .ignoreTaskData()
+            .on(value: { project, scheme in // swiftlint:disable:this end_closure
+                NSLog("Building scheme \"\(scheme)\" in \(project)")
+                builtSchemes.append(scheme.name)
+            })
+            .wait()
+
+        expect(result.error).to(beNil())
+
+        XCTAssertEqual(Set(builtSchemes), Set(arrayLiteral: "SchemeDiscoverySampleForCarthage-iOS"))
+
+        let macPath = buildFolderURL.appendingPathComponent("Mac/\(dependency).framework").path
+        let iOSPath = buildFolderURL.appendingPathComponent("iOS/\(dependency).framework").path
+
+        expect(iOSPath).to(beExistingDirectory())
+        expect(macPath).toNot(beExistingDirectory())
+    }
 	
 	func testShouldNotCopyBuildProductsFromNestedDependenciesProducedByWorkspace() {
 		guard let _directoryURL = Bundle(for: type(of: self)).url(forResource: "WorkspaceWithDependency", withExtension: nil) else {

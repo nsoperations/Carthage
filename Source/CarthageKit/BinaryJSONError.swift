@@ -3,7 +3,7 @@ import Foundation
 /// Error parsing a binary-only framework JSON file, used in CarthageError.invalidBinaryJSON.
 public enum BinaryJSONError: Error {
     /// Unable to parse the JSON.
-    case invalidJSON(Error)
+    case invalidJSON(String)
 
     /// Unable to parse a semantic version from a framework entry.
     case invalidVersion(ScannableError)
@@ -18,8 +18,8 @@ public enum BinaryJSONError: Error {
 extension BinaryJSONError: CustomStringConvertible {
     public var description: String {
         switch self {
-        case let .invalidJSON(error):
-            return "invalid JSON: \(error)"
+        case let .invalidJSON(message):
+            return "invalid JSON: \(message)"
 
         case let .invalidVersion(error):
             return "unable to parse semantic version: \(error)"
@@ -37,7 +37,7 @@ extension BinaryJSONError: Equatable {
     public static func == (lhs: BinaryJSONError, rhs: BinaryJSONError) -> Bool {
         switch (lhs, rhs) {
         case let (.invalidJSON(left), .invalidJSON(right)):
-            return (left as NSError) == (right as NSError)
+            return left == right
 
         case let (.invalidVersion(left), .invalidVersion(right)):
             return left == right
