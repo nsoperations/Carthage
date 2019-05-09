@@ -8,12 +8,12 @@ Carthage builds your dependencies and provides you with binary frameworks, but y
 
 This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) which fixes a lot of issues, most importantly:
 
-- Fixes resolver issues: replaces both the original and new resolver with a completely rewritten resolver which passes all (performance) tests. Also added a lot more tests based on JSON fixtures for problematic dependency trees. The flag --new-resolver does not exist anymore
+- Fixes resolver issues: replaces both the original and new resolver with a completely rewritten resolver which passes all (performance) tests. Also added a lot more tests based on JSON fixtures for problematic dependency trees. The flag --new-resolver does not exist anymore.
 - Adds the carthage `diagnose` command for creating new test fixtures for problematic dependency trees.
 - Fixes concurrency issues: all file system actions upon potentially shared resource (checkout cache, derived data folder, binaries cache, etc) are now protected with locks based on the system utility shlock. This ensures that CI systems can run multiple Carthage jobs in parallel. An option `--lock-timeout` has been added to relevant commands to specify a custom time-out in seconds for acquiring locks (default is no time-out).
 - Fixes the DWARFs symbol problem for pre-built cached binaries by automatically creating mapping plists in the dSYM bundles for the relevant sources. This allows for debugging Carthage dependencies which were not built on the developer machine.
-- Adds a plugable caching mechanism, enabled by the option `--cache-command` for all build-related commands. A custom shell script or executable can be specified to retrieve cached binaries from arbitrary back-ends. By default the CARTHAGE_CACHE_COMMAND environment variable is used for this command, or if not defined, falls back to the default GitHub API based caching.
-- Ensures the caching mechanism tasks swift toolchain version and build configuration (Debug/Release) into account. The binaries caches folder (under ~/Library/Caches/org.carthage.CarthageKit/binaries) now have the following directory structure: $SWIFT_VERSION/$DEPENDENCY_NAME/$DEPENDENCY_VERSION/$BUILD_CONFIGURATION.
+- Adds a plugable caching mechanism, enabled by the option `--cache-command` for all build-related commands. A custom shell script or executable can be specified to retrieve cached binaries from arbitrary back-ends. The CARTHAGE_CACHE_COMMAND environment variable is used as a default for this command. If not defined, a fall back to the original GitHub API based caching will take place.
+- Ensures the caching mechanism tasks Swift toolchain version and build configuration (Debug/Release) into account. The binaries cache folders (under ~/Library/Caches/org.carthage.CarthageKit/binaries) now have the following directory structure: $SWIFT_VERSION/$DEPENDENCY_NAME/$DEPENDENCY_VERSION/$BUILD_CONFIGURATION.
 - Adds support for a Cartfile.schemes file, which can be added to a project to limit the schemes considered by Carthage for building. Just add the scheme names to consider to this file (one per line).
 
 ## Contents
