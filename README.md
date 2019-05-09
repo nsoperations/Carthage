@@ -1,6 +1,6 @@
 ![](Logo/PNG/header.png)
 
-# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/nsoperations/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/nsoperations/carthage.svg)](https://github.com/nsoperations/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
+# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/nsoperations/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/nsoperations/carthage/all.svg)](https://github.com/nsoperations/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
 
 Carthage is intended to be the simplest way to add frameworks to your Cocoa application.
 
@@ -13,15 +13,17 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - Fixes concurrency issues: all file system actions upon potentially shared resource (checkout cache, derived data folder, binaries cache, etc) are now protected with locks based on the system utility shlock. This ensures that CI systems can run multiple Carthage jobs in parallel. An option `--lock-timeout` has been added to relevant commands to specify a custom time-out in seconds for acquiring locks (default is no time-out).
 - Fixes the DWARFs symbol problem for pre-built cached binaries by automatically creating mapping plists in the dSYM bundles for the relevant sources. This allows for debugging Carthage dependencies which were not built on the developer machine.
 - Adds a plugable caching mechanism, enabled by the option `--cache-command` for all build-related commands. A custom shell script or executable can be specified to retrieve cached binaries from arbitrary back-ends. By default the CARTHAGE_CACHE_COMMAND environment variable is used for this command, or if not defined, falls back to the default GitHub API based caching.
+- Ensures the caching mechanism tasks swift toolchain version and build configuration (Debug/Release) into account. The binaries caches folder (under ~/Library/Caches/org.carthage.CarthageKit/binaries) now have the following directory structure: $SWIFT_VERSION/$DEPENDENCY_NAME/$DEPENDENCY_VERSION/$BUILD_CONFIGURATION.
 - Adds support for a Cartfile.schemes file, which can be added to a project to limit the schemes considered by Carthage for building. Just add the scheme names to consider to this file (one per line).
 
 ## Contents
 
+- [Change Log](#change-log)
 - [Quick Start](#quick-start)
 - [Installing Carthage](#installing-carthage)
 - [Adding frameworks to an application](#adding-frameworks-to-an-application)
 	- [Getting started](#getting-started)
-		- [If you're building for OS X](#if-youre-building-for-os-x)
+		- [If you're building for macOS](#if-youre-building-for-macos)
 		- [If you're building for iOS, tvOS, or watchOS](#if-youre-building-for-ios-tvos-or-watchos)
 		- [For both platforms](#for-both-platforms)
 		- [(Optionally) Add build phase to warn about outdated dependencies](#optionally-add-build-phase-to-warn-about-outdated-dependencies)
@@ -45,6 +47,28 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - [CarthageKit](#carthagekit)
 - [Differences between Carthage and CocoaPods](#differences-between-carthage-and-cocoapods)
 - [License](#license)
+
+## Change Log
+
+0.35.0+nsoperations
+
+- Added support for a Cartfile.schemes file to be able to limit the schemes considered by Carthage for building. Add the name of the scheme which carthage should consider, one per line.
+- Added support for mapping of dSYM build paths to local source paths for debugging with externally built binaries.
+- Ensured the internal binaries cache now honors the swift toolchain version and build configuration (Debug/Release).
+- Implemented a plugable caching mechanism, supported for all build-related actions with the `--cache-command` option or the CARTHAGE_CACHE_COMMAND environment variable. See the help output (e.g. `carthage help build`) for more details.
+- Ensure all build and archive operations are now also protected with locks to allow concurrent operations on the same Carthage/Checkouts dir or Carthage/Build dir and most importantly on any shared derived data directories.
+
+0.34.0+nsoperations
+
+- Ensured operations on the shared caches (binaries/git) are protected with file system locks to allow concurrent running of carthage update or carthage bootstrap jobs.
+
+0.33.0+nsoperations
+
+Up-to-date with version 0.33.0 of the original Carthage. Additionally it contains the following functionality:
+
+- Got rid of the original carthage resolver and the new resolver (flag --new-resolver) in favor of a completely re-written resolver which passes all (performance) test cases (a whole lot of test cases were added, based on json fixtures for problematic dependency trees)
+- Added the carthage diagnose command to be able to create offline test fixtures for problematic dependency trees.
+- Refactored some project internals, most prominently now use tabs instead of spaces for all indentations (because that's the Xcode default and works with swiftlint autoformat). Also removed quick as test implementation because it caused flaky test failures and prohibited running individual tests from the Xcode UI. Made sure that `make xcodeproj` will generate a script stage for copying the test resources (requires the `xcodeproj` gem to be installed)
 
 ## Quick Start
 
@@ -96,10 +120,10 @@ Once you have Carthage [installed](#installing-carthage), you can begin adding f
 
 ### Getting started
 
-##### If you're building for OS X
+##### If you're building for macOS
 
 1. Create a [Cartfile][] that lists the frameworks you’d like to use in your project.
-1. Run `carthage update`. This will fetch dependencies into a [Carthage/Checkouts][] folder and build each one or download a pre-compiled framework.
+1. Run `carthage update --platform macOS`. This will fetch dependencies into a [Carthage/Checkouts][] folder and build each one or download a pre-compiled framework.
 1. On your application targets’ _General_ settings tab, in the _Embedded Binaries_ section, drag and drop each framework you want to use from the [Carthage/Build][] folder on disk.
 
 Additionally, you'll need to copy debug symbols for debugging and crash reporting on OS X.
