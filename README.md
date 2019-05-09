@@ -1,6 +1,6 @@
 ![](Logo/PNG/header.png)
 
-# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/nsoperations/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/nsoperations/carthage/all.svg)](https://github.com/nsoperations/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
+# Carthage [![GitHub license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/nsoperations/Carthage/master/LICENSE.md) [![GitHub release](https://img.shields.io/github/release/nsoperations/carthage.svg)](https://github.com/nsoperations/Carthage/releases) [![Reviewed by Hound](https://img.shields.io/badge/Reviewed_by-Hound-8E64B0.svg)](https://houndci.com)
 
 Carthage is intended to be the simplest way to add frameworks to your Cocoa application.
 
@@ -50,7 +50,7 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 
 ## Change Log
 
-0.35.0+nsoperations
+### 0.35.0+nsoperations
 
 - Added support for a Cartfile.schemes file to be able to limit the schemes considered by Carthage for building. Add the name of the scheme which carthage should consider, one per line.
 - Added support for mapping of dSYM build paths to local source paths for debugging with externally built binaries.
@@ -58,11 +58,11 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - Implemented a plugable caching mechanism, supported for all build-related actions with the `--cache-command` option or the CARTHAGE_CACHE_COMMAND environment variable. See the help output (e.g. `carthage help build`) for more details.
 - Ensure all build and archive operations are now also protected with locks to allow concurrent operations on the same Carthage/Checkouts dir or Carthage/Build dir and most importantly on any shared derived data directories.
 
-0.34.0+nsoperations
+### 0.34.0+nsoperations
 
 - Ensured operations on the shared caches (binaries/git) are protected with file system locks to allow concurrent running of carthage update or carthage bootstrap jobs.
 
-0.33.0+nsoperations
+### 0.33.0+nsoperations
 
 Up-to-date with version 0.33.0 of the original Carthage. Additionally it contains the following functionality:
 
@@ -72,7 +72,7 @@ Up-to-date with version 0.33.0 of the original Carthage. Additionally it contain
 
 ## Quick Start
 
-1. Get Carthage by running `brew tap nsoperations/formulas && brew install -s nsoperations/formulas/carthage` or choose [another installation method](#installing-carthage)
+1. Get Carthage by running `brew tap nsoperations/formulas && brew install nsoperations/formulas/carthage` or choose [another installation method](#installing-carthage)
 1. Create a [Cartfile][] in the same directory where your `.xcodeproj` or `.xcworkspace` is
 1. List the desired dependencies in the [Cartfile][], for example:
 
