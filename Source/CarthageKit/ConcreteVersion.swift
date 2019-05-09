@@ -80,8 +80,8 @@ struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
         return pinnedVersion.description
     }
 
-    public var hashValue: Int {
-        return hash
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(hash)
     }
 }
 
@@ -99,8 +99,8 @@ struct ConcreteVersionedDependency: Hashable {
         self.hash = 37 &* dependency.hashValue &+ concreteVersion.hashValue
     }
 
-    public var hashValue: Int {
-        return hash
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(hash)
     }
 
     public static func == (lhs: ConcreteVersionedDependency, rhs: ConcreteVersionedDependency) -> Bool {
