@@ -280,7 +280,7 @@ class ProjectBuildTests: XCTestCase {
         expect(result2) == ["TestFramework2_Mac", "TestFramework1_Mac"]
     }
 
-    func testShouldNotRebuildCachedFrameworksAndDependenciesUnnecessarilyBasedOnDsyms() {
+    func testShouldRebuildCachedFrameworksAndDependenciesEvenIfDsymsDidNotChange() {
         let expected = ["TestFramework3_Mac", "TestFramework2_Mac", "TestFramework1_Mac"]
 
         let result1 = buildDependencyTest(platforms: [.macOS])
@@ -298,7 +298,7 @@ class ProjectBuildTests: XCTestCase {
         }
 
         let result2 = buildDependencyTest(platforms: [.macOS])
-        expect(result2) == []
+        expect(result2) == expected
     }
 
     func testShouldRebuildAFrameworkForAllPlatformsEvenACachedFrameworkIsInvalidForOnlyASinglePlatform() {
