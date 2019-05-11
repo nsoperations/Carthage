@@ -10,7 +10,7 @@ teardown() {
 
 @test "carthage build skips dependencies with no shared schemes" {
     cat >| Cartfile <<-EOF
-github "AFNetworking/AFNetworking" == 2.6.3
+github "AFNetworking/AFNetworking" == 2.7.0
 github "mdiep/MMMarkdown" == 0.5.5
 EOF
     run carthage bootstrap --platform ios
