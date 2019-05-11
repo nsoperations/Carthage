@@ -20,9 +20,9 @@ class ProjectBuildTests: XCTestCase {
     var noSharedSchemesDirectoryURL: URL!
     var noSharedSchemesBuildDirectoryURL: URL!
 
-    func build(directoryURL url: URL, platforms: Set<Platform> = [], cacheBuilds: Bool = true, dependenciesToBuild: [String]? = nil) -> [String] {
+    func build(directoryURL url: URL, platforms: Set<Platform> = [], cacheBuilds: Bool = true, dependenciesToBuild: [String]? = nil, configuration: String = "Debug") -> [String] {
         let project = Project(directoryURL: url)
-        guard let result = project.buildCheckedOutDependenciesWithOptions(BuildOptions(configuration: "Debug", platforms: platforms, cacheBuilds: cacheBuilds), dependenciesToBuild: dependenciesToBuild)
+        guard let result = project.buildCheckedOutDependenciesWithOptions(BuildOptions(configuration: configuration, platforms: platforms, cacheBuilds: cacheBuilds), dependenciesToBuild: dependenciesToBuild)
             .ignoreTaskData()
             .on(value: { project, scheme in
                 NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -44,8 +44,8 @@ class ProjectBuildTests: XCTestCase {
         return resultValue.map { $0.name }
     }
 
-    func buildDependencyTest(platforms: Set<Platform> = [], cacheBuilds: Bool = true, dependenciesToBuild: [String]? = nil) -> [String] {
-        return build(directoryURL: directoryURL, platforms: platforms, cacheBuilds: cacheBuilds, dependenciesToBuild: dependenciesToBuild)
+    func buildDependencyTest(platforms: Set<Platform> = [], cacheBuilds: Bool = true, dependenciesToBuild: [String]? = nil, configuration: String = "Debug") -> [String] {
+        return build(directoryURL: directoryURL, platforms: platforms, cacheBuilds: cacheBuilds, dependenciesToBuild: dependenciesToBuild, configuration: configuration)
     }
 
     func buildNoSharedSchemesTest(platforms: Set<Platform> = [], cacheBuilds: Bool = true, dependenciesToBuild: [String]? = nil) -> [String] {
@@ -210,6 +210,16 @@ class ProjectBuildTests: XCTestCase {
         }
 
         let result2 = buildDependencyTest(platforms: [.macOS])
+        expect(result2) == expected
+    }
+    
+    func testShouldRebuildCachedFrameworksAndDependenciesIfBuildConfigurationIsDifferent() {
+        let expected = ["TestFramework3_Mac", "TestFramework2_Mac", "TestFramework1_Mac"]
+        
+        let result1 = buildDependencyTest(platforms: [.macOS], configuration: "Debug")
+        expect(result1) == expected
+        
+        let result2 = buildDependencyTest(platforms: [.macOS], configuration: "Release")
         expect(result2) == expected
     }
 
