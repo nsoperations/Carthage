@@ -15,7 +15,7 @@ matrix:
       osx_image: xcode10.2
       script:
         - make test
-      env: JOB=CI_TEST_10_1
+      env: JOB=CI_TEST_10_2
     - os: osx
       language: objective-c
       osx_image: xcode10.2
