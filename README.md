@@ -16,6 +16,12 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - Ensures the caching mechanism tasks Swift toolchain version and build configuration (Debug/Release) into account. The binaries cache folders (under ~/Library/Caches/org.carthage.CarthageKit/binaries) now have the following directory structure: $SWIFT_VERSION/$DEPENDENCY_NAME/$DEPENDENCY_VERSION/$BUILD_CONFIGURATION.
 - Adds support for a Cartfile.schemes file, which can be added to a project to limit the schemes considered by Carthage for building. Just add the scheme names to consider to this file (one per line).
 
+To install:
+
+`brew tap nsoperations/formulas && brew install nsoperations/formulas/carthage`
+
+see [Installing Carthage](#installing-carthage)
+
 ## Contents
 
 - [Change Log](#change-log)
@@ -31,6 +37,7 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 	- [Running a project that uses Carthage](#running-a-project-that-uses-carthage)
 	- [Adding frameworks to unit tests or a framework](#adding-frameworks-to-unit-tests-or-a-framework)
 	- [Upgrading frameworks](#upgrading-frameworks)
+	- [Diagnosing resolver problems](#diagnosing-resolver-problems)
 	- [Nested dependencies](#nested-dependencies)
 	- [Using submodules for dependencies](#using-submodules-for-dependencies)
 	- [Automatically rebuilding dependencies](#automatically-rebuilding-dependencies)
@@ -38,6 +45,7 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 	- [Bash/Zsh/Fish completion](#bashzshfish-completion)
 - [Supporting Carthage for your framework](#supporting-carthage-for-your-framework)
 	- [Share your Xcode schemes](#share-your-xcode-schemes)
+	- [Filter discoverable schemes](#filter-discoverable-schemes)
 	- [Resolve build failures](#resolve-build-failures)
 	- [Tag stable releases](#tag-stable-releases)
 	- [Archive prebuilt frameworks into one zip file](#archive-prebuilt-frameworks-into-one-zip-file)
@@ -49,6 +57,10 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - [License](#license)
 
 ## Change Log
+
+### 0.35.1+nsoperations
+
+- Ensured project compiles with Xcode 10.2/Swift 5 toolchain
 
 ### 0.35.0+nsoperations
 
@@ -221,6 +233,14 @@ or
 carthage update Box Result
 ```
 
+### Diagnosing resolver problems
+
+If you have problematic dependency trees for which the resolver gives unexpected results or performs very slowly, please run the carthage diagnose command and zip the produced results directory. This can be used to setup an offline test case for this dependency tree. You can anonimize the names of dependencies used via a mapping file. Please see:
+
+```
+carthage help diagnose
+```
+
 ### Nested dependencies
 
 If the framework you want to add to your project has dependencies explicitly listed in a [Cartfile][], Carthage will automatically retrieve them for you. You will then have to **drag them yourself into your project** from the [Carthage/Build] folder.
@@ -249,6 +269,13 @@ By default Carthage will rebuild a dependency regardless of whether it's the sam
 
 Note: At this time `--cache-builds` is incompatible with `--use-submodules`. Using both will result in working copy and committed changes to your submodule dependency not being correctly rebuilt. See [#1785](https://github.com/Carthage/Carthage/issues/1785) for details.
 
+By default Carthage will use binary caching based on releases published in GitHub. However this fork adds a plugable caching mechanism exposed via the --cache-command option which can be supplied to all commands which execute carthage build (update, bootstrap, build). Specify a custom executable with this --cache-command option to implement caching in a custom way or specify the environment variable CARTHAGE_CACHE_COMMAND to achieve the same.
+The executable will receive five environment variables from Carthage: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]
+
+The executable should resolve a binary zip file as produced via the carthage archive command (or carthage build --archive) compatible with the specified dependency options (name, version, build config, swift toolchain version) and should move the file to the file path denoted by the CARTHAGE_CACHE_TARGET_FILE_PATH environment variable.
+
+If successful the executable should exit with 0 exit code, else a non-zero exit code has to be produced.
+
 ### Bash/Zsh/Fish completion
 
 Auto completion of Carthage commands and options are available as documented in [Bash/Zsh/Fish Completion][Bash/Zsh/Fish Completion].
@@ -267,6 +294,9 @@ Carthage will only build Xcode schemes that are shared from your `.xcodeproj`. Y
 
 If an important scheme is not built when you run that command, open Xcode and make sure that the [scheme is marked as _Shared_](https://developer.apple.com/library/content/documentation/IDEs/Conceptual/xcode_guide-continuous_integration/ConfigureBots.html#//apple_ref/doc/uid/TP40013292-CH9-SW3), so Carthage can discover it.
 
+### Filter discoverable schemes
+
+To only expose a subset of the shared schemes to Carthage add a Cartfile.schemes to your project listing the scheme names to consider. List one scheme name per line. Schemes not listed in this file will be ignored.
 
 ### Resolve build failures
 
