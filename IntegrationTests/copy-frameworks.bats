@@ -3,7 +3,7 @@
 setup() {
     cd $BATS_TMPDIR
     rm -rf CarthageCopyFrameworksFixture
-    git clone -b feature/swift-5 https://github.com/nsoperations/CarthageCopyFrameworksFixture.git
+    git clone -b 2.0.1 https://github.com/nsoperations/CarthageCopyFrameworksFixture.git
     cd CarthageCopyFrameworksFixture
 }
 
