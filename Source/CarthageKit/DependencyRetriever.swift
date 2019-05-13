@@ -199,8 +199,8 @@ private struct PinnedDependency: Hashable {
         self.hash = 37 &* dependency.hashValue &+ pinnedVersion.hashValue
     }
 
-    public var hashValue: Int {
-        return hash
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(hash)
     }
 
     public static func == (lhs: PinnedDependency, rhs: PinnedDependency) -> Bool {
@@ -224,8 +224,8 @@ private struct DependencyVersionSpec: Hashable {
         self.hash = h
     }
 
-    public var hashValue: Int {
-        return hash
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(hash)
     }
 
     public static func == (lhs: DependencyVersionSpec, rhs: DependencyVersionSpec) -> Bool {

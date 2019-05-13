@@ -3,11 +3,11 @@
     "pins": [
       {
         "package": "BTree",
-        "repositoryURL": "https://github.com/werner77/BTree.git",
+        "repositoryURL": "https://github.com/nsoperations/BTree.git",
         "state": {
-          "branch": "bugfix/fix-package-description",
-          "revision": "b91a927d02fba25e582d2f71c0ba4381e5efdfae",
-          "version": null
+          "branch": null,
+          "revision": "e7cffcc8f80d3829525e1c134e57d4777aeb60de",
+          "version": "4.1.1"
         }
       },
       {
@@ -68,9 +68,9 @@
         "package": "ReactiveTask",
         "repositoryURL": "https://github.com/nsoperations/ReactiveTask.git",
         "state": {
-          "branch": "fix/handle-launch-exceptions",
-          "revision": "7e2b7329397113b0c7e8cc282a185e32b023f3fd",
-          "version": null
+          "branch": null,
+          "revision": "b0a322126f6c5147b2c59f4a414cea7fac0f45ac",
+          "version": "0.15.2"
         }
       },
       {
@@ -105,8 +105,8 @@
         "repositoryURL": "https://github.com/mdiep/Tentacle.git",
         "state": {
           "branch": null,
-          "revision": "d7f05e586195303174f108a11d0433b204369f4d",
-          "version": "0.12.1"
+          "revision": "5227e8ef290bc2fb0bab94caebe87f24525530ff",
+          "version": "0.13.0"
         }
       }
     ]
