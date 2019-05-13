@@ -5,9 +5,9 @@
         "package": "BTree",
         "repositoryURL": "https://github.com/nsoperations/BTree.git",
         "state": {
-          "branch": "feature/swift-5",
-          "revision": "d8536a253b3cd3de821101224e4641470c6ce7c7",
-          "version": null
+          "branch": null,
+          "revision": "e7cffcc8f80d3829525e1c134e57d4777aeb60de",
+          "version": "4.1.1"
         }
       },
       {
@@ -68,9 +68,9 @@
         "package": "ReactiveTask",
         "repositoryURL": "https://github.com/nsoperations/ReactiveTask.git",
         "state": {
-          "branch": "fix/handle-launch-exceptions",
-          "revision": "dcf9c0110b165642e4ae0673f1a434849a170b59",
-          "version": null
+          "branch": null,
+          "revision": "b0a322126f6c5147b2c59f4a414cea7fac0f45ac",
+          "version": "0.15.2"
         }
       },
       {
