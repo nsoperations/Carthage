@@ -17,8 +17,14 @@ protocol BinariesCache {
 extension BinariesCache {
     fileprivate static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, fileName: String? = nil, cacheBaseURL: URL) -> URL {
 
-        // Try to parse the semantic version out of the Swift version string
-        let swiftVersionString: String = swiftVersion.description
+        // Try to parse the semantic version out of the Swift version string, assume patches to be compatible with minors.
+        let swiftVersionString: String
+        if let semanticSwiftVersion = swiftVersion.semanticVersion {
+            swiftVersionString = "\(semanticSwiftVersion.major).\(semanticSwiftVersion.minor)"
+        } else {
+            swiftVersionString = swiftVersion.description
+        }
+
         let versionString = pinnedVersion.description
         let effectiveFileName = fileName ?? dependency.name + ".framework.zip"
         return cacheBaseURL.appendingPathComponent("\(swiftVersionString)/\(dependency.name)/\(versionString)/\(configuration)/\(effectiveFileName)")

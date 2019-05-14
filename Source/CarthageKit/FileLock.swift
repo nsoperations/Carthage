@@ -189,7 +189,9 @@ extension URLLock {
         return SignalProducer({ () -> Result<URLLock, CarthageError> in
             let lock = URLLock(url: url)
             lock.onWait = onWait
-            guard lock.lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
+
+            let timeoutSeconds = timeout.map { $0 < 0 ? Int.max : $0 } ?? Int.max
+            guard lock.lock(timeout: TimeInterval(timeoutSeconds)) else {
                 return .failure(CarthageError.lockError(url: url, timeout: timeout))
             }
             return .success(lock)

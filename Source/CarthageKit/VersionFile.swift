@@ -162,6 +162,11 @@ struct VersionFile: Codable {
                     return Frameworks.frameworkSwiftVersion(frameworkURL)
                         .flatMapError { _ in Frameworks.dSYMSwiftVersion(frameworkURL.appendingPathExtension("dSYM")) }
                         .map { swiftVersion -> Bool in
+                            if let semanticSwiftVersion = swiftVersion.semanticVersion,
+                                let localSemanticSwiftVersion = localSwiftVersion.semanticVersion {
+                                return semanticSwiftVersion.major == localSemanticSwiftVersion.major &&
+                                    semanticSwiftVersion.minor == localSemanticSwiftVersion.minor
+                            }
                             return swiftVersion == localSwiftVersion
                         }
                         .flatMapError { _ in SignalProducer<Bool, CarthageError>(value: false) }
