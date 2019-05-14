@@ -18,16 +18,20 @@ extension BinariesCache {
     fileprivate static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, fileName: String? = nil, cacheBaseURL: URL) -> URL {
 
         // Try to parse the semantic version out of the Swift version string, assume patches to be compatible with minors.
-        let swiftVersionString: String
-        if let semanticSwiftVersion = swiftVersion.semanticVersion {
-            swiftVersionString = "\(semanticSwiftVersion.major).\(semanticSwiftVersion.minor)"
-        } else {
-            swiftVersionString = swiftVersion.description
-        }
-
+        let swiftVersionString = pinnedVersion.swiftVersionString
         let versionString = pinnedVersion.description
         let effectiveFileName = fileName ?? dependency.name + ".framework.zip"
         return cacheBaseURL.appendingPathComponent("\(swiftVersionString)/\(dependency.name)/\(versionString)/\(configuration)/\(effectiveFileName)")
+    }
+}
+
+extension PinnedVersion {
+    fileprivate var swiftVersionString: String {
+        if let semanticSwiftVersion = self.semanticVersion {
+            return "\(semanticSwiftVersion.major).\(semanticSwiftVersion.minor)"
+        } else {
+            return self.description
+        }
     }
 }
 
@@ -190,7 +194,7 @@ class ExternalTaskBinariesCache: BinariesCache {
 
     func matchingBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
         let fileURL = GitHubBinariesCache.fileURL(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: cacheBaseURL)
-        let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, swiftVersion: swiftVersion.description, targetFilePath: fileURL.path)
+        let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion, buildConfiguration: configuration, swiftVersion: swiftVersion, targetFilePath: fileURL.path)
         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock, CarthageError> in
                 if FileManager.default.fileExists(atPath: fileURL.path) {
@@ -207,13 +211,13 @@ class ExternalTaskBinariesCache: BinariesCache {
         }
     }
 
-    private func task(dependencyName: String, dependencyVersion: String, buildConfiguration: String, swiftVersion: String, targetFilePath: String) -> Task {
+    private func task(dependencyName: String, dependencyVersion: PinnedVersion, buildConfiguration: String, swiftVersion: PinnedVersion, targetFilePath: String) -> Task {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CARTHAGE_CACHE_DEPENDENCY_NAME"] = dependencyName
-        environment["CARTHAGE_CACHE_DEPENDENCY_VERSION"] = dependencyVersion
+        environment["CARTHAGE_CACHE_DEPENDENCY_VERSION"] = dependencyVersion.description
         environment["CARTHAGE_CACHE_BUILD_CONFIGURATION"] = buildConfiguration
-        environment["CARTHAGE_CACHE_SWIFT_VERSION"] = swiftVersion
+        environment["CARTHAGE_CACHE_SWIFT_VERSION"] = swiftVersion.swiftVersionString
         environment["CARTHAGE_CACHE_TARGET_FILE_PATH"] = targetFilePath
 
         return Task(launchCommand: self.taskCommand, environment: environment)
