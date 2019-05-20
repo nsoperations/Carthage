@@ -2,14 +2,15 @@
 
 CARTHAGE_TEMPORARY_FOLDER?=/tmp/Carthage.dst
 PREFIX?=/usr/local
+CONFIGURATION?=release
 
 INTERNAL_PACKAGE=CarthageApp.pkg
 OUTPUT_PACKAGE=Carthage.pkg
 
-CARTHAGE_EXECUTABLE=./.build/release/carthage
+CARTHAGE_EXECUTABLE=./.build/$(CONFIGURATION)/carthage
 BINARIES_FOLDER=/usr/local/bin
 
-SWIFT_BUILD_FLAGS=--configuration release
+SWIFT_BUILD_FLAGS=--configuration $(CONFIGURATION)
 
 SWIFTPM_DISABLE_SANDBOX_SHOULD_BE_FLAGGED:=$(shell test -n "$${HOMEBREW_SDKROOT}" && echo should_be_flagged)
 ifeq ($(SWIFTPM_DISABLE_SANDBOX_SHOULD_BE_FLAGGED), should_be_flagged)
