@@ -46,9 +46,6 @@ final class Files {
                     result(allowingErrorCode: NSFileNoSuchFileError, Result(at: to, attempt: manager.removeItem(at:)))
                 }
                 .flatMap { _ in
-
-                    print("Copying file from \(from) to \(to)")
-
                     return Result(at: to, attempt: { destination /* to */ in
                         try manager.copyItem(at: from, to: destination, avoiding·rdar·32984063: true)
                         return destination
@@ -92,8 +89,6 @@ final class Files {
                     result(allowingErrorCode: NSFileNoSuchFileError, Result(at: to, attempt: manager.removeItem(at:)))
                 }
                 .flatMap { _ in
-
-                    print("Moving file from \(from) to \(to)")
 
                     // Tries `rename()` system call at first.
                     let result = from.withUnsafeFileSystemRepresentation { old in

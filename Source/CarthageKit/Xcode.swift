@@ -966,11 +966,9 @@ public final class Xcode {
             let directoryURLToStrip = frameworkURL.appendingPathComponent(directory, isDirectory: true)
             
             return Result(at: directoryURLToStrip, attempt: {
-                var isDirectory: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: $0.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                guard $0.isExistingDirectory else {
                     return
                 }
-                
                 try FileManager.default.removeItem(at: $0)
             })
         }

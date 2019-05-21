@@ -106,7 +106,8 @@ public final class CopyFramework {
                     keepingArchitectures: validArchitectures,
                     strippingDebugSymbols: shouldStripDebugSymbols,
                     codesigningIdentity: codeSigningIdentity
-                    ).map { url }
+                    )
+                    .then(SignalProducer(value: url))
             }
             .moveFileURLsIntoDirectory(frameworksFolder)
             .then(SignalProducer<(), CarthageError>.empty)

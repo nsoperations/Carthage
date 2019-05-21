@@ -335,6 +335,12 @@ extension URL {
         let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
         return fileExists && !isDirectory.boolValue
     }
+    
+    internal var isExistingFileOrDirectory: Bool {
+        var isDirectory: ObjCBool = true
+        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
+        return fileExists
+    }
 
     internal var isRoot: Bool {
         let path = self.path
