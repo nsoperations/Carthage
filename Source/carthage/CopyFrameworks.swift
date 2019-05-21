@@ -3,13 +3,27 @@ import Commandant
 import Foundation
 import Result
 import ReactiveSwift
+import Curry
 
 /// Type that encapsulates the configuration and evaluation of the `copy-frameworks` subcommand.
 public struct CopyFrameworksCommand: CommandProtocol {
+    public struct Options: OptionsProtocol {
+        public let automatic: Bool
+        public let useFrameworkSearchPaths: Bool
+        public let isVerbose: Bool
+        
+        public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
+            return curry(self.init)
+                <*> mode <| Option(key: "auto", defaultValue: false, usage: "infers and copies linked frameworks automatically")
+                <*> mode <| Option(key: "use-framework-search-paths", defaultValue: false, usage: "uses FRAMEWORK_SEARCH_PATHS environment variable to copy the linked frameworks with paths order preservation (i.e. first occurrence wins).\nTakes effect only when `--auto` argument is being passed")
+                <*> mode <| Option(key: "verbose", defaultValue: false, usage: "print automatically copied frameworks and paths")
+        }
+    }
+    
     public let verb = "copy-frameworks"
     public let function = "In a Run Script build phase, copies each framework specified by a SCRIPT_INPUT_FILE and/or SCRIPT_INPUT_FILE_LIST environment variables into the built app bundle"
 
-    public func run(_ options: NoOptions<CarthageError>) -> Result<(), CarthageError> {
+    public func run(_ options: Options) -> Result<(), CarthageError> {
         do {
             let frameworksFolder: URL = try self.frameworksFolder().get()
             let validArchitectures: [String] = try self.validArchitectures().get()
@@ -21,10 +35,20 @@ public struct CopyFrameworksCommand: CommandProtocol {
             let waitHandler: (URL) -> Void = { url in
                 carthage.println("Waiting for lock on url: \(url)")
             }
+            
+            // We don't want to copy outdated frameworks. i.e. such frameworks that are being modified
+            // earlier that existing products at the `target` URL.
+            // This typically indicates that we're copying a wrong framework. This may
+            // be result of the `options.useFrameworkSearchPaths == true` when Carthage will try
+            // to copy all of the linked frameworks that are available at the FRAMEWORK_SEARCH_PATHS,
+            // while those frameworks already copied by 'Embed Frameworks' phase for example.
+            // Also we don't want to force new behaviour of skipping outdated and enabling it only
+            // for automatic option.
+            let skipIfOutdated = options.automatic
 
-            return inputFiles()
+            return inputFiles(options)
                 .flatMap(.merge) { frameworkURL -> SignalProducer<FrameworkEvent, CarthageError> in
-                    return CopyFramework.copyFramework(frameworkURL: frameworkURL, frameworksFolder: frameworksFolder, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols, shouldCopyBCSymbolMap: shouldCopyBCSymbolMap, waitHandler: waitHandler)
+                    return CopyFramework.copyFramework(frameworkURL: frameworkURL, frameworksFolder: frameworksFolder, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols, shouldCopyBCSymbolMap: shouldCopyBCSymbolMap, skipIfOutdated: skipIfOutdated, waitHandler: waitHandler)
                         // Copy as many frameworks as possible in parallel.
                         .start(on: QueueScheduler(name: "org.carthage.CarthageKit.CopyFrameworks.copy"))
                 }
@@ -99,12 +123,33 @@ public struct CopyFrameworksCommand: CommandProtocol {
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
     
+    private func executablePath() -> Result<URL, CarthageError> {
+        return appropriateDestinationFolder().flatMap { url in
+            return Environment.getVariable("EXECUTABLE_PATH").map { path in
+                return url.appendingPathComponent(path)
+            }
+        }
+    }
+    
     private func frameworksFolder() -> Result<URL, CarthageError> {
         return appropriateDestinationFolder()
             .flatMap { url -> Result<URL, CarthageError> in
                 Environment.getVariable("FRAMEWORKS_FOLDER_PATH")
                     .map { url.appendingPathComponent($0, isDirectory: true) }
         }
+    }
+    
+    private func frameworkSearchPaths() -> Result<[URL], CarthageError> {
+        return appropriateDestinationFolder().flatMap { url in
+            return Environment.getVariable("FRAMEWORK_SEARCH_PATHS").map { rawFrameworkSearchPaths -> [URL] in
+                return InputFilesInferrer.frameworkSearchPaths(from: rawFrameworkSearchPaths)
+            }
+        }
+    }
+    
+    private func projectDirectory() -> Result<URL, CarthageError> {
+        return Environment.getVariable("PROJECT_FILE_PATH")
+            .map { URL(fileURLWithPath: $0, isDirectory: false).deletingLastPathComponent() }
     }
     
     private func validArchitectures() -> Result<[String], CarthageError> {
@@ -118,11 +163,31 @@ public struct CopyFrameworksCommand: CommandProtocol {
         return Environment.getVariable("ACTION").value == "install"
     }
     
-    private func inputFiles() -> SignalProducer<URL, CarthageError> {
-        return SignalProducer(values: scriptInputFiles(), scriptInputFileLists())
+    private func inputFiles(_ options: CopyFrameworksCommand.Options) -> SignalProducer<URL, CarthageError> {
+        var inputFiles = SignalProducer(values: scriptInputFiles(), scriptInputFileLists())
             .flatten(.merge)
             .uniqueValues()
-            .map { URL(fileURLWithPath: $0) }
+        
+        if options.automatic {
+            inputFiles = inputFiles.concat(
+                inferredInputFiles(using: inputFiles, useFrameworkSearchPaths: options.useFrameworkSearchPaths)
+                    .on(
+                        starting: {
+                            if options.isVerbose {
+                                carthage.println("Going to copy automatically:\n")
+                            }
+                    },
+                        value: { path in
+                            if options.isVerbose {
+                                let name = URL(fileURLWithPath: path).lastPathComponent
+                                carthage.println("\"\(name)\" at: \"\(path)\"")
+                            }
+                    }
+                )
+            )
+        }
+        
+        return inputFiles.map { URL(fileURLWithPath: $0) }
     }
     
     private func scriptInputFiles() -> SignalProducer<String, CarthageError> {
@@ -158,4 +223,28 @@ public struct CopyFrameworksCommand: CommandProtocol {
             return .empty
         }
     }
+    
+    private func inferredInputFiles(
+        using userInputFiles: SignalProducer<String, CarthageError>,
+        useFrameworkSearchPaths: Bool
+        ) -> SignalProducer<String, CarthageError> {
+        if
+            let directory = projectDirectory().value,
+            let platformName = Environment.getVariable("PLATFORM_NAME").value,
+            let platform = BuildPlatform.from(string: platformName)?.platforms.first,
+            let executable = executablePath().value
+        {
+            let searchPaths = useFrameworkSearchPaths ? frameworkSearchPaths() : nil
+            if case .failure(let error)? = searchPaths {
+                return SignalProducer(error: error)
+            }
+            
+            return InputFilesInferrer(projectDirectory: directory, platform: platform, frameworkSearchPaths: searchPaths?.value ?? [])
+                .inputFiles(for: executable, userInputFiles: userInputFiles.map(URL.init(fileURLWithPath:)))
+                .map { $0.path }
+        }
+        
+        return .empty
+    }
+
 }

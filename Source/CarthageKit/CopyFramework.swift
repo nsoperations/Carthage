@@ -13,7 +13,7 @@ public final class CopyFramework {
 
     // MARK: - Public
 
-    public static func copyFramework(frameworkURL: URL, frameworksFolder: URL, symbolsFolder: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool, shouldCopyBCSymbolMap: Bool, lockTimeout: Int? = nil, waitHandler: ((URL) -> Void)? = nil) -> SignalProducer<FrameworkEvent, CarthageError> {
+    public static func copyFramework(frameworkURL: URL, frameworksFolder: URL, symbolsFolder: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool, shouldCopyBCSymbolMap: Bool, skipIfOutdated: Bool, lockTimeout: Int? = nil, waitHandler: ((URL) -> Void)? = nil) -> SignalProducer<FrameworkEvent, CarthageError> {
         let frameworkName = frameworkURL.lastPathComponent
 
         let source = Result(

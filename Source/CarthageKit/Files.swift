@@ -14,7 +14,7 @@ final class Files {
     /// send `.success`.
     ///
     /// Returns a signal that will send the URL after copying upon .success.
-    static func copyFile(from: URL, to: URL) -> SignalProducer<URL, CarthageError> { // swiftlint:disable:this identifier_name
+    static func copyFile(from: URL, to: URL, skipIfOutdated: Bool = false) -> SignalProducer<URL, CarthageError> { // swiftlint:disable:this identifier_name
         return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
             let manager = FileManager.default
             
@@ -26,6 +26,21 @@ final class Files {
             // See https://github.com/Carthage/Carthage/pull/1160
             if manager.fileExists(atPath: to.path) && from.absoluteURL == to.absoluteURL {
                 return .success(to)
+            }
+            
+            if skipIfOutdated {
+                let key: URLResourceKey = .contentModificationDateKey
+                let fromAttributes = try? from.resourceValues(forKeys: [key])
+                let toAttributes = try? to.resourceValues(forKeys: [key])
+                
+                // File at `to` has been modified later than `from`, therefore we need to skip copying.
+                if
+                    let fromModificationDate = fromAttributes?.contentModificationDate,
+                    let toModificationDate = toAttributes?.contentModificationDate,
+                    fromModificationDate <= toModificationDate
+                {
+                    return .success(to)
+                }
             }
             
             // Although some methods’ documentation say: “YES if createIntermediates
