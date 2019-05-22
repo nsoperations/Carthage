@@ -9,7 +9,7 @@ import ReactiveTask
 public final class InputFilesInferrer {
     
     typealias LinkedFrameworksResolver = (URL) -> Result<[String], CarthageError>
-    
+
     /// For test-use only
     var executableResolver: (URL) -> URL? = { Bundle(url: $0)?.executableURL }
     
@@ -26,10 +26,14 @@ public final class InputFilesInferrer {
     
     private let builtFrameworks: SignalProducer<URL, CarthageError>
     private let linkedFrameworksResolver: LinkedFrameworksResolver
+
+    private static func defaultLinkedFrameworks(for url: URL) -> Result<[String], CarthageError> {
+        return Frameworks.linkedFrameworks(for: url).collect().single() ?? .success([])
+    }
     
     // MARK: - Init
     
-    init(builtFrameworks: SignalProducer<URL, CarthageError>, linkedFrameworksResolver: @escaping LinkedFrameworksResolver) {
+    init(builtFrameworks: SignalProducer<URL, CarthageError>, linkedFrameworksResolver: @escaping LinkedFrameworksResolver = InputFilesInferrer.defaultLinkedFrameworks(for:)) {
         self.builtFrameworks = builtFrameworks
         self.linkedFrameworksResolver = linkedFrameworksResolver
     }
@@ -42,7 +46,7 @@ public final class InputFilesInferrer {
         )
         let enumerator = SignalProducer(allFrameworkSearchPath).flatMap(.concat, Frameworks.frameworksInDirectory)
         
-        self.init(builtFrameworks: enumerator, linkedFrameworksResolver: linkedFrameworks(for:))
+        self.init(builtFrameworks: enumerator)
     }
     
     // MARK: - Inferring
@@ -105,8 +109,9 @@ public final class InputFilesInferrer {
         if !accumulator.insert(name).inserted {
             return
         }
-        
-        switch linkedFrameworksResolver(executableURL) {
+
+        let linkedFrameworksResult = linkedFrameworksResolver(executableURL)
+        switch linkedFrameworksResult {
         case .success(let values):
             let frameworksToCollect = values
                 .filter { !accumulator.contains($0) }
@@ -147,7 +152,7 @@ public final class InputFilesInferrer {
     /// - Parameter rawFrameworkSearchPaths: Value of `FRAMEWORK_SEARCH_PATHS`
     /// - Returns: Array of corresponding file URLs.
     public static func frameworkSearchPaths(from rawFrameworkSearchPaths: String) -> [URL] {
-        // During expansion of the recursive path we don't want to enumarate over a directories that are known
+        // During expansion of the recursive path we don't want to enumerate over a directories that are known
         // to be used as resources / other xcode-specific files that do not contain any frameworks.
         let ignoredDirectoryExtensions: Set<String> = [
             "app",
@@ -190,49 +195,5 @@ public final class InputFilesInferrer {
                 }
             }
             .map { $0.standardizedFileURL }
-    }
-}
-
-/// Invokes otool -L for a given executable URL.
-///
-/// - Parameter executableURL: URL to a valid executable.
-/// - Returns: Array of the Shared Library ID that are linked against given executable (`Alamofire`, `Realm`, etc).
-/// System libraries and dylibs are omited.
-internal func linkedFrameworks(for executable: URL) -> Result<[String], CarthageError> {
-    return Task("/usr/bin/xcrun", arguments: ["otool", "-L", executable.path.spm_shellEscaped()])
-        .launch()
-        .mapError(CarthageError.taskError)
-        .ignoreTaskData()
-        .filterMap { data -> String? in
-            return String(data: data, encoding: .utf8)
-        }
-        .map(linkedFrameworks(from:))
-        .single() ?? .success([])
-}
-
-/// Stripping linked shared frameworks from
-/// @rpath/Alamofire.framework/Alamofire (compatibility version 1.0.0, current version 1.0.0)
-/// to Alamofire as well as filtering out system frameworks and various dylibs.
-/// Static frameworks and libraries won't show up here, so we can ignore them.
-///
-/// - Parameter input: Output of the otool -L
-/// - Returns: Array of Shared Framework IDs.
-internal func linkedFrameworks(from input: String) -> [String] {
-    // Executable name matches c99 extended identifier.
-    // This regex ignores dylibs but we don't need them.
-    guard let regex = try? NSRegularExpression(pattern: "\\/([\\w_]+) ") else {
-        return []
-    }
-    return input.components(separatedBy: "\n").compactMap { value in
-        let fullNSRange = NSRange(value.startIndex..<value.endIndex, in: value)
-        if
-            
-            let match = regex.firstMatch(in: value, range: fullNSRange),
-            match.numberOfRanges > 1,
-            match.range(at: 1).length > 0
-        {
-            return Range(match.range(at: 1), in: value).map { String(value[$0]) }
-        }
-        return nil
     }
 }

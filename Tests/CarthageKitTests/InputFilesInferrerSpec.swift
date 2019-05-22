@@ -400,12 +400,12 @@ RootFramework:
     @rpath/MacFramework.framework/Versions/A/MacFramework (compatibility version 1.2.2, current version 1.2.2)
 """
             it("should return framework IDs") {
-                let result = linkedFrameworks(from: input)
+                let result = Frameworks.linkedFrameworks(from: input)
                 expect(result).to(equal(["Framework", "Frame_work1", "CoreGraphics", "MacFramework"]))
             }
             
             it("should not include dylibs") {
-                let result = linkedFrameworks(from: input)
+                let result = Frameworks.linkedFrameworks(from: input)
                 expect(result).toNot(contain(["libobjc.A"]))
             }
         }

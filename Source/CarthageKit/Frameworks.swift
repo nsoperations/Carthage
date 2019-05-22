@@ -421,6 +421,50 @@ final class Frameworks {
                 }
         }
     }
+
+    /// Invokes otool -L for a given executable URL.
+    ///
+    /// - Parameter executableURL: URL to a valid executable.
+    /// - Returns: Array of the Shared Library ID that are linked against given executable (`Alamofire`, `Realm`, etc).
+    /// System libraries and dylibs are omited.
+    static func linkedFrameworks(for executable: URL) -> SignalProducer<String, CarthageError> {
+        return Task("/usr/bin/xcrun", arguments: ["otool", "-L", executable.path])
+            .launch()
+            .mapError(CarthageError.taskError)
+            .ignoreTaskData()
+            .filterMap { data -> String? in
+                return String(data: data, encoding: .utf8)
+            }
+            .map(linkedFrameworks(from:))
+            .flatten()
+    }
+
+    /// Stripping linked shared frameworks from
+    /// @rpath/Alamofire.framework/Alamofire (compatibility version 1.0.0, current version 1.0.0)
+    /// to Alamofire as well as filtering out system frameworks and various dylibs.
+    /// Static frameworks and libraries won't show up here, so we can ignore them.
+    ///
+    /// - Parameter otoolOutput: Output of the otool -L
+    /// - Returns: Array of Shared Framework IDs.
+    static func linkedFrameworks(from otoolOutput: String) -> [String] {
+        // Executable name matches c99 extended identifier.
+        // This regex ignores dylibs but we don't need them.
+        guard let regex = try? NSRegularExpression(pattern: "\\/([\\w_]+) ") else {
+            preconditionFailure("Expected regular expression to be valid")
+        }
+        return otoolOutput.components(separatedBy: "\n").compactMap { value in
+            let fullNSRange = NSRange(value.startIndex..<value.endIndex, in: value)
+            if
+
+                let match = regex.firstMatch(in: value, range: fullNSRange),
+                match.numberOfRanges > 1,
+                match.range(at: 1).length > 0
+            {
+                return Range(match.range(at: 1), in: value).map { String(value[$0]) }
+            }
+            return nil
+        }
+    }
     
     // MARK: - Private methods
     
