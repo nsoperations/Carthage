@@ -346,6 +346,12 @@ extension URL {
         let path = self.path
         return path.isEmpty || path == "/"
     }
+
+    internal var modificationDate: Date? {
+        let key: URLResourceKey = .contentModificationDateKey
+        let attributes = try? self.resourceValues(forKeys: [key])
+        return attributes?.contentModificationDate
+    }
 }
 
 extension FileManager: ReactiveExtensionsProvider {

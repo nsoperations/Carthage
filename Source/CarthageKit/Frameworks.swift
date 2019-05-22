@@ -48,6 +48,7 @@ enum PackageType: String {
 /// Describes an event occurring to or with a framework.
 public enum FrameworkEvent {
     case ignored(String)
+    case skipped(String)
     case copied(String)
 }
 
