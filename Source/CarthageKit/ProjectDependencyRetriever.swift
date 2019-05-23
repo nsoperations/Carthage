@@ -698,8 +698,8 @@ public final class ProjectDependencyRetriever {
                     }
                     // Copy .dSYM & .bcsymbolmap too
                     .flatMap(.merge) { frameworkDestinationURL -> SignalProducer<URL, CarthageError> in
-                        return self.copyDSYMToBuildFolderForFramework(frameworkDestinationURL, fromDirectoryURL: directoryURL)
-                            .then(self.copyBCSymbolMapsToBuildFolderForFramework(frameworkDestinationURL, fromDirectoryURL: directoryURL))
+                        return ProjectDependencyRetriever.copyDSYMToBuildFolderForFramework(frameworkDestinationURL, fromDirectoryURL: directoryURL)
+                            .then(ProjectDependencyRetriever.copyBCSymbolMapsToBuildFolderForFramework(frameworkDestinationURL, fromDirectoryURL: directoryURL))
                             .then(SignalProducer(value: frameworkDestinationURL))
                     }
                     .collect()
