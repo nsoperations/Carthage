@@ -215,7 +215,7 @@ You can add a Run Script phase to automatically warn you when one of your depend
 1. On your application targets’ `Build Phases` settings tab, click the `+` icon and choose `New Run Script Phase`. Create a Run Script in which you specify your shell (ex: `/bin/sh`), add the following contents to the script area below the shell:
 
 ```sh
-/usr/local/bin/carthage outdated --xcode-warnings
+/usr/local/bin/carthage outdated --xcode-warnings | 2>/dev/null
 ```
 
 ##### Swift binary framework download compatibility
@@ -341,9 +341,10 @@ Tags without any version number, or with any characters following the version nu
 
 Carthage can automatically use prebuilt frameworks, instead of building from scratch, if they are attached to a [GitHub Release](https://help.github.com/articles/about-releases/) on your project’s repository or via a binary project definition file.
 
-To offer prebuilt frameworks for a specific tag, the binaries for _all_ supported platforms should be zipped up together into _one_ archive, and that archive should be attached to a published Release corresponding to that tag. The attachment should include `.framework` in its name (e.g., `ReactiveCocoa.framework.zip`), to indicate to Carthage that it contains binaries.
+To offer prebuilt frameworks for a specific tag, the binaries for _all_ supported platforms should be zipped up together into _one_ archive, and that archive should be attached to a published Release corresponding to that tag. The attachment should include `.framework` in its name (e.g., `ReactiveCocoa.framework.zip`), to indicate to Carthage that it contains binaries. The directory structure of the acthive is free form but, __frameworks should only appear once in the archive__ as they will be copied
+to `Carthage/Build/<platform>` based on their name (e.g. `ReactiveCocoa.framework`).
 
-You can perform the archiving operation using:
+You can perform the archiving operation with carthage itself using:
 
 ```sh
 -carthage build --no-skip-current

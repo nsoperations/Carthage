@@ -470,9 +470,10 @@ public final class Xcode {
         fileContents.append(deviceHeaderContents)
         fileContents.append(conditionalSuffixContents)
 
-        switch FileManager.default.createFile(atPath: outputURL.path, contents: fileContents) {
-        case false: return .init(error: .writeFailed(outputURL, nil))
-        case true: return .empty
+        if FileManager.default.createFile(atPath: outputURL.path, contents: fileContents) {
+            return .empty
+        } else {
+            return .init(error: .writeFailed(outputURL, nil))
         }
     }
 

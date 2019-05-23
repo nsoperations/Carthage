@@ -320,7 +320,7 @@ final class Frameworks {
                     .flatMap(.merge) { dSYMURL in
                         return UUIDsForDSYM(dSYMURL)
                             .filter { (dSYMUUIDs: Set<UUID>) in
-                                return dSYMUUIDs == frameworkUUIDs
+                                return !dSYMUUIDs.isDisjoint(with: frameworkUUIDs)
                             }
                             .map { _ in dSYMURL }
                 }
