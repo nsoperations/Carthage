@@ -408,10 +408,10 @@ extension CarthageError: CustomStringConvertible {
                 }
                 .joined(separator: "\n")
             return message
-            
+
         case let .lockError(url, timeout):
-            return "Failed to get lock\(timeout.map {  "within timeout of \($0)s" } ?? "") for directory: \(url.path)"
-            
+            return "Failed to get lock\(timeout.map { "within timeout of \($0)s" } ?? "") for directory: \(url.path)"
+
         case .incompatibleFrameworkSwiftVersion(let message):
             return message
 

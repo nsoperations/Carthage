@@ -21,7 +21,6 @@ final class Environment {
 
 }
 
-
 /// Information about the possible parent terminal.
 struct Terminal {
     /// Terminal type retrieved from `TERM` environment variable.

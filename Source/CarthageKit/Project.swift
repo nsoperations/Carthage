@@ -250,7 +250,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return .empty
                 }
             }
-            .flatMap(.merge) { project in
+            .flatMap(.merge) { _ in
                 return self.buildCheckedOutDependenciesWithOptions(buildOptions, dependenciesToBuild: dependenciesToBuild)
         }
 
@@ -693,11 +693,11 @@ public final class Project { // swiftlint:disable:this type_body_length
                                 // Create a version file for a dependency with no shared schemes
                                 // so that its cache is not always considered invalid.
                                 return VersionFile.createVersionFileForCommitish(version.commitish,
-                                                                     dependencyName: dependency.name,
-                                                                     platforms: options.platforms,
-                                                                     configuration: options.configuration,
-                                                                     buildProducts: [],
-                                                                     rootDirectoryURL: self.directoryURL)
+                                                                                 dependencyName: dependency.name,
+                                                                                 platforms: options.platforms,
+                                                                                 configuration: options.configuration,
+                                                                                 buildProducts: [],
+                                                                                 rootDirectoryURL: self.directoryURL)
                                     .then(BuildSchemeProducer.empty)
                             }
                             return .empty
@@ -758,7 +758,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return Project.symlinkBuildPath(for: dependency, rootDirectoryURL: self.directoryURL)
         }
     }
-    
+
     /// Creates symlink between the dependency build folder and the root build folder
     ///
     /// Returns a signal indicating success
@@ -768,12 +768,12 @@ public final class Project { // swiftlint:disable:this type_body_length
             let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
             let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
             let fileManager = FileManager.default
-            
+
             // Link this dependency's Carthage/Build folder to that of the root
             // project, so it can see all products built already, and so we can
             // automatically drop this dependency's product in the right place.
             let dependencyBinariesURL = dependencyURL.appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
-            
+
             let createDirectory = { try fileManager.createDirectory(at: $0, withIntermediateDirectories: true) }
             return Result(at: rootBinariesURL, attempt: createDirectory)
                 .flatMap { _ in
@@ -797,7 +797,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             }
         }
     }
-    
+
     /// Attempts to determine the latest version (whether satisfiable or not)
     /// of the project's Carthage dependencies.
     ///
@@ -823,7 +823,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
                 .flatMap(.merge) { resolver.resolve(dependencies: $0, lastResolved: nil, dependenciesToUpdate: nil) }
         }
-        
+
         return resolve(prefersGitReference: false).flatMapError { error in
             switch error {
             case .taggedVersionNotFound:

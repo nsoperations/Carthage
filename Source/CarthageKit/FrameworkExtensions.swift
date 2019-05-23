@@ -335,7 +335,7 @@ extension URL {
         let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
         return fileExists && !isDirectory.boolValue
     }
-    
+
     internal var isExistingFileOrDirectory: Bool {
         var isDirectory: ObjCBool = true
         let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
@@ -345,6 +345,12 @@ extension URL {
     internal var isRoot: Bool {
         let path = self.path
         return path.isEmpty || path == "/"
+    }
+
+    internal var modificationDate: Date? {
+        let key: URLResourceKey = .contentModificationDateKey
+        let attributes = try? self.resourceValues(forKeys: [key])
+        return attributes?.contentModificationDate
     }
 }
 
@@ -514,18 +520,18 @@ extension Task {
                 default:
                     break
                 }
-                }
+            }
             )
             .wait()
             .map { return (stdOutData, stdErrData) }
     }
-    
+
     func getStdOutData() -> Result<Data, TaskError> {
         return launch()
             .ignoreTaskData()
             .first() ?? Result.success(Data())
     }
-    
+
     func getStdOutString(encoding: String.Encoding = .utf8) -> Result<String, TaskError> {
         return getStdOutData()
             .map { String(data: $0, encoding: encoding) ?? "" }

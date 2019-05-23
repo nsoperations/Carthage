@@ -7,7 +7,7 @@ import struct Foundation.URL
 
 /// Swift compiler helper methods
 final class SwiftToolchain {
-    
+
     /// Emits the currect Swift version
     static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<PinnedVersion, SwiftVersionError> {
         return rawSwiftVersion(usingToolchain: toolchain)
@@ -28,7 +28,7 @@ final class SwiftToolchain {
         let trimmedVersionString = index.map ({ String(swiftVersionString.prefix(upTo: $0)) }) ?? swiftVersionString
         return PinnedVersion(trimmedVersionString)
     }
-    
+
     /// Parses output of `swift --version` for the version string.
     private static func parseSwiftVersionCommand(output: String?) -> String? {
         guard
@@ -39,18 +39,18 @@ final class SwiftToolchain {
         {
             return nil
         }
-        
+
         guard match.numberOfRanges == 3 else { return nil }
-        
+
         let first = output[Range(match.range(at: 1), in: output)!]
         let second = output[Range(match.range(at: 2), in: output)!]
         return "\(first) (\(second))"
     }
-    
+
     /// Attempts to determine the local version of swift
     private static func determineSwiftVersion(usingToolchain toolchain: String?) -> SignalProducer<String, SwiftVersionError> {
         let taskDescription = Task("/usr/bin/env", arguments: compilerVersionArguments(usingToolchain: toolchain))
-        
+
         return taskDescription.launch(standardInput: nil)
             .ignoreTaskData()
             .mapError { _ in SwiftVersionError.unknownLocalSwiftVersion }
@@ -59,7 +59,7 @@ final class SwiftToolchain {
             }
             .attemptMap { Result($0, failWith: SwiftVersionError.unknownLocalSwiftVersion) }
     }
-    
+
     private static func compilerVersionArguments(usingToolchain toolchain: String?) -> [String] {
         if let toolchain = toolchain {
             return ["xcrun", "--toolchain", toolchain, "swift", "--version"]

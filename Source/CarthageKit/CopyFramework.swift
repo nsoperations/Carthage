@@ -36,9 +36,12 @@ public final class CopyFramework {
                 return SignalProducer.combineLatest(SignalProducer(result: source), SignalProducer(value: validArchitectures))
                     .flatMap(.merge) { source, validArchitectures -> SignalProducer<FrameworkEvent, CarthageError> in
                         return shouldIgnoreFramework(source, validArchitectures: validArchitectures)
-                            .flatMap(.concat) { shouldIgnore -> SignalProducer<FrameworkEvent, CarthageError> in
+                            .combineLatest(with: shouldSkipFramework(source, frameworksFolder: frameworksFolder))
+                            .flatMap(.concat) { shouldIgnore, shouldSkip -> SignalProducer<FrameworkEvent, CarthageError> in
                                 if shouldIgnore {
                                     return SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.ignored(frameworkName))
+                                } else if shouldSkip {
+                                    return SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.skipped(frameworkName))
                                 } else {
                                     let copyFrameworks = copyFramework(source, frameworksFolder: frameworksFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols, tempFolder: tempURL)
                                     let copyBCSymbols = shouldCopyBCSymbolMap ? copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder, tempFolder: tempURL) : SignalProducer<URL, CarthageError>.empty
@@ -71,6 +74,19 @@ public final class CopyFramework {
         }
     }
 
+    private static func shouldSkipFramework(_ framework: URL, frameworksFolder: URL) -> SignalProducer<Bool, CarthageError> {
+        return SignalProducer<Bool, CarthageError> { () -> Bool in
+            let target = frameworksFolder.appendingPathComponent(framework.lastPathComponent)
+
+            guard let targetModificationDate = target.modificationDate,
+                let sourceModificationDate = framework.modificationDate else {
+                    return false
+            }
+
+            return targetModificationDate >= sourceModificationDate
+        }
+    }
+
     private static func copyBCSymbolMapsForFramework(_ frameworkURL: URL, symbolsFolder: URL, tempFolder: URL) -> SignalProducer<URL, CarthageError> {
         // This should be called only when `buildActionIsArchiveOrInstall()` is true.
         return SignalProducer(value: symbolsFolder)
@@ -97,7 +113,7 @@ public final class CopyFramework {
     }
 
     private static func copyFramework(_ source: URL, frameworksFolder: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool, tempFolder: URL) -> SignalProducer<(), CarthageError> {
-        
+
         return SignalProducer(value: source)
             .copyFileURLsIntoDirectory(tempFolder)
             .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in

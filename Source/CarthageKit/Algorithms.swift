@@ -105,6 +105,4 @@ final class Algorithms {
         return nodes.union(incomingNodes)
     }
 
-
 }
-

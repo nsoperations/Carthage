@@ -55,7 +55,7 @@ public struct ArchiveCommand: CommandProtocol {
 
         return Archive.archiveFrameworks(frameworkNames: frameworkNames, directoryPath: directoryPath, customOutputPath: customOutputPath, frameworkFoundHandler: { path in
             carthage.println(formatting.bullets + "Found " + formatting.path(path))
-        }).on(value: { (outputURL) in
+        }).on(value: { outputURL in
             carthage.println(formatting.bullets + "Created " + formatting.path(outputURL.path))
         })
     }
