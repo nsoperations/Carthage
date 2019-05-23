@@ -11,10 +11,7 @@ import ReactiveSwift
 import Tentacle
 import XCDBLD
 import ReactiveTask
-import SPMUtility
-
-import struct Foundation.URL
-import enum XCDBLD.Platform
+import struct SPMUtility.Version
 
 public final class ProjectDependencyRetriever {
 
@@ -631,30 +628,82 @@ public final class ProjectDependencyRetriever {
         configuration: String,
         swiftVersion: PinnedVersion
         ) -> SignalProducer<URL, CarthageError> {
-        
+
+        // Helper type
+        typealias SourceURLAndDestinationURL = (frameworkSourceURL: URL, frameworkDestinationURL: URL)
+
+        // Returns the unique pairs in the input array
+        // or the duplicate keys by .frameworkDestinationURL
+        func uniqueSourceDestinationPairs(
+            _ sourceURLAndDestinationURLpairs: [SourceURLAndDestinationURL]
+            ) -> Result<[SourceURLAndDestinationURL], CarthageError> {
+            let destinationMap = sourceURLAndDestinationURLpairs
+                .reduce(into: [URL: [URL]]()) { result, pair in
+                    result[pair.frameworkDestinationURL] =
+                        (result[pair.frameworkDestinationURL] ?? []) + [pair.frameworkSourceURL]
+            }
+
+            let dupes = destinationMap.filter { $0.value.count > 1 }
+            guard dupes.count == 0 else {
+                return .failure(CarthageError
+                    .duplicatesInArchive(duplicates: CarthageError
+                        .DuplicatesInArchive(dictionary: dupes)))
+            }
+
+            let uniquePairs = destinationMap
+                .filter { $0.value.count == 1}
+                .map { SourceURLAndDestinationURL(frameworkSourceURL: $0.value.first!,
+                                                  frameworkDestinationURL: $0.key)}
+            return .success(uniquePairs)
+        }
+
         return SignalProducer<URL, CarthageError>(value: zipFile)
             .flatMap(.concat, Archive.unarchive(archive:))
             .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
+                // For all frameworks in the directory where the archive has been expanded
                 return Frameworks.frameworksInDirectory(directoryURL)
-                    .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
-                        return Frameworks.checkFrameworkCompatibility(url, swiftVersion: swiftVersion)
-                            .mapError { error in CarthageError.incompatibleFrameworkSwiftVersion(error.description) }
+                    .collect()
+                    // Check if multiple frameworks resolve to the same unique destination URL in the Carthage/Build/ folder.
+                    // This is needed because frameworks might overwrite each others.
+                    .flatMap(.merge) { frameworksUrls -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
+                        return SignalProducer<URL, CarthageError>(frameworksUrls)
+                            .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
+                                return Frameworks.platformForFramework(url)
+                                    .attemptMap { self.frameworkURLInCarthageBuildFolder(forPlatform: $0,
+                                                                                         frameworkNameAndExtension: url.lastPathComponent) }
+                            }
+                            .collect()
+                            .flatMap(.merge) { destinationUrls -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
+                                let frameworkUrlAndDestinationUrlPairs = zip(frameworksUrls.map{$0.standardizedFileURL},
+                                                                             destinationUrls.map{$0.standardizedFileURL})
+                                    .map { SourceURLAndDestinationURL(frameworkSourceURL:$0,
+                                                                      frameworkDestinationURL: $1) }
+
+                                return uniqueSourceDestinationPairs(frameworkUrlAndDestinationUrlPairs)
+                                    .producer
+                                    .flatMap(.merge) { SignalProducer($0) }
+                        }
                     }
-                    .flatMap(.merge, self.copyFrameworkToBuildFolder)
-                    .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
-                        return ProjectDependencyRetriever.copyDSYMToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL)
-                            .then(ProjectDependencyRetriever.copyBCSymbolMapsToBuildFolderForFramework(frameworkURL, fromDirectoryURL: directoryURL))
-                            .then(SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
-                                let dsymURL = frameworkURL.appendingPathExtension("dSYM")
-                                let sourceURL = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
-                                if sourceURL.isExistingDirectory {
-                                    return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkURL, dsymURL: dsymURL, sourceURL: sourceURL).map { frameworkURL }
-                                } else {
-                                    return .success(frameworkURL)
-                                }
-                            })
+                    // Check if the framework are compatible with the current Swift version
+                    .flatMap(.merge) { pair -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
+                        return Frameworks.checkFrameworkCompatibility(pair.frameworkSourceURL, swiftVersion: swiftVersion)
+                            .mapError { error in CarthageError.incompatibleFrameworkSwiftVersion(error.description) }
+                            .then(SignalProducer<SourceURLAndDestinationURL, CarthageError>(value: pair))
+                    }
+                    // If the framework is compatible copy it over to the destination folder in Carthage/Build
+                    .flatMap(.merge) { pair -> SignalProducer<URL, CarthageError> in
+                        return SignalProducer<URL, CarthageError>(value: pair.frameworkSourceURL)
+                            .copyFileURLsIntoDirectory(pair.frameworkDestinationURL.deletingLastPathComponent())
+                            .then(SignalProducer<URL, CarthageError>(value: pair.frameworkDestinationURL))
+                    }
+                    // Copy .dSYM & .bcsymbolmap too
+                    .flatMap(.merge) { frameworkDestinationURL -> SignalProducer<URL, CarthageError> in
+                        return self.copyDSYMToBuildFolderForFramework(frameworkDestinationURL, fromDirectoryURL: directoryURL)
+                            .then(self.copyBCSymbolMapsToBuildFolderForFramework(frameworkDestinationURL, fromDirectoryURL: directoryURL))
+                            .then(SignalProducer(value: frameworkDestinationURL))
                     }
                     .collect()
+                    // Write the .version file
                     .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
                         return self.createVersionFilesForFrameworks(
                             frameworkURLs,
@@ -666,20 +715,7 @@ public final class ProjectDependencyRetriever {
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))
         }
     }
-    
-    /// Copies the framework at the given URL into the current project's build
-    /// folder.
-    ///
-    /// Sends the URL to the framework after copying.
-    private func copyFrameworkToBuildFolder(_ frameworkURL: URL) -> SignalProducer<URL, CarthageError> {
-        return Frameworks.platformForFramework(frameworkURL)
-            .flatMap(.merge) { platform -> SignalProducer<URL, CarthageError> in
-                let platformFolderURL = self.directoryURL.appendingPathComponent(platform.relativePath, isDirectory: true)
-                return SignalProducer(value: frameworkURL)
-                    .copyFileURLsIntoDirectory(platformFolderURL)
-        }
-    }
-    
+
     /// Copies the DSYM matching the given framework and contained within the
     /// given directory URL to the directory that the framework resides within.
     ///
@@ -704,6 +740,29 @@ public final class ProjectDependencyRetriever {
         let destinationDirectoryURL = frameworkURL.deletingLastPathComponent()
         return Frameworks.BCSymbolMapsForFramework(frameworkURL, inDirectoryURL: directoryURL)
             .copyFileURLsIntoDirectory(destinationDirectoryURL)
+    }
+
+    /// Constructs the file:// URL at which a given .framework
+    /// will be found. Depends on the location of the current project.
+    private func frameworkURLInCarthageBuildFolder(
+        forPlatform platform: Platform,
+        frameworkNameAndExtension: String
+        ) -> Result<URL, CarthageError> {
+        guard let lastComponent = URL(string: frameworkNameAndExtension)?.pathExtension,
+            lastComponent == "framework" else {
+                return .failure(.internalError(description: "\(frameworkNameAndExtension) is not a valid framework identifier"))
+        }
+
+        guard let destinationURLInWorkingDir = platform
+            .relativeURL?
+            .appendingPathComponent(frameworkNameAndExtension, isDirectory: true) else {
+                return .failure(.internalError(description: "failed to construct framework destination url from \(platform) and \(frameworkNameAndExtension)"))
+        }
+
+        return .success(self
+            .directoryURL
+            .appendingPathComponent(destinationURLInWorkingDir.path, isDirectory: true)
+            .standardizedFileURL)
     }
     
     /// Creates a .version file for all of the provided frameworks.
