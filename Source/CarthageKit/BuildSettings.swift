@@ -215,12 +215,12 @@ public struct BuildSettings {
         }
         return directoryURL
     }
-    
+
     static func produce(string: String, arguments: BuildArguments, action: BuildArguments.Action?) -> SignalProducer<BuildSettings, CarthageError> {
         return SignalProducer { observer, lifetime in
             var currentSettings: [String: String] = [:]
             var currentTarget: String?
-            
+
             let flushTarget = { () -> Void in
                 if let currentTarget = currentTarget {
                     let buildSettings = BuildSettings(
@@ -231,35 +231,35 @@ public struct BuildSettings {
                     )
                     observer.send(value: buildSettings)
                 }
-                
+
                 currentTarget = nil
                 currentSettings = [:]
             }
-            
+
             string.enumerateLines { line, stop in
                 if lifetime.hasEnded {
                     stop = true
                     return
                 }
-                
+
                 if let result = self.targetSettingsRegex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
                     let targetRange = Range(result.range(at: 1), in: line)!
-                    
+
                     flushTarget()
                     currentTarget = String(line[targetRange])
                     return
                 }
-                
+
                 let trimSet = CharacterSet.whitespacesAndNewlines
                 let components = line
                     .split(maxSplits: 1) { $0 == "=" }
                     .map { $0.trimmingCharacters(in: trimSet) }
-                
+
                 if components.count == 2 {
                     currentSettings[components[0]] = components[1]
                 }
             }
-            
+
             flushTarget()
             observer.sendCompleted()
         }

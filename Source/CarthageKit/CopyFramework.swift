@@ -75,12 +75,12 @@ public final class CopyFramework {
     }
 
     private static func shouldSkipFramework(_ framework: URL, frameworksFolder: URL) -> SignalProducer<Bool, CarthageError> {
-        return SignalProducer<Bool, CarthageError> { () ->  Bool in
+        return SignalProducer<Bool, CarthageError> { () -> Bool in
             let target = frameworksFolder.appendingPathComponent(framework.lastPathComponent)
 
             guard let targetModificationDate = target.modificationDate,
-                  let sourceModificationDate = framework.modificationDate else {
-                return false
+                let sourceModificationDate = framework.modificationDate else {
+                    return false
             }
 
             return targetModificationDate >= sourceModificationDate

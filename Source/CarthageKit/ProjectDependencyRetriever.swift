@@ -315,7 +315,7 @@ public final class ProjectDependencyRetriever {
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
         var lock: Lock?
         return cloneOrFetchLocked(dependency: dependency, preferHTTPS: preferHTTPS, lockTimeout: lockTimeout, destinationURL: destinationURL, commitish: commitish)
-            .map { (projectEvent, urlLock) in
+            .map { projectEvent, urlLock in
                 lock = urlLock
                 return (projectEvent, urlLock.url) }
             .on(terminated: {
@@ -340,24 +340,24 @@ public final class ProjectDependencyRetriever {
                         cacheBaseURL: Constants.Dependency.assetsURL,
                         eventObserver: self.projectEventsObserver,
                         lockTimeout: self.lockTimeout
-                    )
-                    .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
-                        lock = urlLock
-                        self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
-                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
-                    }
-                    .flatMap(.concat) { Files.removeItem(at: $0) }
-                    .map { true }
-                    .flatMapError { error in
-                        if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
-                            _ = try? FileManager.default.removeItem(at: url)
+                        )
+                        .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
+                            lock = urlLock
+                            self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
+                            return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                         }
-                        self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
-                        return SignalProducer(value: false)
-                    }
-                    .concat(value: false)
-                    .take(first: 1)
-                    .on(terminated: { lock?.unlock() })
+                        .flatMap(.concat) { Files.removeItem(at: $0) }
+                        .map { true }
+                        .flatMapError { error in
+                            if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
+                                _ = try? FileManager.default.removeItem(at: url)
+                            }
+                            self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
+                            return SignalProducer(value: false)
+                        }
+                        .concat(value: false)
+                        .take(first: 1)
+                        .on(terminated: { lock?.unlock() })
             }
         } else {
             return SignalProducer(value: false)
@@ -373,7 +373,7 @@ public final class ProjectDependencyRetriever {
         ) -> SignalProducer<(), CarthageError> {
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
-            .flatMap(.concat, { (localSwiftVersion) -> SignalProducer<(), CarthageError> in
+            .flatMap(.concat, { localSwiftVersion -> SignalProducer<(), CarthageError> in
                 var lock: URLLock?
                 return self.downloadBinaryFrameworkDefinition(binary: binary)
                     .flatMap(.concat) { binaryProject in
@@ -418,7 +418,7 @@ public final class ProjectDependencyRetriever {
         let repositoryURL = Dependencies.repositoryFileURL(for: dependency, baseURL: destinationURL)
         var lock: URLLock?
 
-        return URLLock.lockReactive(url: repositoryURL, timeout: lockTimeout, onWait: { urlLock in  })
+        return URLLock.lockReactive(url: repositoryURL, timeout: lockTimeout, onWait: { _ in })
             .map { urlLock in
                 lock = urlLock
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!
@@ -473,7 +473,7 @@ public final class ProjectDependencyRetriever {
                             )
                         }
                 }
-            }.on(failed: { (_) in
+            }.on(failed: { _ in
                 lock?.unlock()
             }, interrupted: {
                 lock?.unlock()
@@ -538,7 +538,7 @@ public final class ProjectDependencyRetriever {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
         return binariesCache.matchingBinaries(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
     }
-    
+
     /// Creates symlink between the dependency checkouts and the root checkouts
     private func symlinkCheckoutPaths(
         for dependency: Dependency,
@@ -550,7 +550,7 @@ public final class ProjectDependencyRetriever {
         let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
         let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(carthageProjectCheckoutsPath, isDirectory: true).resolvingSymlinksInPath()
         let fileManager = FileManager.default
-        
+
         return dependencySet(for: dependency, version: version)
             // file system objects which might conflict with symlinks
             .zip(with: Git.list(treeish: version.commitish, atPath: carthageProjectCheckoutsPath, inRepository: repositoryURL)
@@ -569,12 +569,12 @@ public final class ProjectDependencyRetriever {
                         }
                     }
                     .map { $0.name }
-                
+
                 // If no `CarthageProjectCheckoutsPath`-housed symlinks are needed,
                 // return early after potentially adding submodules
                 // (which could be outside `CarthageProjectCheckoutsPath`).
                 if names.isEmpty { return .success(()) } // swiftlint:disable:this single_line_return
-                
+
                 do {
                     try fileManager.createDirectory(at: dependencyCheckoutsURL, withIntermediateDirectories: true)
                 } catch let error as NSError {
@@ -582,42 +582,42 @@ public final class ProjectDependencyRetriever {
                         return .failure(.writeFailed(dependencyCheckoutsURL, error))
                     }
                 }
-                
+
                 for name in names {
                     let dependencyCheckoutURL = dependencyCheckoutsURL.appendingPathComponent(name)
                     let subdirectoryPath = (carthageProjectCheckoutsPath as NSString).appendingPathComponent(name)
                     let linkDestinationPath = Dependencies.relativeLinkDestination(for: dependency, subdirectory: subdirectoryPath)
-                    
+
                     let dependencyCheckoutURLResource = try? dependencyCheckoutURL.resourceValues(forKeys: [
                         .isSymbolicLinkKey,
                         .isDirectoryKey,
                         ])
-                    
+
                     if dependencyCheckoutURLResource?.isSymbolicLink == true {
                         _ = dependencyCheckoutURL.path.withCString(Darwin.unlink)
                     } else if dependencyCheckoutURLResource?.isDirectory == true {
                         // older version of carthage wrote this directory?
                         // user wrote this directory, unaware of the precedent not to circumvent carthage’s management?
                         // directory exists as the result of rogue process or gamma ray?
-                        
+
                         // swiftlint:disable:next todo
                         // TODO: explore possibility of messaging user, informing that deleting said directory will result
                         // in symlink creation with carthage versions greater than 0.20.0, maybe with more broad advice on
                         // “from scratch” reproducability.
                         continue
                     }
-                    
+
                     if let error = Result(at: dependencyCheckoutURL, attempt: {
                         try fileManager.createSymbolicLink(atPath: $0.path, withDestinationPath: linkDestinationPath)
                     }).error {
                         return .failure(error)
                     }
                 }
-                
+
                 return .success(())
         }
     }
-    
+
     /// Unzips the file at the given URL and copies the frameworks, DSYM and
     /// bcsymbolmap files into the corresponding folders for the project. This
     /// step will also check framework compatibility and create a version file
@@ -631,7 +631,7 @@ public final class ProjectDependencyRetriever {
         configuration: String,
         swiftVersion: PinnedVersion
         ) -> SignalProducer<URL, CarthageError> {
-        
+
         return SignalProducer<URL, CarthageError>(value: zipFile)
             .flatMap(.concat, Archive.unarchive(archive:))
             .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
@@ -666,7 +666,7 @@ public final class ProjectDependencyRetriever {
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))
         }
     }
-    
+
     /// Copies the framework at the given URL into the current project's build
     /// folder.
     ///
@@ -679,7 +679,7 @@ public final class ProjectDependencyRetriever {
                     .copyFileURLsIntoDirectory(platformFolderURL)
         }
     }
-    
+
     /// Copies the DSYM matching the given framework and contained within the
     /// given directory URL to the directory that the framework resides within.
     ///
@@ -691,7 +691,7 @@ public final class ProjectDependencyRetriever {
         return Frameworks.dSYMForFramework(frameworkURL, inDirectoryURL: directoryURL)
             .copyFileURLsIntoDirectory(destinationDirectoryURL)
     }
-    
+
     /// Copies any *.bcsymbolmap files matching the given framework and contained
     /// within the given directory URL to the directory that the framework
     /// resides within.
@@ -705,7 +705,7 @@ public final class ProjectDependencyRetriever {
         return Frameworks.BCSymbolMapsForFramework(frameworkURL, inDirectoryURL: directoryURL)
             .copyFileURLsIntoDirectory(destinationDirectoryURL)
     }
-    
+
     /// Creates a .version file for all of the provided frameworks.
     private func createVersionFilesForFrameworks(
         _ frameworkURLs: [URL],
@@ -720,5 +720,3 @@ public final class ProjectDependencyRetriever {
                                                          rootDirectoryURL: self.directoryURL)
     }
 }
-
-

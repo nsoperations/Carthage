@@ -26,7 +26,7 @@ public struct BinaryProject: Equatable {
     }
 
     public init(urls: [PinnedVersion: URL]) {
-        self.definitions = urls.reduce(into: [PinnedVersion: [BinaryProjectFile]](), { (dict, entry) in
+        self.definitions = urls.reduce(into: [PinnedVersion: [BinaryProjectFile]](), { dict, entry in
             dict[entry.key] = [BinaryProjectFile(url: entry.value, configuration: nil, swiftVersion: nil)]
         })
     }
@@ -40,7 +40,7 @@ public struct BinaryProject: Equatable {
             return nil
         }
 
-        return binaryProjectFiles.first(where: { (binaryProjectFile) -> Bool in
+        return binaryProjectFiles.first(where: { binaryProjectFile -> Bool in
             binaryProjectFile.configuration == (configuration ?? "Release") && (binaryProjectFile.swiftVersion.map { swiftVersion == nil || $0 == swiftVersion } ?? true)
         }).map {
             $0.url

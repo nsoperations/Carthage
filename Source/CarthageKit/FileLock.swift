@@ -12,13 +12,13 @@ import ReactiveTask
 
 /// Protocol describing the public interface for concrete implementations of lock
 protocol Lock {
-    
+
     /// Whether or not the lock is currently locked
     var isLocked: Bool { get }
-    
+
     /// Obtain a lock before the specified timeoutDate (or return immediately if not specified). Returns true if successful, false otherwise.
     func lock(timeoutDate: Date?) -> Bool
-    
+
     /// Unlocks the lock. Returns true if successful, false otherwise.
     @discardableResult
     func unlock() -> Bool
@@ -30,7 +30,7 @@ extension Lock {
         let timeoutDate = Date(timeIntervalSinceNow: timeout)
         return lock(timeoutDate: timeoutDate)
     }
-    
+
     /// Tries a lock without timeout, returns instantly with false if no lock could be obtained.
     func lock() -> Bool {
         return lock(timeoutDate: nil)
@@ -42,22 +42,22 @@ extension Lock {
 /// In particular shlock ensures that in case the application crashes the lock will automatically be invalidated (because the processId is no longer valid).
 /// If the instance of this class holding the lock is released from memory, the lock will automatically be removed.
 final class FileLock: Lock {
-    
+
     private static let retryInterval = 1.0
     private var wasLocked = false
     let lockFileURL: URL
     let isRecursive: Bool
     var onWait: ((FileLock) -> Void)?
-    
+
     init(lockFileURL: URL, isRecursive: Bool = true) {
         self.lockFileURL = lockFileURL
         self.isRecursive = isRecursive
     }
-    
+
     deinit {
         unlock()
     }
-    
+
     /// Tries a lock with an optional timeoutDate. If the lock was acquired before the timeout date true will be returned, false otherwise.
     func lock(timeoutDate: Date?) -> Bool {
         var waiting = false
@@ -85,13 +85,13 @@ final class FileLock: Lock {
                 onWait?(self)
                 waiting = true
             }
-            
+
             let sleepDate = Date(timeIntervalSinceNow: FileLock.retryInterval)
             Thread.sleep(until: min(timeoutDate ?? sleepDate, sleepDate))
         }
         return false
     }
-    
+
     /// Returns true if currently locked, false otherwise
     var isLocked: Bool {
         guard FileManager.default.fileExists(atPath: lockFileURL.path) else {
@@ -114,7 +114,7 @@ final class FileLock: Lock {
         }
         return Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
     }
-    
+
     /// Unlocks the lock, returns true if lock was released, false otherwise (e.g. because the lock file did not exist anymore).
     @discardableResult
     func unlock() -> Bool {
@@ -128,7 +128,7 @@ final class FileLock: Lock {
             return false
         }
     }
-    
+
     private var processId: Int {
         return Int(ProcessInfo.processInfo.processIdentifier)
     }
@@ -138,12 +138,12 @@ final class FileLock: Lock {
 final class URLLock: Lock {
 
     /// Default strategy for constructing a lock file URL from the URL to protect.
-    static let defaultLockFileNamingStrategy: (URL) -> URL = { (url) -> URL in
+    static let defaultLockFileNamingStrategy: (URL) -> URL = { url -> URL in
         let parentURL = url.deletingLastPathComponent()
         let fileName = url.lastPathComponent
         return parentURL.appendingPathComponent(".\(fileName).lock")
     }
-    
+
     let url: URL
     private let fileLock: FileLock
     var onWait: ((URLLock) -> Void)? {
@@ -154,7 +154,7 @@ final class URLLock: Lock {
             }
         }
     }
-    
+
     convenience init(url: URL, isRecursive: Bool = true, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
         self.init(url: url, lockFileURL: lockFileNamingStrategy(url), isRecursive: isRecursive)
     }
@@ -167,15 +167,15 @@ final class URLLock: Lock {
         self.url = url
         self.fileLock = fileLock
     }
-    
+
     func lock(timeoutDate: Date?) -> Bool {
         return fileLock.lock(timeoutDate: timeoutDate)
     }
-    
+
     var isLocked: Bool {
         return fileLock.isLocked
     }
-    
+
     @discardableResult
     func unlock() -> Bool {
         return fileLock.unlock()

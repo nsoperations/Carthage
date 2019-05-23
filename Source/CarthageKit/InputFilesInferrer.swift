@@ -1,4 +1,3 @@
-
 import Foundation
 import Result
 import ReactiveSwift
@@ -7,12 +6,12 @@ import XCDBLD
 import ReactiveTask
 
 public final class InputFilesInferrer {
-    
+
     typealias LinkedFrameworksResolver = (URL) -> Result<[String], CarthageError>
 
     /// For test-use only
     var executableResolver: (URL) -> URL? = { Bundle(url: $0)?.executableURL }
-    
+
     /// For test-use only
     var builtFrameworkFilter: (URL) -> Bool = { url in
         if
@@ -23,16 +22,16 @@ public final class InputFilesInferrer {
         }
         return false
     }
-    
+
     private let builtFrameworks: SignalProducer<URL, CarthageError>
     private let linkedFrameworksResolver: LinkedFrameworksResolver
 
     private static func defaultLinkedFrameworks(for url: URL) -> Result<[String], CarthageError> {
         return Frameworks.linkedFrameworks(for: url).collect().single() ?? .success([])
     }
-    
+
     // MARK: - Init
-    
+
     init(builtFrameworks: SignalProducer<URL, CarthageError>, linkedFrameworksResolver: @escaping LinkedFrameworksResolver = InputFilesInferrer.defaultLinkedFrameworks(for:)) {
         self.builtFrameworks = builtFrameworks
         self.linkedFrameworksResolver = linkedFrameworksResolver
@@ -45,40 +44,40 @@ public final class InputFilesInferrer {
             frameworkSearchPaths: frameworkSearchPaths
         )
         let enumerator = SignalProducer(allFrameworkSearchPath).flatMap(.concat, Frameworks.frameworksInDirectory)
-        
+
         self.init(builtFrameworks: enumerator)
     }
-    
+
     // MARK: - Inferring
 
     public func inputFiles(for executableURL: URL, userInputFiles: SignalProducer<URL, CarthageError>) -> SignalProducer<URL, CarthageError> {
-        let userFrameworksMap = userInputFiles.reduce(into: [String: URL]()) { (map, frameworkURL) in
+        let userFrameworksMap = userInputFiles.reduce(into: [String: URL]()) { map, frameworkURL in
             let name = frameworkURL.deletingPathExtension().lastPathComponent
             map[name] = frameworkURL
         }
 
         let builtFrameworksMap = builtFrameworks
             .filter(builtFrameworkFilter)
-            .reduce(into: [String: URL]()) { (map, frameworkURL) in
+            .reduce(into: [String: URL]()) { map, frameworkURL in
                 let name = frameworkURL.deletingPathExtension().lastPathComponent
                 // Framework potentially can be presented in multiple directories from FRAMEWORK_SEARCH_PATHS.
                 // We're only interested in the first occurrence to preserve order of the paths.
                 if map[name] == nil {
                     map[name] = frameworkURL
                 }
-            }
-        
+        }
+
         return SignalProducer.combineLatest(userFrameworksMap, builtFrameworksMap)
             .flatMap(.latest) { userFrameworksMap, builtFrameworksMap -> SignalProducer<URL, CarthageError> in
-                let availableFrameworksMap = userFrameworksMap.merging(builtFrameworksMap) { (lhs, rhs) in
+                let availableFrameworksMap = userFrameworksMap.merging(builtFrameworksMap) { lhs, _ in
                     // user's framework path always takes precedence over default Carthage's path.
                     return lhs
                 }
-                
+
                 if availableFrameworksMap.isEmpty {
                     return .empty
                 }
-                
+
                 return SignalProducer(result: self.resolveFrameworks(at: executableURL, frameworksMap: availableFrameworksMap))
                     .flatten()
                     .filter { url in
@@ -87,10 +86,10 @@ public final class InputFilesInferrer {
                         // same URL all the time. i.e. '/A.framework/' and '/A.framework' will lead to the same result but are not equal.
                         let name = url.deletingPathExtension().lastPathComponent
                         return userFrameworksMap[name] == nil
-                    }
-            }
+                }
+        }
     }
-    
+
     private func resolveFrameworks(at executableURL: URL, frameworksMap: [String: URL]) -> Result<[URL], CarthageError> {
         var resolvedFrameworks: Set<String> = []
         do {
@@ -100,10 +99,10 @@ public final class InputFilesInferrer {
         } catch {
             return .failure(CarthageError.internalError(description: "Failed to infer linked frameworks"))
         }
-        
+
         return .success(resolvedFrameworks.compactMap { frameworksMap[$0] })
     }
-    
+
     private func collectFrameworks(at executableURL: URL, accumulator: inout Set<String>, frameworksMap: [String: URL]) throws {
         let name = executableURL.deletingPathExtension().lastPathComponent
         if !accumulator.insert(name).inserted {
@@ -121,14 +120,14 @@ public final class InputFilesInferrer {
             try frameworksToCollect.forEach {
                 try collectFrameworks(at: $0, accumulator: &accumulator, frameworksMap: frameworksMap)
             }
-            
+
         case .failure(let error):
             throw error
         }
     }
-    
+
     // MARK: - Utility
-    
+
     static func allFrameworkSearchPaths(forProjectIn directory: URL, platform: Platform, frameworkSearchPaths: [URL]) -> [URL] {
         // Carthage's default framework search path should always be presented. Under rare circumstances
         // framework located at the non-default path can be linked against Carthage's framework.
@@ -142,11 +141,11 @@ public final class InputFilesInferrer {
         let result = (frameworkSearchPaths + [defaultSearchPath]).map { $0.standardizedFileURL }.unique()
         return result
     }
-    
+
     static func defaultFrameworkSearchPath(forProjectIn directory: URL, platform: Platform) -> URL {
         return directory.appendingPathComponent(platform.relativePath, isDirectory: true)
     }
-    
+
     /// Maps Xcode's `FRAMEWORK_SEARCH_PATHS` string to an array or file URLs as well as resolves recursive directories.
     ///
     /// - Parameter rawFrameworkSearchPaths: Value of `FRAMEWORK_SEARCH_PATHS`
@@ -171,9 +170,9 @@ public final class InputFilesInferrer {
             "xcodeproj",
             "xctemplate",
             "xctest",
-            "xcworkspace"
+            "xcworkspace",
         ]
-        
+
         // We can not split by ' ' or by '\n' since it will give us invalid results because of the escaped spaces.
         // To handle this we're replacing escaped spaces by ':' which seems to be the only invalid symbol on macOS,
         // making conversion and then reverting replacement.
@@ -186,7 +185,7 @@ public final class InputFilesInferrer {
                 // For recursive paths Xcode adds a "**" suffix. i.e. /search/path turns into a /search/path/**
                 // We need to collect all the nested paths to act like an Xcode.
                 let recursiveSymbol = "**"
-                
+
                 if path.hasSuffix(recursiveSymbol) {
                     let normalizedURL = URL(fileURLWithPath: String(path.dropLast(recursiveSymbol.count)), isDirectory: true)
                     return FileManager.default.allDirectories(at: normalizedURL, ignoringExtensions: ignoredDirectoryExtensions)

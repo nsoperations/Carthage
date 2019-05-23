@@ -352,7 +352,6 @@ extension VersionFile {
         }
     }
 
-
     /// Creates a version file for the current dependency in the
     /// Carthage/Build directory which associates its commitish with
     /// the hashes (e.g. SHA256) of the built frameworks for each platform

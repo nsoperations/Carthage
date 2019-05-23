@@ -11,7 +11,7 @@ import struct Foundation.URL
 protocol BinariesCache {
 
     func matchingBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError>
-    
+
 }
 
 extension BinariesCache {
@@ -26,15 +26,15 @@ extension BinariesCache {
 }
 
 class BinaryProjectCache: BinariesCache {
-    
+
     let binaryProjectDefinitions: [Dependency: BinaryProject]
-    
+
     init(binaryProjectDefinitions: [Dependency: BinaryProject]) {
         self.binaryProjectDefinitions = binaryProjectDefinitions
     }
-    
+
     func matchingBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
-        
+
         guard let binaryProject = self.binaryProjectDefinitions[dependency], let sourceURL = binaryProject.binaryURL(for: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion) else {
 
             let error: CarthageError
@@ -46,10 +46,10 @@ class BinaryProjectCache: BinariesCache {
 
             return SignalProducer<URLLock, CarthageError>(error: error)
         }
-        
+
         return BinaryProjectCache.downloadBinary(dependency: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, url: sourceURL, cacheBaseURL: cacheBaseURL, eventObserver: eventObserver, lockTimeout: lockTimeout)
     }
-    
+
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
     private static func downloadBinary(dependency: Dependency, version: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, url: URL, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
@@ -157,7 +157,7 @@ class GitHubBinariesCache: BinariesCache {
                             return (urlLock, asset)
                         }
                     }
-                    .flatMap(.concat) { (urlLock, asset) -> SignalProducer<URLLock, CarthageError> in
+                    .flatMap(.concat) { urlLock, asset -> SignalProducer<URLLock, CarthageError> in
                         let fileURL = urlLock.url
                         if FileManager.default.fileExists(atPath: fileURL.path) {
                             return SignalProducer(value: urlLock)

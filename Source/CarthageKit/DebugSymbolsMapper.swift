@@ -37,14 +37,14 @@ final class DebugSymbolsMapper {
             return .failure(CarthageError.internalError(description: error.localizedDescription))
         }
     }
-    
+
     // MARK: - Private
-    
+
     private static func findBuildSourceURL(frameworkURL: URL, sourceURL: URL) throws -> URL {
         let binaryURL = try normalizedBinaryURL(url: frameworkURL)
         let stdoutString = try Task(launchCommand: "/usr/bin/xcrun nm -pa \"\(binaryURL.path)\"").getStdOutString().mapError(CarthageError.taskError).get()
         let lines = stdoutString.split(separator: "\n")
-        var buildSourceURL: URL? = nil
+        var buildSourceURL: URL?
 
         for line in lines {
             let lineComponents = line.split { CharacterSet.whitespaces.contains($0) }
@@ -84,25 +84,25 @@ final class DebugSymbolsMapper {
         }
         return nil
     }
-    
+
     private static func uuidsOfDwarf(_ binaryURL: URL) throws -> [String: String] {
 
         let normalizedURL = try normalizedBinaryURL(url: binaryURL)
         let task = Task("/usr/bin/xcrun", arguments: ["dwarfdump", "--uuid", normalizedURL.path])
-        
+
         let stdOutString = try task.getStdOutString().mapError(CarthageError.taskError).get()
-        
+
         let lines = stdOutString.split(separator: "\n")
-        
+
         var archsToUUIDs = [String: String]()
-        
+
         for line in lines {
             let elements = line.split(separator: " ")
             if elements.count >= 4 {
                 archsToUUIDs[elements[2].replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")] = String(elements[1])
             }
         }
-        
+
         return archsToUUIDs
     }
 
@@ -137,7 +137,7 @@ final class DebugSymbolsMapper {
                 "DBGBuildSourcePath": buildSourceURL.absoluteURL.path,
                 "DBGSourcePath": sourceURL.absoluteURL.path,
                 "DBGDSYMPath": try normalizedBinaryURL(url: dsymURL).path,
-                "DBGSymbolRichExecutable": try normalizedBinaryURL(url: frameworkURL).path
+                "DBGSymbolRichExecutable": try normalizedBinaryURL(url: frameworkURL).path,
             ]
             let plistURL = dsymURL.appendingPathComponents(["Contents", "Resources", "\(uuid).plist"])
             try writePlist(at: plistURL, plistObject: plistDict as Any)

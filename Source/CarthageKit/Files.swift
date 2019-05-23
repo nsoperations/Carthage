@@ -4,7 +4,7 @@ import Result
 
 /// Generic file manipulation helper methods
 final class Files {
-    
+
     /// Copies a product into the given folder. The folder will be created if it
     /// does not already exist, and any pre-existing version of the product in the
     /// destination folder will be deleted before the copy of the new version.
@@ -17,7 +17,7 @@ final class Files {
     static func copyFile(from: URL, to: URL) -> SignalProducer<URL, CarthageError> { // swiftlint:disable:this identifier_name
         return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
             let manager = FileManager.default
-            
+
             // This signal deletes `to` before it copies `from` over it.
             // If `from` and `to` point to the same resource, there's no need to perform a copy at all
             // and deleting `to` will also result in deleting the original resource without copying it.
@@ -27,7 +27,7 @@ final class Files {
             if manager.fileExists(atPath: to.path) && from.absoluteURL == to.absoluteURL {
                 return .success(to)
             }
-            
+
             // Although some methods’ documentation say: “YES if createIntermediates
             // is set and the directory already exists)”, it seems to rarely
             // returns NO and NSFileWriteFileExistsError error. So we should
@@ -39,7 +39,7 @@ final class Files {
                 }
                 return result
             }
-            
+
             let createDirectory = { try manager.createDirectory(at: $0, withIntermediateDirectories: true) }
             return result(allowingErrorCode: NSFileWriteFileExistsError, Result(at: to.deletingLastPathComponent(), attempt: createDirectory))
                 .flatMap { _ in
@@ -139,7 +139,7 @@ extension SignalProducer where Value == URL, Error == CarthageError {
                 let fileName = fileURL.lastPathComponent
                 let destinationURL = directoryURL.appendingPathComponent(fileName, isDirectory: false)
                 let resolvedDestinationURL = destinationURL.resolvingSymlinksInPath()
-                
+
                 return Files.copyFile(from: fileURL, to: resolvedDestinationURL)
         }
     }
