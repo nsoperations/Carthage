@@ -329,7 +329,7 @@ public final class ProjectDependencyRetriever {
                 .mapError { error in CarthageError.internalError(description: error.description) }
                 .flatMap(.concat) { localSwiftVersion -> SignalProducer<Bool, CarthageError> in
                     var lock: URLLock?
-                    return cache.matchingBinaries(
+                    return cache.matchingBinary(
                         for: dependency,
                         pinnedVersion: pinnedVersion,
                         configuration: configuration,
@@ -339,6 +339,7 @@ public final class ProjectDependencyRetriever {
                         lockTimeout: self.lockTimeout
                         )
                         .flatMap(.concat) { urlLock -> SignalProducer<URL, CarthageError> in
+                            print("Found matching binary at: \(urlLock.url)")
                             lock = urlLock
                             self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
                             return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
@@ -346,6 +347,7 @@ public final class ProjectDependencyRetriever {
                         .flatMap(.concat) { Files.removeItem(at: $0) }
                         .map { true }
                         .flatMapError { error in
+                            print("Got error: \(error)")
                             if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
                                 _ = try? FileManager.default.removeItem(at: url)
                             }
@@ -533,7 +535,7 @@ public final class ProjectDependencyRetriever {
     /// less temporary location.
     private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinaries(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
+        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
     }
 
     /// Creates symlink between the dependency checkouts and the root checkouts
