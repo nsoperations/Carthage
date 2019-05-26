@@ -352,6 +352,10 @@ extension URL {
         let attributes = try? self.resourceValues(forKeys: [key])
         return attributes?.contentModificationDate
     }
+
+    internal func removeIgnoringErrors() {
+        _ = try? FileManager.default.removeItem(at: self)
+    }
 }
 
 extension FileManager: ReactiveExtensionsProvider {

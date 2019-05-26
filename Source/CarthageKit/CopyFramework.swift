@@ -129,9 +129,3 @@ public final class CopyFramework {
             .then(SignalProducer<(), CarthageError>.empty)
     }
 }
-
-extension URL {
-    fileprivate func removeIgnoringErrors() {
-        _ = try? FileManager.default.removeItem(at: self)
-    }
-}

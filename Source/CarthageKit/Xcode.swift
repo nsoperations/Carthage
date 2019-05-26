@@ -115,26 +115,28 @@ public final class Xcode {
                         .collectTaskEvents()
                         .flatMapTaskEvents(.concat) { (urls: [URL]) -> SignalProducer<(), CarthageError> in
 
-                            guard let dependency = dependency else {
+                            print("URLs: \(urls)")
 
+                            if let dependency = dependency {
+                                return VersionFile.createVersionFile(
+                                    for: dependency.dependency,
+                                    version: dependency.version,
+                                    platforms: options.platforms,
+                                    configuration: options.configuration,
+                                    buildProducts: urls,
+                                    rootDirectoryURL: rootDirectoryURL
+                                )
+                                .flatMapError { _ in .empty }
+                                    .then(storeBuiltDependencyInCache(dependency: dependency.dependency, version: dependency.version, options: options, rootDirectoryURL: rootDirectoryURL, lockTimeout: lockTimeout))
+                            } else {
                                 return VersionFile.createVersionFileForCurrentProject(
                                     platforms: options.platforms,
                                     configuration: options.configuration,
                                     buildProducts: urls,
                                     rootDirectoryURL: rootDirectoryURL
-                                    )
-                                    .flatMapError { _ in .empty }
-                            }
-
-                            return VersionFile.createVersionFile(
-                                for: dependency.dependency,
-                                version: dependency.version,
-                                platforms: options.platforms,
-                                configuration: options.configuration,
-                                buildProducts: urls,
-                                rootDirectoryURL: rootDirectoryURL
                                 )
                                 .flatMapError { _ in .empty }
+                            }
                         }
                         // Discard any Success values, since we want to
                         // use our initial value instead of waiting for
@@ -154,6 +156,34 @@ public final class Xcode {
             }.on(terminated: {
                 lock?.unlock()
             })
+    }
+
+    private static func storeBuiltDependencyInCache(dependency: Dependency, version: PinnedVersion, options: BuildOptions, rootDirectoryURL: URL, lockTimeout: Int?) -> SignalProducer<(), CarthageError> {
+
+        var tempDir: URL?
+        var lock: URLLock?
+        return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(Archive.archiveTemplate)
+            .flatMap(.merge) { (tempDirectoryURL) -> SignalProducer<URL, CarthageError> in
+                tempDir = tempDirectoryURL
+                return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryPath: rootDirectoryURL.path, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
+            }
+            .flatMap(.merge) { archiveURL in
+                return SwiftToolchain.swiftVersion(usingToolchain: options.toolchain)
+                    .mapError { error in CarthageError.internalError(description: error.description) }
+                    .flatMap(.merge) { swiftVersion -> SignalProducer<URLLock, CarthageError> in
+                        let destinationURL = AbstractBinariesCache.fileURL(for: dependency, pinnedVersion: version, configuration: options.configuration, swiftVersion: swiftVersion)
+                        return URLLock.lockReactive(url: destinationURL, timeout: lockTimeout)
+                    }
+                    .flatMap(.merge) { urlLock -> SignalProducer<URL, CarthageError> in
+                        lock = urlLock
+                        return Files.moveFile(from: archiveURL, to: urlLock.url)
+                    }
+            }
+            .on(terminated: {
+                tempDir?.removeIgnoringErrors()
+                lock?.unlock()
+            })
+            .then(SignalProducer<(), CarthageError>.empty)
     }
 
     /// Finds schemes of projects or workspaces, which Carthage should build, found

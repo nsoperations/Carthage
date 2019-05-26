@@ -10,42 +10,55 @@ import struct Foundation.URL
 /// Cache for binary builds
 protocol BinariesCache {
     
-    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError>
+    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError>
 
 }
 
-class AbstractBinariesCache: BinariesCache {
-    
-    private func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, cacheBaseURL: URL) -> URL {
+extension BinariesCache {
+
+    static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion) -> URL {
 
         // Try to parse the semantic version out of the Swift version string
+        let cacheBaseURL = Constants.Dependency.assetsURL
         let swiftVersionString: String = swiftVersion.description
         let versionString = pinnedVersion.description
         let fileName = dependency.name + ".framework.zip"
         return cacheBaseURL.appendingPathComponent("\(swiftVersionString)/\(dependency.name)/\(versionString)/\(configuration)/\(fileName)")
     }
+
+}
+
+class AbstractBinariesCache: BinariesCache {
     
-    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, cacheBaseURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
+    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock, CarthageError> {
         
-        let fileURL = self.fileURL(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: cacheBaseURL)
+        let fileURL = AbstractBinariesCache.fileURL(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion)
         
         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock, CarthageError> in
+
+                print("Checking existence of file: \(fileURL.path)")
+
                 if FileManager.default.fileExists(atPath: fileURL.path) {
+                    print("Exists")
                     return SignalProducer(value: urlLock)
                 } else {
+                    print("Does not exist")
                     return self.downloadBinary(for: dependency,
                                           pinnedVersion: pinnedVersion,
                                           configuration: configuration,
                                           swiftVersion: swiftVersion,
                                           destinationURL: fileURL,
                                           eventObserver: eventObserver)
-                        .then(SignalProducer<URLLock, CarthageError>(value: urlLock))
+                        .map { _ in urlLock }
                 }
         }
     }
-    
+
     func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<URL, CarthageError> {
+
+        print("Unimplemented downloadBinary")
+
         preconditionFailure("Should be implemented by concrete sub class")
     }
 }
@@ -59,6 +72,8 @@ final class BinaryProjectCache: AbstractBinariesCache {
     }
     
     override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<URL, CarthageError> {
+
+        print("BinaryProject: downloadBinary")
         
         guard let binaryProject = self.binaryProjectDefinitions[dependency], let sourceURL = binaryProject.binaryURL(for: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion) else {
             
@@ -96,6 +111,8 @@ final class GitHubBinariesCache: AbstractBinariesCache {
     }
     
     override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<URL, CarthageError> {
+
+        print("GitHubBinaries: downloadBinary")
         
         return GitHubBinariesCache.downloadMatchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, destinationURL: destinationURL, fromRepository: self.repository, client: self.client, eventObserver: eventObserver)
             .flatMapError { [client, repository] error -> SignalProducer<URL, CarthageError> in
@@ -178,6 +195,9 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
         
         let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, swiftVersion: swiftVersion.description, targetFilePath: destinationURL.path)
         let versionString = pinnedVersion.description
+
+        print("Downloading binary for: \(dependency) version \(versionString)")
+
         return task.launch()
             .mapError(CarthageError.taskError)
             .on(started: {

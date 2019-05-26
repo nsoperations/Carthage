@@ -8,12 +8,13 @@ public final class Archive {
 
     // MARK: - Public
 
-    public static func archiveFrameworks(frameworkNames: [String], directoryPath: String, configuration: String = "Release", customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+    public static func archiveFrameworks(frameworkNames: [String], directoryPath: String, customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
 
         if let definedOutputPath = customOutputPath, definedOutputPath.isEmpty {
             return SignalProducer<URL, CarthageError>(error: CarthageError.invalidArgument(description: "Custom archive output path should not be empty"))
         }
 
+        let configuration = "Release"
         let frameworks: SignalProducer<[String], CarthageError>
         if !frameworkNames.isEmpty {
             frameworks = .init(value: frameworkNames.map {
@@ -170,7 +171,7 @@ public final class Archive {
             .then(SignalProducer<URL, CarthageError>(value: destinationDirectoryURL))
     }
 
-    private static let archiveTemplate = "carthage-archive.XXXXXX"
+    public static let archiveTemplate = "carthage-archive.XXXXXX"
 
     /// Unzips the archive at the given file URL into a temporary directory, then
     /// sends the file URL to that directory.

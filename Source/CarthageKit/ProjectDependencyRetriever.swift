@@ -334,7 +334,6 @@ public final class ProjectDependencyRetriever {
                         pinnedVersion: pinnedVersion,
                         configuration: configuration,
                         swiftVersion: localSwiftVersion,
-                        cacheBaseURL: Constants.Dependency.assetsURL,
                         eventObserver: self.projectEventsObserver,
                         lockTimeout: self.lockTimeout
                         )
@@ -535,7 +534,7 @@ public final class ProjectDependencyRetriever {
     /// less temporary location.
     private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, cacheBaseURL: Constants.Dependency.assetsURL, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
+        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
     }
 
     /// Creates symlink between the dependency checkouts and the root checkouts
