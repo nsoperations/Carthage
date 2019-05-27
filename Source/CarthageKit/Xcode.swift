@@ -165,7 +165,7 @@ public final class Xcode {
         return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(Archive.archiveTemplate)
             .flatMap(.merge) { (tempDirectoryURL) -> SignalProducer<URL, CarthageError> in
                 tempDir = tempDirectoryURL
-                return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryPath: rootDirectoryURL.path, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
+                return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryURL: rootDirectoryURL, customOutputURL: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip"))
             }
             .flatMap(.merge) { archiveURL in
                 return SwiftToolchain.swiftVersion(usingToolchain: options.toolchain)

@@ -8,9 +8,9 @@ public final class Archive {
 
     // MARK: - Public
 
-    public static func archiveFrameworks(frameworkNames: [String], directoryPath: String, customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+    public static func archiveFrameworks(frameworkNames: [String], directoryURL: URL, customOutputURL: URL?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
 
-        if let definedOutputPath = customOutputPath, definedOutputPath.isEmpty {
+        if let definedOutputURL = customOutputURL, definedOutputURL.path.isEmpty {
             return SignalProducer<URL, CarthageError>(error: CarthageError.invalidArgument(description: "Custom archive output path should not be empty"))
         }
 
@@ -18,10 +18,9 @@ public final class Archive {
         let frameworks: SignalProducer<[String], CarthageError>
         if !frameworkNames.isEmpty {
             frameworks = .init(value: frameworkNames.map {
-                return ($0 as NSString).appendingPathExtension("framework")!
+                return $0 + ".framework"
             })
         } else {
-            let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
             let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
             frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: configuration, schemeMatcher: schemeMatcher)
                 .flatMap(.merge) { scheme, project -> SignalProducer<BuildSettings, CarthageError> in
@@ -41,36 +40,33 @@ public final class Archive {
 
         return frameworks.flatMap(.merge) { frameworks -> SignalProducer<URL, CarthageError> in
             return SignalProducer<Platform, CarthageError>(Platform.supportedPlatforms)
-                .flatMap(.merge) { platform -> SignalProducer<String, CarthageError> in
-                    return SignalProducer(frameworks).map { framework in
-                        return (platform.relativePath as NSString).appendingPathComponent(framework)
+                .flatMap(.merge) { platform -> SignalProducer<URL, CarthageError> in
+                    return SignalProducer(frameworks).map { framework -> URL in
+                        return directoryURL.appendingPathComponent(platform.relativePath).appendingPathComponent(framework)
                     }
                 }
-                .map { relativePath -> (relativePath: String, absolutePath: String) in
-                    let absolutePath = (directoryPath as NSString).appendingPathComponent(relativePath)
-                    return (relativePath, absolutePath)
-                }
-                .filter { filePath in FileManager.default.fileExists(atPath: filePath.absolutePath) }
-                .flatMap(.merge) { framework -> SignalProducer<String, CarthageError> in
-                    let dSYM = (framework.relativePath as NSString).appendingPathExtension("dSYM")!
-                    let bcsymbolmapsProducer = Frameworks.BCSymbolMapsForFramework(URL(fileURLWithPath: framework.absolutePath))
-                        // generate relative paths for the bcsymbolmaps so they print nicely
-                        .map { url in ((framework.relativePath as NSString).deletingLastPathComponent as NSString).appendingPathComponent(url.lastPathComponent) }
-                    let extraFilesProducer = SignalProducer(value: dSYM)
+                .filter { $0.isExistingFileOrDirectory }
+                .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
+                    let dSYMURL = frameworkURL.appendingPathExtension("dSYM")
+                    let frameworkName = frameworkURL.lastPathComponent.removingSuffix(".framework")
+                    let versionFileURL = VersionFile.versionFileURL(for: frameworkName, rootDirectoryURL: directoryURL)
+                    let bcsymbolmapsProducer = Frameworks.BCSymbolMapsForFramework(frameworkURL)
+                    let extraFilesProducer = SignalProducer(value: dSYMURL)
                         .concat(bcsymbolmapsProducer)
-                        .filter { _ in FileManager.default.fileExists(atPath: framework.absolutePath) }
-                    return SignalProducer(value: framework.relativePath)
+                        .concat(SignalProducer(value: versionFileURL))
+                        .filter { $0.isExistingFileOrDirectory }
+                    return SignalProducer(value: frameworkURL)
                         .concat(extraFilesProducer)
                 }
-                .on(value: { path in
-                    frameworkFoundHandler?(path)
+                .on(value: { url in
+                    frameworkFoundHandler?(url.path.removingPrefix(directoryURL.path))
                 })
                 .collect()
-                .flatMap(.merge) { paths -> SignalProducer<URL, CarthageError> in
+                .flatMap(.merge) { urls -> SignalProducer<URL, CarthageError> in
 
-                    let foundFrameworks = paths
+                    let foundFrameworks = urls
                         .lazy
-                        .map { ($0 as NSString).lastPathComponent }
+                        .map { $0.lastPathComponent }
                         .filter { $0.hasSuffix(".framework") }
 
                     if Set(foundFrameworks) != Set(frameworks) {
@@ -81,8 +77,7 @@ public final class Archive {
                         return SignalProducer(error: error)
                     }
 
-                    let outputPath = outputPathForBasePath(customOutputPath, frameworks: frameworks)
-                    let outputURL = URL(fileURLWithPath: outputPath, isDirectory: false)
+                    let outputURL = outputURLForBaseURL(customOutputURL ?? directoryURL, frameworks: frameworks)
 
                     _ = try? FileManager
                         .default
@@ -91,7 +86,7 @@ public final class Archive {
                         .default
                         .createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-                    return zip(paths: paths, into: outputURL, workingDirectory: directoryPath)
+                    return zip(urls: urls, into: outputURL, workingDirectoryURL: directoryURL)
             }
         }
     }
@@ -111,11 +106,15 @@ public final class Archive {
 
     /// Zips the given input paths (recursively) into an archive that will be
     /// located at the given URL.
-    static func zip(paths: [String], into archiveURL: URL, workingDirectory: String) -> SignalProducer<URL, CarthageError> {
-        precondition(!paths.isEmpty)
+    static func zip(urls: [URL], into archiveURL: URL, workingDirectoryURL: URL) -> SignalProducer<URL, CarthageError> {
+        precondition(!urls.isEmpty)
         precondition(archiveURL.isFileURL)
 
-        let task = Task("/usr/bin/env", arguments: [ "zip", "-q", "-r", "--symlinks", archiveURL.path ] + paths, workingDirectoryPath: workingDirectory)
+        var workingDirectoryPath = workingDirectoryURL.path
+        if !workingDirectoryPath.hasSuffix("/") {
+            workingDirectoryPath += "/"
+        }
+        let task = Task("/usr/bin/env", arguments: [ "zip", "-q", "-r", "--symlinks", archiveURL.path ] + urls.map { $0.path.removingPrefix(workingDirectoryPath) }, workingDirectoryPath: workingDirectoryPath)
 
         return task.launch()
             .mapError(CarthageError.taskError)
@@ -126,25 +125,14 @@ public final class Archive {
 
     /// Returns an appropriate output file path for the resulting zip file using
     /// the given option and frameworks.
-    private static func outputPathForBasePath(_ basePath: String?, frameworks: [String]) -> String {
+    private static func outputURLForBaseURL(_ baseURL: URL, frameworks: [String]) -> URL {
         let defaultOutputPath = "\(frameworks.first!).zip"
 
-        return basePath.map { path -> String in
-            if path.hasSuffix("/") {
-                // The given path should be a directory.
-                return path + defaultOutputPath
-            }
-
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                // If the given path is an existing directory, output a zip file
-                // into that directory.
-                return (path as NSString).appendingPathComponent(defaultOutputPath)
-            } else {
-                // Use the given path as the final output.
-                return path
-            }
-            } ?? defaultOutputPath
+        if baseURL.isExistingDirectory || baseURL.path.hasSuffix("/") {
+            return baseURL.appendingPathComponent(defaultOutputPath)
+        } else {
+            return baseURL
+        }
     }
 
     /// Unzips the archive at the given file URL, extracting into the given
@@ -193,4 +181,24 @@ public final class Archive {
         }
     }
 
+}
+
+extension String {
+    fileprivate func removingPrefix(_ prefix: String) -> String {
+        if self.hasPrefix(prefix) {
+            let startIndex = self.index(self.startIndex, offsetBy: prefix.count)
+            return String(self[startIndex..<self.endIndex])
+        } else {
+            return self
+        }
+    }
+
+    fileprivate func removingSuffix(_ suffix: String) -> String {
+        if self.hasSuffix(suffix) {
+            let endIndex = self.index(self.endIndex, offsetBy: -suffix.count)
+            return String(self[self.startIndex..<endIndex])
+        } else {
+            return self
+        }
+    }
 }

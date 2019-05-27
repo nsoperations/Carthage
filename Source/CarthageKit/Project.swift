@@ -656,6 +656,13 @@ public final class Project { // swiftlint:disable:this type_body_length
                         return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
                             .then(.init(value: (dependency, version)))
                     }
+                    .filter { dependency, version -> Bool in
+                        let versionFileMatchResult = VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain).single()!
+
+                        // Assume true if no version file exists
+                        let matches: Bool = (versionFileMatchResult.value ?? nil) ?? true
+                        return matches
+                    }
                     .collect()
                     .map { installedDependencies -> [(Dependency, PinnedVersion)] in
                         // Filters out dependencies that we've downloaded binaries for

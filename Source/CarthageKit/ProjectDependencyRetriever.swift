@@ -346,7 +346,6 @@ public final class ProjectDependencyRetriever {
                         .flatMap(.concat) { Files.removeItem(at: $0) }
                         .map { true }
                         .flatMapError { error in
-                            print("Got error: \(error)")
                             if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
                                 _ = try? FileManager.default.removeItem(at: url)
                             }
@@ -710,7 +709,8 @@ public final class ProjectDependencyRetriever {
                             frameworkURLs,
                             projectName: dependency.name,
                             commitish: pinnedVersion.commitish,
-                            configuration: configuration
+                            configuration: configuration,
+                            ignoreIfExists: true
                         )
                     }
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))

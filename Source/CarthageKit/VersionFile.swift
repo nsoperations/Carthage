@@ -388,7 +388,8 @@ extension VersionFile {
         platforms: Set<Platform> = Set(Platform.supportedPlatforms),
         configuration: String,
         buildProducts: [URL],
-        rootDirectoryURL: URL
+        rootDirectoryURL: URL,
+        ignoreIfExists: Bool = false
         ) -> SignalProducer<(), CarthageError> {
         var platformCaches: [String: [CachedFramework]] = [:]
 
@@ -437,7 +438,8 @@ extension VersionFile {
                         dependencyName: dependencyName,
                         configuration: configuration,
                         rootDirectoryURL: rootDirectoryURL,
-                        platformCaches: platformCaches
+                        platformCaches: platformCaches,
+                        ignoreIfExists: ignoreIfExists
                     )
             }
         } else {
@@ -448,9 +450,20 @@ extension VersionFile {
                 dependencyName: dependencyName,
                 configuration: configuration,
                 rootDirectoryURL: rootDirectoryURL,
-                platformCaches: platformCaches
+                platformCaches: platformCaches,
+                ignoreIfExists: ignoreIfExists
             )
         }
+    }
+
+    /// Returns the URL where the version file for the specified dependency should reside.
+    static func versionFileURL(for dependencyName: String, rootDirectoryURL: URL) -> URL {
+        let rootBinariesURL = rootDirectoryURL
+            .appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
+            .resolvingSymlinksInPath()
+        let versionFileURL = rootBinariesURL
+            .appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
+        return versionFileURL
     }
 
     /// Determines whether a dependency can be skipped because it is
@@ -469,14 +482,11 @@ extension VersionFile {
         rootDirectoryURL: URL,
         toolchain: String?
         ) -> SignalProducer<Bool?, CarthageError> {
-        let rootBinariesURL = rootDirectoryURL
-            .appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
-            .resolvingSymlinksInPath()
-        let versionFileURL = rootBinariesURL
-            .appendingPathComponent(".\(dependency.name).\(VersionFile.pathExtension)")
+        let versionFileURL = self.versionFileURL(for: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
             return SignalProducer(value: nil)
         }
+        let rootBinariesURL = versionFileURL.deletingLastPathComponent()
 
         let commitish = version.commitish
 
@@ -507,14 +517,15 @@ extension VersionFile {
         dependencyName: String,
         configuration: String,
         rootDirectoryURL: URL,
-        platformCaches: [String: [CachedFramework]]
+        platformCaches: [String: [CachedFramework]],
+        ignoreIfExists: Bool = false
         ) -> SignalProducer<(), CarthageError> {
         return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
-            let rootBinariesURL = rootDirectoryURL
-                .appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
-                .resolvingSymlinksInPath()
-            let versionFileURL = rootBinariesURL
-                .appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
+            let versionFileURL = self.versionFileURL(for: dependencyName, rootDirectoryURL: rootDirectoryURL)
+
+            if ignoreIfExists && versionFileURL.isExistingFile {
+                return .success(())
+            }
 
             let versionFile = VersionFile(
                 commitish: commitish,
