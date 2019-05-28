@@ -60,6 +60,8 @@ final class Files {
     static func moveFile(from: URL, to: URL) -> SignalProducer<URL, CarthageError> { // swiftlint:disable:this identifier_name
         return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
             let manager = FileManager.default
+            
+            print("Moving file from: \(from.path) to \(to.path)")
 
             // This signal deletes `to` before it copies `from` over it.
             // If `from` and `to` point to the same resource, there's no need to perform a copy at all

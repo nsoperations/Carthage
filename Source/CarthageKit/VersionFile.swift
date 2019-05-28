@@ -388,8 +388,7 @@ extension VersionFile {
         platforms: Set<Platform> = Set(Platform.supportedPlatforms),
         configuration: String,
         buildProducts: [URL],
-        rootDirectoryURL: URL,
-        ignoreIfExists: Bool = false
+        rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
         var platformCaches: [String: [CachedFramework]] = [:]
 
@@ -438,8 +437,7 @@ extension VersionFile {
                         dependencyName: dependencyName,
                         configuration: configuration,
                         rootDirectoryURL: rootDirectoryURL,
-                        platformCaches: platformCaches,
-                        ignoreIfExists: ignoreIfExists
+                        platformCaches: platformCaches
                     )
             }
         } else {
@@ -450,8 +448,7 @@ extension VersionFile {
                 dependencyName: dependencyName,
                 configuration: configuration,
                 rootDirectoryURL: rootDirectoryURL,
-                platformCaches: platformCaches,
-                ignoreIfExists: ignoreIfExists
+                platformCaches: platformCaches
             )
         }
     }
@@ -517,16 +514,11 @@ extension VersionFile {
         dependencyName: String,
         configuration: String,
         rootDirectoryURL: URL,
-        platformCaches: [String: [CachedFramework]],
-        ignoreIfExists: Bool = false
+        platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
         return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
             let versionFileURL = self.versionFileURL(for: dependencyName, rootDirectoryURL: rootDirectoryURL)
-
-            if ignoreIfExists && versionFileURL.isExistingFile {
-                return .success(())
-            }
-
+            
             let versionFile = VersionFile(
                 commitish: commitish,
                 configuration: configuration,

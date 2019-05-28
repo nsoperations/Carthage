@@ -115,8 +115,6 @@ public final class Xcode {
                         .collectTaskEvents()
                         .flatMapTaskEvents(.concat) { (urls: [URL]) -> SignalProducer<(), CarthageError> in
 
-                            print("URLs: \(urls)")
-
                             if let dependency = dependency {
                                 return VersionFile.createVersionFile(
                                     for: dependency.dependency,

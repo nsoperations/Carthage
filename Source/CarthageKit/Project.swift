@@ -40,7 +40,7 @@ public enum ProjectEvent {
 
     /// Installing of a binary framework is being skipped because of an inability
     /// to verify that it was built with a compatible Swift version.
-    case skippedInstallingBinaries(dependency: Dependency, error: Error)
+    case skippedInstallingBinaries(dependency: Dependency, error: Error?)
 
     /// Building the project is being skipped, since the project is not sharing
     /// any framework schemes.
@@ -656,12 +656,30 @@ public final class Project { // swiftlint:disable:this type_body_length
                         return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
                             .then(.init(value: (dependency, version)))
                     }
-                    .filter { dependency, version -> Bool in
-                        let versionFileMatchResult = VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain).single()!
-
-                        // Assume true if no version file exists
-                        let matches: Bool = (versionFileMatchResult.value ?? nil) ?? true
-                        return matches
+                    .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Bool?), CarthageError> in
+                        return VersionFile.versionFileMatches(
+                            dependency,
+                            version: version,
+                            platforms: options.platforms,
+                            configuration: options.configuration,
+                            rootDirectoryURL: self.directoryURL,
+                            toolchain: options.toolchain
+                            )
+                            .map { matches in return (dependency, version, matches) }
+                    }
+                    .filterMap { dependency, version, matches -> (Dependency, PinnedVersion)? in
+                        guard let versionFileMatches = matches else {
+                            self.projectEventsObserver.send(value: .buildingUncached(dependency))
+                            return nil
+                        }
+                        
+                        if versionFileMatches {
+                            self.projectEventsObserver.send(value: .skippedBuildingCached(dependency))
+                            return (dependency, version)
+                        } else {
+                            self.projectEventsObserver.send(value: .rebuildingCached(dependency))
+                            return nil
+                        }
                     }
                     .collect()
                     .map { installedDependencies -> [(Dependency, PinnedVersion)] in

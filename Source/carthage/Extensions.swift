@@ -108,7 +108,7 @@ internal struct ProjectEventSink {
         case let .skippedInstallingBinaries(dependency, error):
             let output = """
             \(formatting.bullets)Skipped installing \(formatting.projectName(dependency.name)).framework binary:
-            \(formatting.quote(String(describing: error)))
+            \(error.map { formatting.quote(String(describing: $0)) } ?? "No matching binary found")
             Falling back to building from the source
             """
             carthage.println(output)
