@@ -672,7 +672,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                             self.projectEventsObserver.send(value: .buildingUncached(dependency))
                             return nil
                         }
-                        
+
                         if versionFileMatches {
                             self.projectEventsObserver.send(value: .skippedBuildingCached(dependency))
                             return (dependency, version)

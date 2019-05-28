@@ -61,8 +61,6 @@ final class Files {
         return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
             let manager = FileManager.default
             
-            print("Moving file from: \(from.path) to \(to.path)")
-
             // This signal deletes `to` before it copies `from` over it.
             // If `from` and `to` point to the same resource, there's no need to perform a copy at all
             // and deleting `to` will also result in deleting the original resource without copying it.

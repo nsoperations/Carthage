@@ -148,7 +148,14 @@ final class DebugSymbolsMapper {
     /// Will throw an error for any other url.
     private static func normalizedBinaryURL(url: URL) throws -> URL {
         if url.path.lowercased().hasSuffix(".framework") {
-            let plist = try readPlist(at: url.appendingPathComponent("Info.plist"))
+            let macInfoPlist = url.appendingPathComponent("Resources").appendingPathComponent("Info.plist")
+            let otherInfoPlist = url.appendingPathComponent("Info.plist")
+            let plist: Any
+            if macInfoPlist.isExistingFile {
+                plist = try readPlist(at: macInfoPlist)
+            } else {
+                plist = try readPlist(at: otherInfoPlist)
+            }
             guard let plistDict = plist as? [String: Any] else {
                 throw CarthageError.invalidFramework(url, description: "Unrecognized Info.plist format, should be a dictionary with string keys")
             }

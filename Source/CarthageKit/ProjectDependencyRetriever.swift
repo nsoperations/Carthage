@@ -665,6 +665,8 @@ public final class ProjectDependencyRetriever {
             return .success(uniquePairs)
         }
         
+        let dependencySourceURL = self.directoryURL.appendingPathComponent(dependency.relativePath)
+        
         return SignalProducer<URL, CarthageError>(value: zipFile)
             .flatMap(.concat, Archive.unarchive(archive:))
             .flatMap(.concat) { tempDirectoryURL -> SignalProducer<(), CarthageError> in
@@ -704,7 +706,11 @@ public final class ProjectDependencyRetriever {
                         return Frameworks.BCSymbolMapsForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
                             .moveFileURLsIntoDirectory(destinationDirectoryURL)
                             .then(
-                                Frameworks.dSYMForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL).moveFileURLsIntoDirectory(destinationDirectoryURL)
+                                Frameworks.dSYMForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
+                                .attemptMap { dsymURL -> Result<URL, CarthageError> in
+                                    return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL).map { _ in dsymURL }
+                                }
+                                .moveFileURLsIntoDirectory(destinationDirectoryURL)
                             )
                             .then(
                                 SignalProducer<URL, CarthageError>(value: frameworkSourceURL).moveFileURLsIntoDirectory(destinationDirectoryURL)
