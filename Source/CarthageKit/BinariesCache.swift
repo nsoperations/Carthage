@@ -16,16 +16,28 @@ protocol BinariesCache {
 
 extension BinariesCache {
 
-    static func fileURL(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion) -> URL {
+    static func fileURL(for dependency: Dependency, version: PinnedVersion, configuration: String, swiftVersion: PinnedVersion) -> URL {
 
         // Try to parse the semantic version out of the Swift version string
         let cacheBaseURL = Constants.Dependency.assetsURL
         let swiftVersionString: String = swiftVersion.description
-        let versionString = pinnedVersion.description
+        let versionString = version.description
         let fileName = dependency.name + ".framework.zip"
         return cacheBaseURL.appendingPathComponent("\(swiftVersionString)/\(dependency.name)/\(versionString)/\(configuration)/\(fileName)")
     }
 
+    static func storeFile(at fileURL: URL, for dependency: Dependency, version: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, lockTimeout: Int?, deleteSource: Bool = false) -> SignalProducer<URL, CarthageError> {
+        let destinationURL = AbstractBinariesCache.fileURL(for: dependency, version: version, configuration: configuration, swiftVersion: swiftVersion)
+        var lock: URLLock?
+        return URLLock.lockReactive(url: destinationURL, timeout: lockTimeout)
+            .flatMap(.merge) { urlLock -> SignalProducer<URL, CarthageError> in
+                lock = urlLock
+                return deleteSource ? Files.moveFile(from: fileURL, to: urlLock.url) : Files.copyFile(from: fileURL, to: urlLock.url)
+            }
+            .on(terminated: {
+                lock?.unlock()
+            })
+    }
 }
 
 class AbstractBinariesCache: BinariesCache {
@@ -42,7 +54,7 @@ class AbstractBinariesCache: BinariesCache {
     
     func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock?, CarthageError> {
         
-        let fileURL = AbstractBinariesCache.fileURL(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion)
+        let fileURL = AbstractBinariesCache.fileURL(for: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion)
         
         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock?, CarthageError> in

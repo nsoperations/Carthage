@@ -364,6 +364,27 @@ public final class ProjectDependencyRetriever {
         }
     }
 
+    public func storeBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, toolchain: String?) -> SignalProducer<URL, CarthageError> {
+        var tempDir: URL?
+
+        return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(Archive.archiveTemplate)
+            .flatMap(.merge) { (tempDirectoryURL) -> SignalProducer<URL, CarthageError> in
+                tempDir = tempDirectoryURL
+                return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryURL: self.directoryURL, customOutputURL: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip"))
+            }
+            .flatMap(.merge) { archiveURL -> SignalProducer<URL, CarthageError> in
+                return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
+                    .mapError { error in CarthageError.internalError(description: error.description) }
+                    .flatMap(.merge) { swiftVersion -> SignalProducer<URL, CarthageError> in
+                        self.projectEventsObserver?.send(value: .storingBinaries(dependency, pinnedVersion.description))
+                        return AbstractBinariesCache.storeFile(at: archiveURL, for: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, lockTimeout: self.lockTimeout, deleteSource: true)
+                    }
+            }
+            .on(terminated: {
+                tempDir?.removeIgnoringErrors()
+            })
+    }
+
     public func installBinariesForBinaryProject(
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,

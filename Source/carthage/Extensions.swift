@@ -105,6 +105,10 @@ internal struct ProjectEventSink {
             carthage.println(formatting.bullets + "Installing " + formatting.projectName(dependency.name)
                 + ".framework binary at " + formatting.quote(release))
 
+        case let .storingBinaries(dependency, release):
+            carthage.println(formatting.bullets + "Storing " + formatting.projectName(dependency.name)
+                + ".framework binary at " + formatting.quote(release))
+
         case let .skippedInstallingBinaries(dependency, error):
             let output = """
             \(formatting.bullets)Skipped installing \(formatting.projectName(dependency.name)).framework binary:

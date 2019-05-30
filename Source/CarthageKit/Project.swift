@@ -31,6 +31,9 @@ public enum ProjectEvent {
     case downloadingBinaries(Dependency, String)
 
     /// Installing binaries from local cache
+    case storingBinaries(Dependency, String)
+
+    /// Installing binaries from local cache
     case installingBinaries(Dependency, String)
 
     /// Downloading any available binaries of the project is being skipped,
@@ -704,8 +707,13 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let derivedDataVersioned = derivedDataPerDependency.appendingPathComponent(version.commitish, isDirectory: true)
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
+                let storeBinaries: BuildSchemeProducer = options.useBinaries ?
+                    self.dependencyRetriever.storeBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain)
+                        .then(BuildSchemeProducer.empty) : BuildSchemeProducer.empty
+
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
                     .then(Xcode.build(dependency: dependency, version: version, self.directoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter))
+                    .concat(storeBinaries)
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:
@@ -730,7 +738,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         default:
                             return SignalProducer(error: error)
                         }
-                }
+                    }
         }
     }
 
