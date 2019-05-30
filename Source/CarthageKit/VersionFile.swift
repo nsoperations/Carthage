@@ -111,6 +111,16 @@ struct VersionFile: Codable {
             .appendingPathComponent("\(cachedFramework.name)", isDirectory: false)
     }
 
+    func containsAll(platforms: Set<Platform>) -> Bool {
+        let platformsToCheck = platforms.isEmpty ? Set<Platform>(Platform.supportedPlatforms) : platforms
+        for platform in platformsToCheck {
+            if self[platform] == nil {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Sends the hashes of the provided cached framework's binaries in the
     /// order that they were provided in.
     func hashes(
@@ -167,6 +177,27 @@ struct VersionFile: Codable {
                         .flatMapError { _ in SignalProducer<Bool, CarthageError>(value: false) }
                 }
         }
+    }
+
+    func satisfies(
+        platforms: Set<Platform>,
+        commitish: String,
+        configuration: String,
+        binariesDirectoryURL: URL,
+        localSwiftVersion: PinnedVersion
+        ) -> SignalProducer<Bool, CarthageError> {
+        let platformsToCheck = platforms.isEmpty ? Set<Platform>(Platform.supportedPlatforms) : platforms
+        return SignalProducer<Platform, CarthageError>(platformsToCheck)
+            .flatMap(.merge) { platform -> SignalProducer<Bool, CarthageError> in
+                return self.satisfies(
+                    platform: platform,
+                    commitish: commitish,
+                    configuration: configuration,
+                    binariesDirectoryURL: binariesDirectoryURL,
+                    localSwiftVersion: localSwiftVersion
+                )
+            }
+            .reduce(true) { $0 && $1 }
     }
 
     func satisfies(
@@ -453,8 +484,12 @@ extension VersionFile {
         }
     }
 
+    static func versionFileRelativePath(dependencyName: String) -> String {
+        return (Constants.binariesFolderPath as NSString).appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
+    }
+
     /// Returns the URL where the version file for the specified dependency should reside.
-    static func versionFileURL(for dependencyName: String, rootDirectoryURL: URL) -> URL {
+    static func versionFileURL(dependencyName: String, rootDirectoryURL: URL) -> URL {
         let rootBinariesURL = rootDirectoryURL
             .appendingPathComponent(Constants.binariesFolderPath, isDirectory: true)
             .resolvingSymlinksInPath()
@@ -479,31 +514,22 @@ extension VersionFile {
         rootDirectoryURL: URL,
         toolchain: String?
         ) -> SignalProducer<Bool?, CarthageError> {
-        let versionFileURL = self.versionFileURL(for: dependency.name, rootDirectoryURL: rootDirectoryURL)
+        let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
             return SignalProducer(value: nil)
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
-
         let commitish = version.commitish
-
-        let platformsToCheck = platforms.isEmpty ? Set<Platform>(Platform.supportedPlatforms) : platforms
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
             .flatMap(.concat) { localSwiftVersion in
-                return SignalProducer<Platform, CarthageError>(platformsToCheck)
-                    .flatMap(.merge) { platform in
-                        return versionFile.satisfies(
-                            platform: platform,
-                            commitish: commitish,
-                            configuration: configuration,
-                            binariesDirectoryURL: rootBinariesURL,
-                            localSwiftVersion: localSwiftVersion
-                        )
-                    }
-                    .reduce(true) { $0 && $1 }
-                    .map { .some($0) }
+                return versionFile.satisfies(platforms: platforms,
+                                             commitish: commitish,
+                                             configuration: configuration,
+                                             binariesDirectoryURL: rootBinariesURL,
+                                             localSwiftVersion: localSwiftVersion)
+                .map { .some($0) }
         }
     }
 
@@ -517,7 +543,7 @@ extension VersionFile {
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
         return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
-            let versionFileURL = self.versionFileURL(for: dependencyName, rootDirectoryURL: rootDirectoryURL)
+            let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
             
             let versionFile = VersionFile(
                 commitish: commitish,

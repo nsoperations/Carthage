@@ -49,7 +49,7 @@ public final class Archive {
                 .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
                     let dSYMURL = frameworkURL.appendingPathExtension("dSYM")
                     let frameworkName = frameworkURL.lastPathComponent.removingSuffix(".framework")
-                    let versionFileURL = VersionFile.versionFileURL(for: frameworkName, rootDirectoryURL: directoryURL)
+                    let versionFileURL = VersionFile.versionFileURL(dependencyName: frameworkName, rootDirectoryURL: directoryURL)
                     let bcsymbolmapsProducer = Frameworks.BCSymbolMapsForFramework(frameworkURL)
                     let extraFilesProducer = SignalProducer(value: dSYMURL)
                         .concat(bcsymbolmapsProducer)
@@ -159,12 +159,10 @@ public final class Archive {
             .then(SignalProducer<URL, CarthageError>(value: destinationDirectoryURL))
     }
 
-    public static let archiveTemplate = "carthage-archive.XXXXXX"
-
     /// Unzips the archive at the given file URL into a temporary directory, then
     /// sends the file URL to that directory.
     private static func unzip(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
-        return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(archiveTemplate)
+        return FileManager.default.reactive.createTemporaryDirectory()
             .flatMap(.merge) { directoryURL in
                 return unzip(archive: fileURL, to: directoryURL)
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))
@@ -174,7 +172,7 @@ public final class Archive {
     /// Untars an archive at the given file URL into a temporary directory,
     /// then sends the file URL to that directory.
     private static func untar(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
-        return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(archiveTemplate)
+        return FileManager.default.reactive.createTemporaryDirectory()
             .flatMap(.merge) { directoryURL in
                 return untar(archive: fileURL, to: directoryURL)
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))

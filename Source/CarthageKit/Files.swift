@@ -5,6 +5,8 @@ import Result
 /// Generic file manipulation helper methods
 final class Files {
 
+    static let tempDirTemplate = "carthage.XXXXXX"
+
     /// Copies a product into the given folder. The folder will be created if it
     /// does not already exist, and any pre-existing version of the product in the
     /// destination folder will be deleted before the copy of the new version.

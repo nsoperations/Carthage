@@ -9,8 +9,6 @@ import XCDBLD
  */
 public final class CopyFramework {
 
-    private static let copyFrameworksTemplate = "carthage-copyframeworks.XXXXXX"
-
     // MARK: - Public
 
     public static func copyFramework(frameworkURL: URL, frameworksFolder: URL, symbolsFolder: URL, validArchitectures: [String], codeSigningIdentity: String?, shouldStripDebugSymbols: Bool, shouldCopyBCSymbolMap: Bool, lockTimeout: Int? = nil, waitHandler: ((URL) -> Void)? = nil) -> SignalProducer<FrameworkEvent, CarthageError> {
@@ -29,7 +27,7 @@ public final class CopyFramework {
             .flatMap(.merge) { urlLock -> SignalProducer<URL, CarthageError> in
                 lock = urlLock
                 // Create temp directory
-                return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(copyFrameworksTemplate)
+                return FileManager.default.reactive.createTemporaryDirectory()
             }
             .flatMap(.merge) { tempURL -> SignalProducer<FrameworkEvent, CarthageError> in
                 tempDirectoryURL = tempURL

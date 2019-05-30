@@ -323,7 +323,7 @@ public final class ProjectDependencyRetriever {
     /// Installs binaries and debug symbols for the given project, if available.
     ///
     /// Sends a boolean indicating whether binaries were installed.
-    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, toolchain: String?, customCacheCommand: String?) -> SignalProducer<Bool, CarthageError> {
+    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, toolchain: String?, customCacheCommand: String?) -> SignalProducer<Bool, CarthageError> {
         if let cache = self.binariesCache(for: dependency, customCacheCommand: customCacheCommand) {
             return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
                 .mapError { error in CarthageError.internalError(description: error.description) }
@@ -333,6 +333,7 @@ public final class ProjectDependencyRetriever {
                         for: dependency,
                         pinnedVersion: pinnedVersion,
                         configuration: configuration,
+                        platforms: platforms,
                         swiftVersion: localSwiftVersion,
                         eventObserver: self.projectEventsObserver,
                         lockTimeout: self.lockTimeout
@@ -367,7 +368,7 @@ public final class ProjectDependencyRetriever {
     public func storeBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, toolchain: String?) -> SignalProducer<URL, CarthageError> {
         var tempDir: URL?
 
-        return FileManager.default.reactive.createTemporaryDirectoryWithTemplate(Archive.archiveTemplate)
+        return FileManager.default.reactive.createTemporaryDirectory()
             .flatMap(.merge) { (tempDirectoryURL) -> SignalProducer<URL, CarthageError> in
                 tempDir = tempDirectoryURL
                 return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryURL: self.directoryURL, customOutputURL: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip"))
@@ -389,16 +390,19 @@ public final class ProjectDependencyRetriever {
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,
         configuration: String,
-        dependency: Dependency,
+        platforms: Set<Platform>,
         toolchain: String?
         ) -> SignalProducer<(), CarthageError> {
+
+        let dependency = Dependency.binary(binary)
+
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
             .flatMap(.concat, { localSwiftVersion -> SignalProducer<(), CarthageError> in
                 var lock: URLLock?
                 return self.downloadBinaryFrameworkDefinition(binary: binary)
                     .flatMap(.concat) { binaryProject in
-                        return self.downloadBinary(dependency: Dependency.binary(binary), pinnedVersion: pinnedVersion, binaryProject: binaryProject, configuration: configuration, swiftVersion: localSwiftVersion)
+                        return self.downloadBinary(dependency: dependency, pinnedVersion: pinnedVersion, binaryProject: binaryProject, configuration: configuration, platforms: platforms, swiftVersion: localSwiftVersion)
                     }
                     .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
                         lock = urlLock
@@ -554,9 +558,9 @@ public final class ProjectDependencyRetriever {
 
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
-    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
+    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
+        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
             .attemptMap({ (urlLock) -> Result<URLLock, CarthageError> in
                 if let lock = urlLock {
                     return .success(lock)
@@ -744,9 +748,9 @@ public final class ProjectDependencyRetriever {
                     // Write the .version file
                     .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
                         
-                        let versionFileURL = VersionFile.versionFileURL(for: dependency.name, rootDirectoryURL: tempDirectoryURL)
+                        let versionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: tempDirectoryURL)
                         if versionFileURL.isExistingFile {
-                            let targetVersionFileURL = VersionFile.versionFileURL(for: dependency.name, rootDirectoryURL: self.directoryURL)
+                            let targetVersionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: self.directoryURL)
                             return Files.moveFile(from: versionFileURL, to: targetVersionFileURL)
                                 .map { _ in return () }
                         } else {

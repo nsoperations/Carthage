@@ -3,14 +3,13 @@ import Result
 import Tentacle
 import ReactiveSwift
 import ReactiveTask
-import SPMUtility
-
-import struct Foundation.URL
+import XCDBLD
+import struct SPMUtility.Version
 
 /// Cache for binary builds
 protocol BinariesCache {
     
-    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock?, CarthageError>
+    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock?, CarthageError>
 
 }
 
@@ -42,23 +41,54 @@ extension BinariesCache {
 
 class AbstractBinariesCache: BinariesCache {
     
-    private func isFileValid(_ fileURL: URL) -> Bool {
+    private func isFileValid(_ fileURL: URL, dependency: Dependency, platforms: Set<Platform>) -> Bool {
         guard fileURL.isExistingFile else {
             return false
         }
-        
-        //TODO: Check the version file, if it exists
-        
-        return true
+
+        var tempDir: URL?
+        return FileManager.default.reactive.createTemporaryDirectory()
+            .flatMap(.merge) { (tempDirectoryURL) -> SignalProducer<URL?, CarthageError> in
+                tempDir = tempDirectoryURL
+
+                let versionFilePath = VersionFile.versionFileRelativePath(dependencyName: dependency.name)
+                let versionFileURL = URL(fileURLWithPath: versionFilePath)
+                let outputURL = tempDirectoryURL.appendingPathComponent(versionFileURL.lastPathComponent)
+
+                let task = Task(launchCommand: "unzip -p \"\(fileURL.path)\" \"\(versionFilePath)\" > \"\(outputURL.path)\"")
+                return task
+                    .launch()
+                    .ignoreTaskData()
+                    .map { _ in return outputURL }
+                    .flatMapError{ _ in return SignalProducer<URL?, CarthageError>(value: nil) }
+            }
+            .map { versionFileURL -> Bool in
+
+                guard let existingVersionFileURL = versionFileURL else {
+                    // Version file not found, means we should assume all platforms are present
+                    return true
+                }
+
+                guard let versionFile = VersionFile(url: existingVersionFileURL) else {
+                    // Version file not valid, rebuild
+                    return false
+                }
+
+                return versionFile.containsAll(platforms: platforms)
+            }
+            .on(terminated: {
+                tempDir?.removeIgnoringErrors()
+            })
+            .first()!.value ?? false
     }
     
-    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock?, CarthageError> {
+    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock?, CarthageError> {
         
         let fileURL = AbstractBinariesCache.fileURL(for: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion)
         
         return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock?, CarthageError> in
-                if self.isFileValid(fileURL) {
+                if self.isFileValid(fileURL, dependency: dependency, platforms: platforms) {
                     return SignalProducer(value: urlLock)
                 } else {
                     return self.downloadBinary(for: dependency,

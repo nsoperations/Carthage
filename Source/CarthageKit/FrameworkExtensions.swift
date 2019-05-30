@@ -458,6 +458,10 @@ extension Reactive where Base: FileManager {
             }
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
+
+    public func createTemporaryDirectory() -> SignalProducer<URL, CarthageError> {
+        return createTemporaryDirectoryWithTemplate(Files.tempDirTemplate)
+    }
 }
 
 private let defaultSessionError = NSError(domain: Constants.bundleIdentifier, code: 1, userInfo: nil)
