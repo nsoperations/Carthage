@@ -58,7 +58,7 @@ class ArchiveTests: XCTestCase {
 		let outerFilePath = "outer"
 		expect { try "foobar".write(toFile: outerFilePath, atomically: true, encoding: .utf8) }.notTo(throwError())
 		
-        let result = Archive.zip(urls: [ URL(fileURLWithPath: innerFilePath), URL(fileURLWithPath: outerFilePath) ], into: archiveURL, workingDirectoryURL: URL(fileURLWithPath: temporaryURL.path)).wait()
+        let result = Archive.zip(paths: [ innerFilePath, outerFilePath ], into: archiveURL, workingDirectoryURL: URL(fileURLWithPath: temporaryURL.path)).wait()
 		expect(result.error).to(beNil())
 		
 		let unzipResult = Archive.unarchive(archive: archiveURL).single()
@@ -89,7 +89,7 @@ class ArchiveTests: XCTestCase {
 		expect { try FileManager.default.createSymbolicLink(atPath: symlinkPath, withDestinationPath: destinationPath) }.notTo(throwError())
 		expect { try FileManager.default.destinationOfSymbolicLink(atPath: symlinkPath) } == destinationPath
 		
-        let result = Archive.zip(urls: [ URL(fileURLWithPath: symlinkPath), URL(fileURLWithPath: destinationPath) ], into: archiveURL, workingDirectoryURL: URL(fileURLWithPath: temporaryURL.path)).wait()
+        let result = Archive.zip(paths: [ symlinkPath, destinationPath ], into: archiveURL, workingDirectoryURL: URL(fileURLWithPath: temporaryURL.path)).wait()
 		expect(result.error).to(beNil())
 		
 		let unzipResult = Archive.unarchive(archive: archiveURL).single()

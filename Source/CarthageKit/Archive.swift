@@ -18,7 +18,7 @@ public final class Archive {
         let frameworks: SignalProducer<[String], CarthageError>
         if !frameworkNames.isEmpty {
             frameworks = .init(value: frameworkNames.map {
-                return $0 + ".framework"
+                return $0.appendingPathExtension("framework")
             })
         } else {
             let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
@@ -40,31 +40,33 @@ public final class Archive {
 
         return frameworks.flatMap(.merge) { frameworks -> SignalProducer<URL, CarthageError> in
             return SignalProducer<Platform, CarthageError>(Platform.supportedPlatforms)
-                .flatMap(.merge) { platform -> SignalProducer<URL, CarthageError> in
-                    return SignalProducer(frameworks).map { framework -> URL in
-                        return directoryURL.appendingPathComponent(platform.relativePath).appendingPathComponent(framework)
+                .flatMap(.merge) { platform -> SignalProducer<String, CarthageError> in
+                    return SignalProducer(frameworks).map { framework in
+                        return platform.relativePath.appendingPathComponent(framework)
                     }
                 }
-                .filter { $0.isExistingFileOrDirectory }
-                .flatMap(.merge) { frameworkURL -> SignalProducer<URL, CarthageError> in
-                    let dSYMURL = frameworkURL.appendingPathExtension("dSYM")
-                    let frameworkName = frameworkURL.lastPathComponent.removingSuffix(".framework")
-                    let versionFileURL = VersionFile.versionFileURL(dependencyName: frameworkName, rootDirectoryURL: directoryURL)
-                    let bcsymbolmapsProducer = Frameworks.BCSymbolMapsForFramework(frameworkURL)
-                    let extraFilesProducer = SignalProducer(value: dSYMURL)
+                .map { relativePath -> (relativePath: String, url: URL) in
+                    return (relativePath, directoryURL.appendingPathComponent(relativePath))
+                }
+                .filter { file in file.url.isExistingFileOrDirectory }
+                .flatMap(.merge) { framework -> SignalProducer<String, CarthageError> in
+                    let dSYM = framework.relativePath.appendingPathExtension("dSYM")
+                    let bcsymbolmapsProducer = Frameworks.BCSymbolMapsForFramework(framework.url)
+                        // generate relative paths for the bcsymbolmaps so they print nicely
+                        .map { url in framework.relativePath.deletingLastPathComponent.appendingPathComponent(url.lastPathComponent) }
+                    let extraFilesProducer = SignalProducer(value: dSYM)
                         .concat(bcsymbolmapsProducer)
-                        .concat(SignalProducer(value: versionFileURL))
-                        .filter { $0.isExistingFileOrDirectory }
-                    return SignalProducer(value: frameworkURL)
+                        .filter { _ in framework.url.isExistingFileOrDirectory }
+                    return SignalProducer(value: framework.relativePath)
                         .concat(extraFilesProducer)
                 }
-                .on(value: { url in
-                    frameworkFoundHandler?(url.path.removingPrefix(directoryURL.path))
+                .on(value: { path in
+                    frameworkFoundHandler?(path)
                 })
                 .collect()
-                .flatMap(.merge) { urls -> SignalProducer<URL, CarthageError> in
+                .flatMap(.merge) { paths -> SignalProducer<URL, CarthageError> in
 
-                    let foundFrameworks = urls
+                    let foundFrameworks = paths
                         .lazy
                         .map { $0.lastPathComponent }
                         .filter { $0.hasSuffix(".framework") }
@@ -86,7 +88,7 @@ public final class Archive {
                         .default
                         .createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-                    return zip(urls: urls, into: outputURL, workingDirectoryURL: directoryURL)
+                    return zip(paths: paths, into: outputURL, workingDirectoryURL: directoryURL)
             }
         }
     }
@@ -106,15 +108,11 @@ public final class Archive {
 
     /// Zips the given input paths (recursively) into an archive that will be
     /// located at the given URL.
-    static func zip(urls: [URL], into archiveURL: URL, workingDirectoryURL: URL) -> SignalProducer<URL, CarthageError> {
-        precondition(!urls.isEmpty)
+    static func zip(paths: [String], into archiveURL: URL, workingDirectoryURL: URL) -> SignalProducer<URL, CarthageError> {
+        precondition(!paths.isEmpty)
         precondition(archiveURL.isFileURL)
 
-        var workingDirectoryPath = workingDirectoryURL.path
-        if !workingDirectoryPath.hasSuffix("/") {
-            workingDirectoryPath += "/"
-        }
-        let task = Task("/usr/bin/env", arguments: [ "zip", "-q", "-r", "--symlinks", archiveURL.path ] + urls.map { $0.path.removingPrefix(workingDirectoryPath) }, workingDirectoryPath: workingDirectoryPath)
+        let task = Task("/usr/bin/env", arguments: [ "zip", "-q", "-r", "--symlinks", archiveURL.path ] + paths, workingDirectoryPath: workingDirectoryURL.path)
 
         return task.launch()
             .mapError(CarthageError.taskError)
@@ -198,5 +196,21 @@ extension String {
         } else {
             return self
         }
+    }
+    
+    fileprivate func appendingPathComponent(_ component: String) -> String {
+        return (self as NSString).appendingPathComponent(component)
+    }
+    
+    fileprivate func appendingPathExtension(_ pathExtension: String) -> String {
+        return (self as NSString).appendingPathExtension(pathExtension)!
+    }
+    
+    fileprivate var deletingLastPathComponent: String {
+        return (self as NSString).deletingLastPathComponent
+    }
+    
+    fileprivate var lastPathComponent: String {
+        return (self as NSString).lastPathComponent
     }
 }
