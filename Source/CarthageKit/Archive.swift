@@ -8,9 +8,9 @@ public final class Archive {
 
     // MARK: - Public
 
-    public static func archiveFrameworks(frameworkNames: [String], directoryURL: URL, customOutputURL: URL?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+    public static func archiveFrameworks(frameworkNames: [String], directoryURL: URL, customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
 
-        if let definedOutputURL = customOutputURL, definedOutputURL.path.isEmpty {
+        if let definedOutputPath = customOutputPath, definedOutputPath.isEmpty {
             return SignalProducer<URL, CarthageError>(error: CarthageError.invalidArgument(description: "Custom archive output path should not be empty"))
         }
 
@@ -79,7 +79,8 @@ public final class Archive {
                         return SignalProducer(error: error)
                     }
 
-                    let outputURL = outputURLForBaseURL(customOutputURL ?? directoryURL, frameworks: frameworks)
+                    let outputPath = outputPathForBasePath(customOutputPath, frameworks: frameworks)
+                    let outputURL = URL(fileURLWithPath: outputPath, isDirectory: false)
 
                     _ = try? FileManager
                         .default
@@ -123,14 +124,25 @@ public final class Archive {
 
     /// Returns an appropriate output file path for the resulting zip file using
     /// the given option and frameworks.
-    private static func outputURLForBaseURL(_ baseURL: URL, frameworks: [String]) -> URL {
+    private static func outputPathForBasePath(_ basePath: String?, frameworks: [String]) -> String {
         let defaultOutputPath = "\(frameworks.first!).zip"
 
-        if baseURL.isExistingDirectory || baseURL.path.hasSuffix("/") {
-            return baseURL.appendingPathComponent(defaultOutputPath)
-        } else {
-            return baseURL
-        }
+        return basePath.map { path -> String in
+            if path.hasSuffix("/") {
+                // The given path should be a directory.
+                return path + defaultOutputPath
+            }
+
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue {
+                // If the given path is an existing directory, output a zip file
+                // into that directory.
+                return path.appendingPathComponent(defaultOutputPath)
+            } else {
+                // Use the given path as the final output.
+                return path
+            }
+            } ?? defaultOutputPath
     }
 
     /// Unzips the archive at the given file URL, extracting into the given

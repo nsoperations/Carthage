@@ -371,7 +371,7 @@ public final class ProjectDependencyRetriever {
         return FileManager.default.reactive.createTemporaryDirectory()
             .flatMap(.merge) { (tempDirectoryURL) -> SignalProducer<URL, CarthageError> in
                 tempDir = tempDirectoryURL
-                return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryURL: self.directoryURL, customOutputURL: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip"))
+                return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryURL: self.directoryURL, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
             }
             .flatMap(.merge) { archiveURL -> SignalProducer<URL, CarthageError> in
                 return SwiftToolchain.swiftVersion(usingToolchain: toolchain)

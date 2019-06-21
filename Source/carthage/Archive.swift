@@ -51,9 +51,8 @@ public struct ArchiveCommand: CommandProtocol {
         let formatting = options.colorOptions.formatting
         let frameworkNames = options.frameworkNames
         let directoryURL = URL(fileURLWithPath: options.directoryPath)
-        let customOutputURL = options.outputPath.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
 
-        return Archive.archiveFrameworks(frameworkNames: frameworkNames, directoryURL: directoryURL, customOutputURL: customOutputURL, frameworkFoundHandler: { path in
+        return Archive.archiveFrameworks(frameworkNames: frameworkNames, directoryURL: directoryURL, customOutputPath: options.outputPath, frameworkFoundHandler: { path in
             carthage.println(formatting.bullets + "Found " + formatting.path(path))
         }).on(value: { outputURL in
             carthage.println(formatting.bullets + "Created " + formatting.path(outputURL.path))
