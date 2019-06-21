@@ -15,6 +15,8 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - Adds a plugable caching mechanism, enabled by the option `--cache-command` for all build-related commands. A custom shell script or executable can be specified to retrieve cached binaries from arbitrary back-ends. The CARTHAGE_CACHE_COMMAND environment variable is used as a default for this command. If not defined, a fall back to the original GitHub API based caching will take place.
 - Ensures the caching mechanism tasks Swift toolchain version and build configuration (Debug/Release) into account. The binaries cache folders (under ~/Library/Caches/org.carthage.CarthageKit/binaries) now have the following directory structure: $SWIFT_VERSION/$DEPENDENCY_NAME/$DEPENDENCY_VERSION/$BUILD_CONFIGURATION.
 - Adds support for a Cartfile.schemes file, which can be added to a project to limit the schemes considered by Carthage for building. Just add the scheme names to consider to this file (one per line).
+- Adds support for automatic discovery of frameworks to copy using the --auto flag for the copy-frameworks command.
+- Adds support for local storage of binary builds in the carthage binaries cache when the build option --use-binaries is enabled (which is the default).
 
 To install:
 
@@ -57,6 +59,11 @@ see [Installing Carthage](#installing-carthage)
 - [License](#license)
 
 ## Change Log
+
+### 0.36.0+nsoperations
+
+- Added support for the --auto flag for the copy-frameworks command to automate the discovery of frameworks to copy.
+- Added local storage of built binaries in the local shared binary cache so subsequent builds in different checkout directories can benefit from binary caching. The symbols will be automatically mapped to represent the correct directories.
 
 ### 0.35.1+nsoperations
 
@@ -197,7 +204,7 @@ When archiving your application for submission to the App Store or TestFlight, X
 
 ###### Combining Automatic and Manual copying
 
-Note that you can combine both automatic and manual ways to copy frameworks, however manually specified frameworks always take precedence over automatically inferred. Therefore in case you have `SomeFramework.framework` located anywhere as well as `SomeFramework.framework` located at `./Carthage/Build/<platform>/`, Carthage will pick manually specified framework. This is useful when you're working with development frameworks and want to copy your version of the framework instead of default one. 
+Note that you can combine both automatic and manual ways to copy frameworks, however manually specified frameworks always take precedence over automatically inferred. Therefore in case you have `SomeFramework.framework` located anywhere as well as `SomeFramework.framework` located at `./Carthage/Build/<platform>/`, Carthage will pick manually specified framework. This is useful when you're working with development frameworks and want to copy your version of the framework instead of default one.
 Important to undestand, that Carthage won't resolve transient dependencies for your custom framework unless they either located at `./Carthage/Build/<platform>/` or specified manually in “Input Files".
 
 ###### Automatic depencencies copying FRAMEWORK_SEARCH_PATHS
@@ -294,12 +301,13 @@ By default Carthage will rebuild a dependency regardless of whether it's the sam
 
 Note: At this time `--cache-builds` is incompatible with `--use-submodules`. Using both will result in working copy and committed changes to your submodule dependency not being correctly rebuilt. See [#1785](https://github.com/Carthage/Carthage/issues/1785) for details.
 
-By default Carthage will use binary caching based on releases published in GitHub. However this fork adds a plugable caching mechanism exposed via the --cache-command option which can be supplied to all commands which execute carthage build (update, bootstrap, build). Specify a custom executable with this --cache-command option to implement caching in a custom way or specify the environment variable CARTHAGE_CACHE_COMMAND to achieve the same.
+The option `--use-binaries` (which is true by default, specify `--no-use-binaries` to disable) will try to find binary cached dependencies. This works independently of the `--cache-builds` option.
+Binaries will be resolved from the local shared cache or, if not available there, will be downloaded from a remote location.
+
+By default Carthage will use remote binary caching based on releases published in GitHub. However there is a plugable caching mechanism exposed via the `--cache-command` option which can be supplied to all commands which execute carthage build (update, bootstrap, build). Specify a custom executable with this `--cache-command` option to implement caching in a custom way or specify the environment variable CARTHAGE_CACHE_COMMAND to achieve the same.
 The executable will receive five environment variables from Carthage: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]
 
 The executable should resolve a binary zip file as produced via the carthage archive command (or carthage build --archive) compatible with the specified dependency options (name, version, build config, swift toolchain version) and should move the file to the file path denoted by the CARTHAGE_CACHE_TARGET_FILE_PATH environment variable.
-
-If successful the executable should exit with 0 exit code, else a non-zero exit code has to be produced.
 
 ### Bash/Zsh/Fish completion
 
