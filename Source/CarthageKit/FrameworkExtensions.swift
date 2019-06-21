@@ -352,6 +352,10 @@ extension URL {
         let attributes = try? self.resourceValues(forKeys: [key])
         return attributes?.contentModificationDate
     }
+
+    internal func removeIgnoringErrors() {
+        _ = try? FileManager.default.removeItem(at: self)
+    }
 }
 
 extension FileManager: ReactiveExtensionsProvider {
@@ -453,6 +457,10 @@ extension Reactive where Base: FileManager {
             return .success(temporaryPath)
             }
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    public func createTemporaryDirectory() -> SignalProducer<URL, CarthageError> {
+        return createTemporaryDirectoryWithTemplate(Files.tempDirTemplate)
     }
 }
 

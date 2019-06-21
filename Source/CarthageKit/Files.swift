@@ -5,6 +5,8 @@ import Result
 /// Generic file manipulation helper methods
 final class Files {
 
+    static let tempDirTemplate = "carthage.XXXXXX"
+
     /// Copies a product into the given folder. The folder will be created if it
     /// does not already exist, and any pre-existing version of the product in the
     /// destination folder will be deleted before the copy of the new version.
@@ -60,7 +62,7 @@ final class Files {
     static func moveFile(from: URL, to: URL) -> SignalProducer<URL, CarthageError> { // swiftlint:disable:this identifier_name
         return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in
             let manager = FileManager.default
-
+            
             // This signal deletes `to` before it copies `from` over it.
             // If `from` and `to` point to the same resource, there's no need to perform a copy at all
             // and deleting `to` will also result in deleting the original resource without copying it.

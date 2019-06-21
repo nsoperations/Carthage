@@ -31,6 +31,9 @@ public enum ProjectEvent {
     case downloadingBinaries(Dependency, String)
 
     /// Installing binaries from local cache
+    case storingBinaries(Dependency, String)
+
+    /// Installing binaries from local cache
     case installingBinaries(Dependency, String)
 
     /// Downloading any available binaries of the project is being skipped,
@@ -40,7 +43,7 @@ public enum ProjectEvent {
 
     /// Installing of a binary framework is being skipped because of an inability
     /// to verify that it was built with a compatible Swift version.
-    case skippedInstallingBinaries(dependency: Dependency, error: Error)
+    case skippedInstallingBinaries(dependency: Dependency, error: Error?)
 
     /// Building the project is being skipped, since the project is not sharing
     /// any framework schemes.
@@ -641,12 +644,12 @@ public final class Project { // swiftlint:disable:this type_body_length
                             guard options.useBinaries else {
                                 return .empty
                             }
-                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
+                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, platforms: options.platforms, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
                                 .filterMap { installed -> (Dependency, PinnedVersion)? in
                                     return installed ? (dependency, version) : nil
                             }
                         case let .binary(binary):
-                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, dependency: dependency, toolchain: options.toolchain)
+                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, platforms: options.platforms, toolchain: options.toolchain)
                                 .then(.init(value: (dependency, version)))
                         }
                     }
@@ -655,6 +658,31 @@ public final class Project { // swiftlint:disable:this type_body_length
                         // (even though it's not necessary since binary downloads aren't built by Carthage)
                         return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
                             .then(.init(value: (dependency, version)))
+                    }
+                    .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Bool?), CarthageError> in
+                        return VersionFile.versionFileMatches(
+                            dependency,
+                            version: version,
+                            platforms: options.platforms,
+                            configuration: options.configuration,
+                            rootDirectoryURL: self.directoryURL,
+                            toolchain: options.toolchain
+                            )
+                            .map { matches in return (dependency, version, matches) }
+                    }
+                    .filterMap { dependency, version, matches -> (Dependency, PinnedVersion)? in
+                        guard let versionFileMatches = matches else {
+                            self.projectEventsObserver.send(value: .buildingUncached(dependency))
+                            return nil
+                        }
+
+                        if versionFileMatches {
+                            self.projectEventsObserver.send(value: .skippedBuildingCached(dependency))
+                            return (dependency, version)
+                        } else {
+                            self.projectEventsObserver.send(value: .rebuildingCached(dependency))
+                            return nil
+                        }
                     }
                     .collect()
                     .map { installedDependencies -> [(Dependency, PinnedVersion)] in
@@ -679,8 +707,13 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let derivedDataVersioned = derivedDataPerDependency.appendingPathComponent(version.commitish, isDirectory: true)
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
+                let storeBinaries: BuildSchemeProducer = options.useBinaries ?
+                    self.dependencyRetriever.storeBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain)
+                        .then(BuildSchemeProducer.empty) : BuildSchemeProducer.empty
+
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
                     .then(Xcode.build(dependency: dependency, version: version, self.directoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter))
+                    .concat(storeBinaries)
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:
@@ -705,7 +738,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         default:
                             return SignalProducer(error: error)
                         }
-                }
+                    }
         }
     }
 

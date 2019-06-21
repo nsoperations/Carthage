@@ -114,27 +114,23 @@ public final class Xcode {
                         }
                         .collectTaskEvents()
                         .flatMapTaskEvents(.concat) { (urls: [URL]) -> SignalProducer<(), CarthageError> in
-
-                            guard let dependency = dependency else {
-
+                            if let dependency = dependency {
+                                return VersionFile.createVersionFile(
+                                    for: dependency.dependency,
+                                    version: dependency.version,
+                                    platforms: options.platforms,
+                                    configuration: options.configuration,
+                                    buildProducts: urls,
+                                    rootDirectoryURL: rootDirectoryURL
+                                    )
+                            } else {
                                 return VersionFile.createVersionFileForCurrentProject(
                                     platforms: options.platforms,
                                     configuration: options.configuration,
                                     buildProducts: urls,
                                     rootDirectoryURL: rootDirectoryURL
                                     )
-                                    .flatMapError { _ in .empty }
                             }
-
-                            return VersionFile.createVersionFile(
-                                for: dependency.dependency,
-                                version: dependency.version,
-                                platforms: options.platforms,
-                                configuration: options.configuration,
-                                buildProducts: urls,
-                                rootDirectoryURL: rootDirectoryURL
-                                )
-                                .flatMapError { _ in .empty }
                         }
                         // Discard any Success values, since we want to
                         // use our initial value instead of waiting for

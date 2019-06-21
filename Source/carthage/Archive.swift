@@ -50,10 +50,9 @@ public struct ArchiveCommand: CommandProtocol {
     public func archiveWithOptions(_ options: Options) -> SignalProducer<URL, CarthageError> {
         let formatting = options.colorOptions.formatting
         let frameworkNames = options.frameworkNames
-        let directoryPath = options.directoryPath
-        let customOutputPath = options.outputPath.flatMap { $0.isEmpty ? nil : $0 }
+        let directoryURL = URL(fileURLWithPath: options.directoryPath)
 
-        return Archive.archiveFrameworks(frameworkNames: frameworkNames, directoryPath: directoryPath, customOutputPath: customOutputPath, frameworkFoundHandler: { path in
+        return Archive.archiveFrameworks(frameworkNames: frameworkNames, directoryURL: directoryURL, customOutputPath: options.outputPath, frameworkFoundHandler: { path in
             carthage.println(formatting.bullets + "Found " + formatting.path(path))
         }).on(value: { outputURL in
             carthage.println(formatting.bullets + "Created " + formatting.path(outputURL.path))
