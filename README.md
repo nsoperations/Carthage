@@ -60,9 +60,14 @@ see [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.36.1+nsoperations
+
+- Fixed bug in determining the swift framework version if a non-default generated objective C header was configured for that framework.
+- Fixed documentation for the `--no-use-binaries` build option.
+
 ### 0.36.0+nsoperations
 
-- Added support for the --auto flag for the copy-frameworks command to automate the discovery of frameworks to copy.
+- Added support for the `--auto` flag for the `copy-frameworks` command to automate the discovery of frameworks to copy.
 - Added local storage of built binaries in the local shared binary cache so subsequent builds in different checkout directories can benefit from binary caching. The symbols will be automatically mapped to represent the correct directories.
 
 ### 0.35.1+nsoperations

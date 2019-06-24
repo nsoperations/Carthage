@@ -63,17 +63,16 @@ final class Frameworks {
 
     /// Determines the Swift version of a framework at a given `URL`.
     static func frameworkSwiftVersion(_ frameworkURL: URL) -> SignalProducer<PinnedVersion, SwiftVersionError> {
+        let candidateSwiftHeaderURLs =  frameworkURL.candidateSwiftHeaderURLs()
 
-        guard
-            let swiftHeaderURL = frameworkURL.swiftHeaderURL(),
-            let data = try? Data(contentsOf: swiftHeaderURL),
-            let contents = String(data: data, encoding: .utf8),
-            let swiftVersion = SwiftToolchain.swiftVersion(from: contents)
-            else {
-                return SignalProducer(error: .unknownFrameworkSwiftVersion(message: "Could not derive version from header file."))
+        for swiftHeaderURL in candidateSwiftHeaderURLs {
+            if let data = try? Data(contentsOf: swiftHeaderURL),
+                let contents = String(data: data, encoding: .utf8),
+                let swiftVersion = SwiftToolchain.swiftVersion(from: contents) {
+                return SignalProducer(value: swiftVersion)
+            }
         }
-
-        return SignalProducer(value: swiftVersion)
+        return SignalProducer(error: .unknownFrameworkSwiftVersion(message: "Could not derive version from header file."))
     }
 
     static func dSYMSwiftVersion(_ dSYMURL: URL) -> SignalProducer<PinnedVersion, SwiftVersionError> {

@@ -20,7 +20,7 @@ extension BuildOptions: OptionsProtocol {
         let option2 = Option<String?>(key: "toolchain", defaultValue: nil, usage: "the toolchain to build with")
         let option3 = Option<String?>(key: "derived-data", defaultValue: nil, usage: "path to the custom derived data folder")
         let option4 = Option(key: "cache-builds", defaultValue: false, usage: "use cached builds when possible")
-        let option5 = Option(key: "use-binaries", defaultValue: true, usage: "use remote or locally cached binaries when possible")
+        let option5 = Option(key: "use-binaries", defaultValue: true, usage: "don't use remotely or locally cached binaries when possible")
         let option6 = Option<String?>(key: "cache-command", defaultValue: Environment.getVariable("CARTHAGE_CACHE_COMMAND").value, usage: "custom command to execute to download cached (binary) dependencies from a custom cache store. Five environment variables will be set which can be used by the command if needed: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]. The executable should move the cached file to the targetFilePath when successful. The CARTHAGE_CACHE_COMMAND environment variable is read for a default for this value. If not specified, caching will revert to caching based on the GitHub API which only works for GitHub dependencies.")
 
         return curry(self.init)
