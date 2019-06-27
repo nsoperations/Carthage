@@ -25,7 +25,13 @@ final class DebugSymbolsMapper {
                 throw CarthageError.invalidDebugSymbols(dsymURL, description: "No debug symbols found at this location")
             }
 
-            let buildSourceURL: URL = try findBuildSourceURL(frameworkURL: frameworkURL, sourceURL: sourceURL)
+            let buildSourceURL: URL
+            do {
+                buildSourceURL = try findBuildSourceURL(frameworkURL: frameworkURL, sourceURL: sourceURL)
+            } catch let error as CarthageError {
+                print("Warning: " + error.description)
+                return .success(())
+            }
 
             let binaryUUIDs = try verifyUUIDs(frameworkURL: frameworkURL, dsymURL: dsymURL)
 
