@@ -129,7 +129,7 @@ final class DependencyRetriever {
             try pinnedVersionsProducer.reduce(into: versionSet) { vs, pinnedVersion in
                 let concreteVersion = ConcreteVersion(pinnedVersion: pinnedVersion)
                 vs.insert(concreteVersion)
-                }.wait().get()
+            }.wait().get()
         }
 
         versionSet.retainVersions(compatibleWith: versionSpecifier)

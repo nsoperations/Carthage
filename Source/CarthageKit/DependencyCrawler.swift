@@ -66,7 +66,7 @@ public final class DependencyCrawler {
         let result: Result<[Dependency: Set<PinnedVersion>], CarthageError>
         do {
             var handledDependencies = Set<PinnedDependency>()
-            var cachedVersionSets = [Dependency: [PinnedVersion]]()
+            var cachedVersionSets = [DependencyKey: [PinnedVersion]]()
             try traverse(dependencies: Array(dependencies),
                          handledDependencies: &handledDependencies,
                          cachedVersionSets: &cachedVersionSets)
@@ -81,7 +81,7 @@ public final class DependencyCrawler {
 
     private func traverse(dependencies: [(Dependency, VersionSpecifier)],
                           handledDependencies: inout Set<PinnedDependency>,
-                          cachedVersionSets: inout [Dependency: [PinnedVersion]]) throws {
+                          cachedVersionSets: inout [DependencyKey: [PinnedVersion]]) throws {
         for (dependency, versionSpecifier) in dependencies {
             let versionSet = try findAllVersions(for: dependency,
                                                  compatibleWith: versionSpecifier,
@@ -103,10 +103,11 @@ public final class DependencyCrawler {
 
     private func findAllVersions(for dependency: Dependency,
                                  compatibleWith versionSpecifier: VersionSpecifier,
-                                 cachedVersionSets: inout [Dependency: [PinnedVersion]]) throws -> [PinnedVersion] {
+                                 cachedVersionSets: inout [DependencyKey: [PinnedVersion]]) throws -> [PinnedVersion] {
         do {
             let versionSet: [PinnedVersion]
-            if let cachedVersionSet = cachedVersionSets[dependency] {
+            let dependencyKey = DependencyKey(dependency: dependency, versionSpecifier: versionSpecifier)
+            if let cachedVersionSet = cachedVersionSets[dependencyKey] {
                 versionSet = cachedVersionSet
             } else {
                 let pinnedVersionsProducer: SignalProducer<PinnedVersion, CarthageError>
@@ -123,7 +124,7 @@ public final class DependencyCrawler {
                 guard let pinnedVersions: [PinnedVersion] = try pinnedVersionsProducer.collect().first()?.get() else {
                     throw DependencyCrawlerError.versionRetrievalFailure(message: "Could not collect versions for dependency: \(dependency) and versionSpecifier: \(versionSpecifier)")
                 }
-                cachedVersionSets[dependency] = pinnedVersions
+                cachedVersionSets[dependencyKey] = pinnedVersions
 
                 let storedDependency = self.dependencyMappings?[dependency] ?? dependency
                 try store.storePinnedVersions(pinnedVersions, for: storedDependency, gitReference: gitReference).get()
@@ -204,5 +205,23 @@ extension Sequence where Element == PinnedDependency {
             set.insert(pinnedDependency.pinnedVersion)
             dict[pinnedDependency.dependency] = set
         }
+    }
+}
+
+private struct DependencyKey: Hashable {
+    let dependency: Dependency
+    let gitReference: String?
+
+    init(dependency: Dependency, gitReference: String?) {
+        self.dependency = dependency
+        self.gitReference = gitReference
+    }
+
+    init(dependency: Dependency, versionSpecifier: VersionSpecifier) {
+        var gitReference: String? = nil
+        if case let VersionSpecifier.gitReference(reference) = versionSpecifier {
+            gitReference = reference
+        }
+        self.init(dependency: dependency, gitReference: gitReference)
     }
 }
