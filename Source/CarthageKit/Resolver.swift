@@ -11,17 +11,12 @@ public enum ResolverEvent {
     case rejected(dependencySet: [Dependency: [PinnedVersion]], rejectionError: CarthageError)
 }
 
-
 /// Protocol for resolving acyclic dependency graphs.
 public protocol ResolverProtocol {
 
     var events: Signal<ResolverEvent, NoError> { get }
 
-    init(
-        versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
-        dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
-        resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-    )
+    init(projectDependencyRetriever: ProjectDependencyRetrieverProtocol)
 
     func resolve(
         dependencies: [Dependency: VersionSpecifier],

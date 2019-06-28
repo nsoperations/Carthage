@@ -529,7 +529,7 @@ extension VersionFile {
                                              configuration: configuration,
                                              binariesDirectoryURL: rootBinariesURL,
                                              localSwiftVersion: localSwiftVersion)
-                .map { .some($0) }
+                    .map { .some($0) }
         }
     }
 
@@ -544,7 +544,7 @@ extension VersionFile {
         ) -> SignalProducer<(), CarthageError> {
         return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
             let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
-            
+
             let versionFile = VersionFile(
                 commitish: commitish,
                 configuration: configuration,

@@ -63,7 +63,7 @@ final class Frameworks {
 
     /// Determines the Swift version of a framework at a given `URL`.
     static func frameworkSwiftVersion(_ frameworkURL: URL) -> SignalProducer<PinnedVersion, SwiftVersionError> {
-        let candidateSwiftHeaderURLs =  frameworkURL.candidateSwiftHeaderURLs()
+        let candidateSwiftHeaderURLs = frameworkURL.candidateSwiftHeaderURLs()
 
         for swiftHeaderURL in candidateSwiftHeaderURLs {
             if let data = try? Data(contentsOf: swiftHeaderURL),

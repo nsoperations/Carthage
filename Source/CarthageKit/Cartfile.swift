@@ -56,8 +56,8 @@ public struct Cartfile {
             )
 
             switch Dependency.from(scannerWithoutComments).fanout(VersionSpecifier.from(scannerWithoutComments)) {
-            case let .success((dependency, version)):
-                if case .binary = dependency, case .gitReference = version {
+            case let .success((dependency, versionSpecifier)):
+                if case .binary = dependency, case .gitReference = versionSpecifier {
                     result = .failure(
                         CarthageError.parseError(
                             description: "binary dependencies cannot have a git reference for the version specifier in line: \(scannerWithComments.currentLine)"
@@ -68,7 +68,7 @@ public struct Cartfile {
                 }
 
                 if dependencies[dependency] == nil {
-                    dependencies[dependency] = version
+                    dependencies[dependency] = versionSpecifier
                 } else {
                     duplicates.append(dependency)
                 }

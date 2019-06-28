@@ -13,11 +13,8 @@ public final class BackTrackingResolver: ResolverProtocol {
 
     /// DependencyCrawler events signal
     public let events: Signal<ResolverEvent, NoError>
-
-    private let versionsForDependency: (Dependency) -> SignalProducer<PinnedVersion, CarthageError>
-    private let resolvedGitReference: (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-    private let dependenciesForDependency: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
     private let eventPublisher: Signal<ResolverEvent, NoError>.Observer
+    private let projectDependencyRetriever: ProjectDependencyRetrieverProtocol
 
     /**
      Current resolver state, accepted or rejected.
@@ -39,14 +36,8 @@ public final class BackTrackingResolver: ResolverProtocol {
      resolvedGitReference - Resolves an arbitrary Git reference to the
      latest object.
      */
-    public init(
-        versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
-        dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
-        resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-        ) {
-        self.versionsForDependency = versionsForDependency
-        self.dependenciesForDependency = dependenciesForDependency
-        self.resolvedGitReference = resolvedGitReference
+    public init(projectDependencyRetriever: ProjectDependencyRetrieverProtocol) {
+        self.projectDependencyRetriever = projectDependencyRetriever
 
         let (signal, observer) = Signal<ResolverEvent, NoError>.pipe()
         events = signal
@@ -67,9 +58,7 @@ public final class BackTrackingResolver: ResolverProtocol {
         let result: Result<[Dependency: PinnedVersion], CarthageError>
 
         let pinnedVersions = lastResolved ?? [Dependency: PinnedVersion]()
-        let dependencyRetriever = DependencyRetriever(versionsForDependency: versionsForDependency,
-                                                      dependenciesForDependency: dependenciesForDependency,
-                                                      resolvedGitReference: resolvedGitReference,
+        let dependencyRetriever = DependencyRetriever(projectDependencyRetriever: projectDependencyRetriever,
                                                       pinnedVersions: pinnedVersions)
 
         dependencyRetriever.eventObserver = self.eventPublisher.send

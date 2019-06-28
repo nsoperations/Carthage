@@ -11,9 +11,7 @@ import ReactiveSwift
  */
 final class DependencyRetriever {
     private var pinnedVersions: [Dependency: PinnedVersion]
-    private let versionsForDependency: (Dependency) -> SignalProducer<PinnedVersion, CarthageError>
-    private let resolvedGitReference: (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-    private let dependenciesForDependency: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
+    let projectDependencyRetriever: ProjectDependencyRetrieverProtocol
 
     private var dependencyCache = [PinnedDependency: [DependencyEntry]]()
     private var versionsCache = [DependencyVersionSpec: ConcreteVersionSet]()
@@ -23,15 +21,8 @@ final class DependencyRetriever {
 
     var eventObserver: ((ResolverEvent) -> Void)?
 
-    public init(
-        versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
-        dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
-        resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>,
-        pinnedVersions: [Dependency: PinnedVersion]
-        ) {
-        self.versionsForDependency = versionsForDependency
-        self.dependenciesForDependency = dependenciesForDependency
-        self.resolvedGitReference = resolvedGitReference
+    public init(projectDependencyRetriever: ProjectDependencyRetrieverProtocol, pinnedVersions: [Dependency: PinnedVersion]) {
+        self.projectDependencyRetriever = projectDependencyRetriever
         self.pinnedVersions = pinnedVersions
     }
 
@@ -117,30 +108,31 @@ final class DependencyRetriever {
 
         if !isUpdatable, let pinnedVersion = pinnedVersions[dependency] {
             versionSet.insert(ConcreteVersion(pinnedVersion: pinnedVersion))
-            versionSet.pinnedVersionSpecifier = versionSpecifier
+            versionSet.isPinned = true
         } else if isUpdatable {
             let pinnedVersionsProducer: SignalProducer<PinnedVersion, CarthageError>
 
             switch versionSpecifier {
             case .gitReference(let hash):
-                pinnedVersionsProducer = resolvedGitReference(dependency, hash)
+                pinnedVersionsProducer = projectDependencyRetriever.resolvedGitReference(dependency, reference: hash)
             default:
-                pinnedVersionsProducer = versionsForDependency(dependency)
+                pinnedVersionsProducer = projectDependencyRetriever.versions(for: dependency)
             }
 
             try pinnedVersionsProducer.reduce(into: versionSet) { vs, pinnedVersion in
                 let concreteVersion = ConcreteVersion(pinnedVersion: pinnedVersion)
                 vs.insert(concreteVersion)
-            }.wait().get()
+                }.wait().get()
         }
 
-        versionSet.retainVersions(compatibleWith: versionSpecifier)
+        let effectiveVersionSpecifier = try versionSpecifier.effectiveSpecifier(for: dependency, retriever: self.projectDependencyRetriever)
+        versionSet.retainVersions(compatibleWith: effectiveVersionSpecifier)
         eventObserver?(ResolverEvent.foundVersions(versions: versionSet.pinnedVersions, dependency: dependency, versionSpecifier: versionSpecifier))
         return versionSet
     }
 
     private func findDependenciesUncached(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyEntry] {
-        guard let result = try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()?.get() else {
+        guard let result = try projectDependencyRetriever.dependencies(for: dependency, version: version.pinnedVersion).collect().first()?.get() else {
             throw DependencyRetrieverError.assertionFailure("Could not dematerialize dependencies for dependency: \(dependency) and version: \(version)")
         }
 
@@ -220,7 +212,7 @@ private struct DependencyVersionSpec: Hashable {
     public let isUpdatable: Bool
     private let hash: Int
 
-    init(dependency: Dependency, versionSpecifier: VersionSpecifier, isUpdatable: Bool) {
+    init(dependency: Dependency, versionSpecifier: VersionSpecifier, isUpdatable: Bool = true) {
         self.dependency = dependency
         self.versionSpecifier = versionSpecifier
         self.isUpdatable = isUpdatable

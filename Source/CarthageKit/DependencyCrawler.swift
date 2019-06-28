@@ -210,7 +210,7 @@ private struct DependencyKey: Hashable {
     }
 
     init(dependency: Dependency, versionSpecifier: VersionSpecifier) {
-        var gitReference: String? = nil
+        var gitReference: String?
         if case let VersionSpecifier.gitReference(reference) = versionSpecifier {
             gitReference = reference
         }

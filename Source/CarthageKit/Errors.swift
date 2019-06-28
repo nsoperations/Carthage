@@ -12,7 +12,6 @@ public enum CarthageError: Error {
         let dictionary: [URL: [URL]]
     }
 
-
     /// One or more arguments was invalid.
     case invalidArgument(description: String)
 
@@ -214,7 +213,7 @@ extension CarthageError: Equatable {
 
         case let (.lockError(left, leftTimeout), .lockError(right, rightTimeout)):
             return left == right && leftTimeout == rightTimeout
-        
+
         case let (.duplicatesInArchive(left), .duplicatesInArchive(right)):
             return left == right
 
@@ -402,8 +401,8 @@ extension CarthageError: CustomStringConvertible {
                     let sortedRequirements = incompatibility
                         .incompatibleRequirements
                         .sorted { $0.0.name < $1.0.name }
-                    return sortedRequirements.map { dependency, version in
-                        return "* \(incompatibility.dependency.name) \(incompatibility.pinnedVersion) is incompatible with \(dependency.name) \(version)"
+                    return sortedRequirements.map { dependency, versionSpecifier in
+                        return "* \(incompatibility.dependency.name) \(incompatibility.pinnedVersion) is incompatible with the version constraint specified by \(dependency.name): \(versionSpecifier)"
                     }
                 }
                 .joined(separator: "\n")
@@ -423,7 +422,7 @@ extension CarthageError: CustomStringConvertible {
 
         case let .duplicatesInArchive(duplicates):
             let prettyDupeList = duplicates.dictionary
-                .map { "* \t\($0.value.map{ url in return url.absoluteString }.joined(separator: "\n\t")) \n\t\tto:\n\t\($0.key)" }
+                .map { "* \t\($0.value.map { url in return url.absoluteString }.joined(separator: "\n\t")) \n\t\tto:\n\t\($0.key)" }
                 .joined(separator: "\n")
             return "Invalid archive - Found multiple frameworks with the same unarchiving destination:\n\(prettyDupeList)"
         }

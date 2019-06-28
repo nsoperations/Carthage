@@ -209,19 +209,19 @@ extension String {
             return self
         }
     }
-    
+
     fileprivate func appendingPathComponent(_ component: String) -> String {
         return (self as NSString).appendingPathComponent(component)
     }
-    
+
     fileprivate func appendingPathExtension(_ pathExtension: String) -> String {
         return (self as NSString).appendingPathExtension(pathExtension)!
     }
-    
+
     fileprivate var deletingLastPathComponent: String {
         return (self as NSString).deletingLastPathComponent
     }
-    
+
     fileprivate var lastPathComponent: String {
         return (self as NSString).lastPathComponent
     }

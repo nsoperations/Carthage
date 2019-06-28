@@ -182,11 +182,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         resolverEventObserver: ((ResolverEvent) -> Void)? = nil
         ) -> SignalProducer<(), CarthageError> {
         let resolverClass = BackTrackingResolver.self
-        let resolver = resolverClass.init(
-            versionsForDependency: dependencyRetriever.versions(for:),
-            dependenciesForDependency: dependencyRetriever.dependencies(for:version:),
-            resolvedGitReference: dependencyRetriever.resolvedGitReference
-        )
+        let resolver = resolverClass.init(projectDependencyRetriever: self.dependencyRetriever)
 
         if let eventObserver = resolverEventObserver {
             resolver.events.observeValues(eventObserver)
@@ -290,18 +286,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                      resolver: ResolverProtocol? = nil,
                                      resolverEventObserver: ((ResolverEvent) -> Void)? = nil) -> SignalProducer<[OutdatedDependency], CarthageError> {
         let resolverClass = BackTrackingResolver.self
-        let dependencies: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
-        if includeNestedDependencies {
-            dependencies = dependencyRetriever.dependencies(for:version:)
-        } else {
-            dependencies = { _, _ in .empty }
-        }
-
-        let resolver = resolver ?? resolverClass.init(
-            versionsForDependency: dependencyRetriever.versions(for:),
-            dependenciesForDependency: dependencies,
-            resolvedGitReference: dependencyRetriever.resolvedGitReference
-        )
+        let resolver = resolver ?? resolverClass.init(projectDependencyRetriever: OutdatedDependencyRetriever(impl: self.dependencyRetriever, includeNested: includeNestedDependencies))
 
         if let eventObserver = resolverEventObserver {
             resolver.events.observeValues(eventObserver)
@@ -481,7 +466,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             }
             .flatMap(.concat) { (info: ([Dependency: PinnedVersion], CompatibilityInfo.Requirements)) -> SignalProducer<[CompatibilityInfo], CarthageError> in
                 let (dependencies, requirements) = info
-                return .init(result: CompatibilityInfo.incompatibilities(for: dependencies, requirements: requirements))
+                return .init(result: CompatibilityInfo.incompatibilities(for: dependencies, requirements: requirements, projectDependencyRetriever: self.dependencyRetriever))
             }
             .flatMap(.concat) { incompatibilities -> SignalProducer<(), CarthageError> in
                 return incompatibilities.isEmpty ? .init(value: ()) : .init(error: .invalidResolvedCartfile(incompatibilities))
@@ -749,7 +734,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         default:
                             return SignalProducer(error: error)
                         }
-                    }
+                }
         }
     }
 
@@ -759,12 +744,8 @@ public final class Project { // swiftlint:disable:this type_body_length
         from store: LocalDependencyStore,
         resolverType: ResolverProtocol.Type,
         dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
-        let resolver = resolverType.init(
-            versionsForDependency: store.versions(for:),
-            dependenciesForDependency: store.dependencies(for:version:),
-            resolvedGitReference: store.resolvedGitReference
-        )
 
+        let resolver = resolverType.init(projectDependencyRetriever: self.dependencyRetriever)
         return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 
@@ -876,5 +857,30 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer(error: error)
             }
         }
+    }
+}
+
+private class OutdatedDependencyRetriever: ProjectDependencyRetrieverProtocol {
+    private let impl: ProjectDependencyRetriever
+    private let includeNested: Bool
+
+    init(impl: ProjectDependencyRetriever, includeNested: Bool) {
+        self.impl = impl
+        self.includeNested = includeNested
+    }
+
+    func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+        guard includeNested else {
+            return SignalProducer<(Dependency, VersionSpecifier), CarthageError>.empty
+        }
+        return impl.dependencies(for: dependency, version: version)
+    }
+
+    func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError> {
+        return impl.resolvedGitReference(dependency, reference: reference)
+    }
+
+    func versions(for dependency: Dependency) -> SignalProducer<PinnedVersion, CarthageError> {
+        return impl.versions(for: dependency)
     }
 }

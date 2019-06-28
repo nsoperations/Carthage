@@ -4,6 +4,9 @@ import ReactiveSwift
 import ReactiveTask
 
 extension String {
+
+    private static let gitSHACharacterSet = CharacterSet(charactersIn: "0123456789abcdef")
+
     /// Returns a producer that will enumerate each line of the receiver, then
     /// complete.
     internal var linesProducer: SignalProducer<String, NoError> {
@@ -34,6 +37,10 @@ extension String {
         } else {
             return self
         }
+    }
+
+    internal var isGitCommitSha: Bool {
+        return self.count == 40 && String.gitSHACharacterSet.isSuperset(of: CharacterSet(charactersIn: self))
     }
 }
 

@@ -50,7 +50,7 @@ final class DependencySet {
     private let retriever: DependencyRetriever
 
     public var pinnedVersions: [Dependency: [PinnedVersion]] {
-        return contents.mapValues({ (versionSet) -> [PinnedVersion] in
+        return contents.mapValues({ versionSet -> [PinnedVersion] in
             versionSet.pinnedVersions
         })
     }
@@ -302,9 +302,10 @@ final class DependencySet {
         return false
     }
 
-    private func constrainVersions(for dependency: Dependency, with versionSpecifier: VersionSpecifier) -> Bool {
+    private func constrainVersions(for dependency: Dependency, with versionSpecifier: VersionSpecifier) throws -> Bool {
         if let versionSet = versions(for: dependency) {
-            versionSet.retainVersions(compatibleWith: versionSpecifier)
+            let effectiveVersionSpecifier = try versionSpecifier.effectiveSpecifier(for: dependency, retriever: self.retriever.projectDependencyRetriever)
+            versionSet.retainVersions(compatibleWith: effectiveVersionSpecifier)
             return !versionSet.isEmpty
         }
         return false
@@ -373,14 +374,14 @@ final class DependencySet {
             }
 
             unresolvedDependencies.insert(transitiveDependency)
-            existingVersionSet?.pinnedVersionSpecifier = nil
+            existingVersionSet?.isPinned = false
             validVersions.addDefinition(definition)
         } else if let versionSet = existingVersionSet {
             defer {
                 versionSet.addDefinition(definition)
             }
 
-            if !constrainVersions(for: transitiveDependency, with: versionSpecifier) {
+            if try !constrainVersions(for: transitiveDependency, with: versionSpecifier) {
                 assert(!versionSet.definitions.isEmpty, "Expected definitions to not be empty")
                 if let incompatibleDefinition = versionSet.conflictingDefinition(for: versionSpecifier) {
                     let existingRequirement: CarthageError.VersionRequirement = (specifier: incompatibleDefinition.versionSpecifier,
@@ -437,6 +438,8 @@ extension VersionSpecifier {
      */
     fileprivate var precedence: Int {
         switch self {
+        case .empty:
+            return 6
         case .gitReference:
             return 5
         case .exactly:

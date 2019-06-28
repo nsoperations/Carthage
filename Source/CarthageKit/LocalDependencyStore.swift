@@ -5,7 +5,7 @@ import ReactiveSwift
 
 /// Local store for storing/loading dependencies and their versions.
 /// This is for testing without requiring live connection to real repositories.
-public final class LocalDependencyStore {
+public final class LocalDependencyStore: ProjectDependencyRetrieverProtocol {
     private let directoryURL: URL
 
     /// Initializes with the URL to the directory containing the JSON files with the dependency information
