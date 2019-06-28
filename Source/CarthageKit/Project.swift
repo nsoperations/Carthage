@@ -178,7 +178,8 @@ public final class Project { // swiftlint:disable:this type_body_length
     public func updateDependencies(
         shouldCheckout: Bool = true,
         buildOptions: BuildOptions,
-        dependenciesToUpdate: [String]? = nil
+        dependenciesToUpdate: [String]? = nil,
+        resolverEventObserver: ((ResolverEvent) -> Void)? = nil
         ) -> SignalProducer<(), CarthageError> {
         let resolverClass = BackTrackingResolver.self
         let resolver = resolverClass.init(
@@ -186,6 +187,10 @@ public final class Project { // swiftlint:disable:this type_body_length
             dependenciesForDependency: dependencyRetriever.dependencies(for:version:),
             resolvedGitReference: dependencyRetriever.resolvedGitReference
         )
+
+        if let eventObserver = resolverEventObserver {
+            resolver.events.observeValues(eventObserver)
+        }
 
         let dependenciesProducer = self.loadCombinedCartfile().map { Array($0.dependencies.keys) }
 
@@ -281,7 +286,9 @@ public final class Project { // swiftlint:disable:this type_body_length
     ///
     /// This will fetch dependency repositories as necessary, but will not check
     /// them out into the project's working directory.
-    public func outdatedDependencies(_ includeNestedDependencies: Bool, resolver: ResolverProtocol? = nil) -> SignalProducer<[OutdatedDependency], CarthageError> {
+    public func outdatedDependencies(_ includeNestedDependencies: Bool,
+                                     resolver: ResolverProtocol? = nil,
+                                     resolverEventObserver: ((ResolverEvent) -> Void)? = nil) -> SignalProducer<[OutdatedDependency], CarthageError> {
         let resolverClass = BackTrackingResolver.self
         let dependencies: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
         if includeNestedDependencies {
@@ -295,6 +302,10 @@ public final class Project { // swiftlint:disable:this type_body_length
             dependenciesForDependency: dependencies,
             resolvedGitReference: dependencyRetriever.resolvedGitReference
         )
+
+        if let eventObserver = resolverEventObserver {
+            resolver.events.observeValues(eventObserver)
+        }
 
         let outdatedDependencies = SignalProducer
             .combineLatest(
@@ -353,7 +364,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     public func storeDependencies(to store: LocalDependencyStore,
                                   ignoreErrors: Bool = false,
                                   dependencyMappings: [Dependency: Dependency]? = nil,
-                                  eventObserver: ((DependencyCrawlerEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
+                                  eventObserver: ((ResolverEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
         let crawler = DependencyCrawler(
             versionsForDependency: dependencyRetriever.versions(for:),
             dependenciesForDependency: dependencyRetriever.dependencies(for:version:),

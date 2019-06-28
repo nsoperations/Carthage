@@ -65,7 +65,7 @@ public struct UpdateCommand: CommandProtocol {
             let dependenciesUsage = "the dependency names to update, checkout and build"
             let option1 = Option(key: "checkout", defaultValue: true, usage: "skip the checking out of dependencies after updating")
             let option2 = Option(key: "build", defaultValue: true, usage: buildDescription)
-            let option3 = Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline (ignored if --no-build option is present)")
+            let option3 = Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline (ignored if --no-build option is present), also prints resolver actions.")
             let option4 = Option<String?>(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
             let buildOptions = BuildOptions.evaluate(mode, addendum: "\n(ignored if --no-build option is present)")
             let checkoutOptions = CheckoutCommand.Options.evaluate(mode, dependenciesUsage: dependenciesUsage)
@@ -90,12 +90,16 @@ public struct UpdateCommand: CommandProtocol {
     public let function = "Update and rebuild the project's dependencies"
 
     public func run(_ options: Options) -> Result<(), CarthageError> {
+
+        let resolverEventLogger = ResolverEventLogger(colorOptions: options.checkoutOptions.colorOptions, verbose: options.isVerbose)
+
         return options.loadProject()
             .flatMap(.merge) { project -> SignalProducer<(), CarthageError> in
                 return project.updateDependencies(
                     shouldCheckout: options.checkoutAfterUpdate,
                     buildOptions: options.buildOptions,
-                    dependenciesToUpdate: options.dependenciesToUpdate
+                    dependenciesToUpdate: options.dependenciesToUpdate,
+                    resolverEventObserver: { resolverEventLogger.log(event: $0) }
                 )
             }
             .then(options.buildProducer)

@@ -10,9 +10,14 @@ import ReactiveSwift
  The implementation does not use the reactive stream APIs to be able to keep the time complexity down and have a simple algorithm.
  */
 public final class BackTrackingResolver: ResolverProtocol {
+
+    /// DependencyCrawler events signal
+    public let events: Signal<ResolverEvent, NoError>
+
     private let versionsForDependency: (Dependency) -> SignalProducer<PinnedVersion, CarthageError>
     private let resolvedGitReference: (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
     private let dependenciesForDependency: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
+    private let eventPublisher: Signal<ResolverEvent, NoError>.Observer
 
     /**
      Current resolver state, accepted or rejected.
@@ -42,6 +47,10 @@ public final class BackTrackingResolver: ResolverProtocol {
         self.versionsForDependency = versionsForDependency
         self.dependenciesForDependency = dependenciesForDependency
         self.resolvedGitReference = resolvedGitReference
+
+        let (signal, observer) = Signal<ResolverEvent, NoError>.pipe()
+        events = signal
+        eventPublisher = observer
     }
 
     /**
@@ -62,6 +71,9 @@ public final class BackTrackingResolver: ResolverProtocol {
                                                       dependenciesForDependency: dependenciesForDependency,
                                                       resolvedGitReference: resolvedGitReference,
                                                       pinnedVersions: pinnedVersions)
+
+        dependencyRetriever.eventObserver = self.eventPublisher.send
+
         let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
         let requiredDependencies: [DependencyEntry]
         let hasSpecificDepedenciesToUpdate = !updatableDependencyNames.isEmpty
@@ -110,6 +122,7 @@ public final class BackTrackingResolver: ResolverProtocol {
      */
     private func backtrack(dependencySet: DependencySet, rootDependencies: [Dependency]) throws -> (state: ResolverState, dependencySet: DependencySet) {
         if dependencySet.isRejected {
+            eventPublisher.send(value: ResolverEvent.rejected(dependencySet: dependencySet.pinnedVersions, rejectionError: dependencySet.rejectionError!))
             return (.rejected, dependencySet)
         } else if dependencySet.isComplete {
             let valid = try dependencySet.validateForCyclicDepencies(rootDependencies: rootDependencies)

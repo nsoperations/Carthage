@@ -2,14 +2,6 @@ import Foundation
 import Result
 import ReactiveSwift
 
-/// DependencyCrawler events
-public enum DependencyCrawlerEvent {
-    case foundVersions(versions: [PinnedVersion], dependency: Dependency, versionSpecifier: VersionSpecifier)
-    case foundTransitiveDependencies(transitiveDependencies: [(Dependency, VersionSpecifier)], dependency: Dependency, version: PinnedVersion)
-    case failedRetrievingTransitiveDependencies(error: CarthageError, dependency: Dependency, version: PinnedVersion)
-    case failedRetrievingVersions(error: CarthageError, dependency: Dependency, versionSpecifier: VersionSpecifier)
-}
-
 /// Class which logs all dependencies it encounters and stores them in the specified local store to be able to support subsequent offline test cases.
 public final class DependencyCrawler {
     private let store: LocalDependencyStore
@@ -20,10 +12,10 @@ public final class DependencyCrawler {
 
     /// Specify mappings to anonymize private dependencies (which may not be disclosed as part of the diagnostics)
     private var dependencyMappings: [Dependency: Dependency]?
-    private let eventPublisher: Signal<DependencyCrawlerEvent, NoError>.Observer
+    private let eventPublisher: Signal<ResolverEvent, NoError>.Observer
 
     /// DependencyCrawler events signal
-    public let events: Signal<DependencyCrawlerEvent, NoError>
+    public let events: Signal<ResolverEvent, NoError>
 
     private enum DependencyCrawlerError: Error {
         case versionRetrievalFailure(message: String)
@@ -52,7 +44,7 @@ public final class DependencyCrawler {
         self.dependencyMappings = mappings
         self.ignoreErrors = ignoreErrors
 
-        let (signal, observer) = Signal<DependencyCrawlerEvent, NoError>.pipe()
+        let (signal, observer) = Signal<ResolverEvent, NoError>.pipe()
         events = signal
         eventPublisher = observer
     }

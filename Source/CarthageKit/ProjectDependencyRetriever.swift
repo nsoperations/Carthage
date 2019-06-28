@@ -181,7 +181,10 @@ public final class ProjectDependencyRetriever {
                 .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
                     lock = urlLock
                     return Git.listTags(urlLock.url) }
-                .map { PinnedVersion($0) }
+                .filterMap{
+                    let pinnedVersion = PinnedVersion($0)
+                    return pinnedVersion.isSemantic ? pinnedVersion : nil
+                }
                 .on(terminated: {
                     lock?.unlock()
                 })

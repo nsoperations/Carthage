@@ -21,6 +21,8 @@ final class DependencyRetriever {
     private var cachedSortedProblematicDependencies: [Dependency]?
     private var problematicDependencyDictionary = [Dependency: Int]()
 
+    var eventObserver: ((ResolverEvent) -> Void)?
+
     public init(
         versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
         dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
@@ -133,6 +135,7 @@ final class DependencyRetriever {
         }
 
         versionSet.retainVersions(compatibleWith: versionSpecifier)
+        eventObserver?(ResolverEvent.foundVersions(versions: versionSet.pinnedVersions, dependency: dependency, versionSpecifier: versionSpecifier))
         return versionSet
     }
 
@@ -140,6 +143,9 @@ final class DependencyRetriever {
         guard let result = try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()?.get() else {
             throw DependencyRetrieverError.assertionFailure("Could not dematerialize dependencies for dependency: \(dependency) and version: \(version)")
         }
+
+        eventObserver?(ResolverEvent.foundTransitiveDependencies(transitiveDependencies: result, dependency: dependency, version: version.pinnedVersion))
+
         return result
     }
 

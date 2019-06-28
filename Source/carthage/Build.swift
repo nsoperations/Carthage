@@ -152,8 +152,8 @@ public struct BuildCommand: CommandProtocol {
 
         let project = Project(directoryURL: directoryURL)
         project.lockTimeout = options.lockTimeout
-        var eventSink = ProjectEventSink(colorOptions: options.colorOptions)
-        project.projectEvents.observeValues { eventSink.put($0) }
+        let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
+        project.projectEvents.observeValues { eventSink.log(event: $0) }
 
         return project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions)
     }

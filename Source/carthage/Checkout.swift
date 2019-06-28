@@ -53,8 +53,8 @@ public struct CheckoutCommand: CommandProtocol {
             project.useSubmodules = self.useSubmodules
             project.lockTimeout = self.lockTimeout
 
-            var eventSink = ProjectEventSink(colorOptions: colorOptions)
-            project.projectEvents.observeValues { eventSink.put($0) }
+            let eventSink = ProjectEventLogger(colorOptions: colorOptions)
+            project.projectEvents.observeValues { eventSink.log(event: $0) }
 
             return SignalProducer(value: project)
         }

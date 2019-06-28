@@ -147,6 +147,14 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
     private var nonSemanticVersions: SortedSet<ConcreteVersion>
     private var preReleaseVersions: SortedSet<ConcreteVersion>
 
+    public var pinnedVersions: [PinnedVersion] {
+        var result = [PinnedVersion]()
+        result.append(contentsOf: semanticVersions.map { $0.pinnedVersion })
+        result.append(contentsOf: preReleaseVersions.map { $0.pinnedVersion })
+        result.append(contentsOf: nonSemanticVersions.map { $0.pinnedVersion })
+        return result
+    }
+
     // MARK: - Initializers
 
     public convenience init() {

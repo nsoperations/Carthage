@@ -49,6 +49,12 @@ final class DependencySet {
     private var updatableDependencyNames: Set<String>
     private let retriever: DependencyRetriever
 
+    public var pinnedVersions: [Dependency: [PinnedVersion]] {
+        return contents.mapValues({ (versionSet) -> [PinnedVersion] in
+            versionSet.pinnedVersions
+        })
+    }
+
     // MARK: - Initializers
 
     public convenience init(requiredDependencies: [DependencyEntry],

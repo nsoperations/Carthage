@@ -316,8 +316,8 @@ public enum VersionSpecifier: Hashable {
         switch self {
         case .any:
             return withVersion { !$0.isPreRelease }
-        case .gitReference:
-            return true
+        case let .gitReference(hash):
+            return version.commitish == hash
         case let .exactly(requirement):
             return withVersion { $0 == requirement }
 
