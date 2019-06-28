@@ -362,6 +362,11 @@ final class DependencySet {
         if existingVersionSet == nil || (existingVersionSet!.isPinned && isUpdatable) {
             let validVersions = try retriever.findAllVersions(for: transitiveDependency, compatibleWith: versionSpecifier, isUpdatable: isUpdatable)
 
+            if let existingVersionSpecifier = existingVersionSet?.effectiveVersionSpecifier {
+                // We need to take the existing version specifier into account, constrain the version with this specifier
+                validVersions.retainVersions(compatibleWith: existingVersionSpecifier)
+            }
+
             if !setVersions(validVersions, for: transitiveDependency) {
                 let error: CarthageError
                 if isUpdatable {

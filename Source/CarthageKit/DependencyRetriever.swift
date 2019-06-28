@@ -10,7 +10,7 @@ import ReactiveSwift
  It also keeps track of encountered conflicts.
  */
 final class DependencyRetriever {
-    private var pinnedVersions: [Dependency: PinnedVersion]
+    private let pinnedVersions: [Dependency: PinnedVersion]
     let projectDependencyRetriever: ProjectDependencyRetrieverProtocol
 
     private var dependencyCache = [PinnedDependency: [DependencyEntry]]()
@@ -36,7 +36,7 @@ final class DependencyRetriever {
             for: versionedDependency,
             byStoringDefault: try findAllVersionsUncached(for: dependency, compatibleWith: versionSpecifier, isUpdatable: isUpdatable)
         )
-        return concreteVersionSet
+        return concreteVersionSet.copy
     }
 
     /**
@@ -109,7 +109,7 @@ final class DependencyRetriever {
         if !isUpdatable, let pinnedVersion = pinnedVersions[dependency] {
             versionSet.insert(ConcreteVersion(pinnedVersion: pinnedVersion))
             versionSet.isPinned = true
-        } else if isUpdatable {
+        } else {
             let pinnedVersionsProducer: SignalProducer<PinnedVersion, CarthageError>
 
             switch versionSpecifier {

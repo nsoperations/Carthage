@@ -64,16 +64,7 @@ public final class BackTrackingResolver: ResolverProtocol {
         dependencyRetriever.eventObserver = self.eventPublisher.send
 
         let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
-        let requiredDependencies: [DependencyEntry]
-        let hasSpecificDepedenciesToUpdate = !updatableDependencyNames.isEmpty
-
-        if hasSpecificDepedenciesToUpdate {
-            requiredDependencies = dependencies.filter { dependency, _ in
-                updatableDependencyNames.contains(dependency.name) || pinnedVersions[dependency] != nil
-            }
-        } else {
-            requiredDependencies = Array(dependencies)
-        }
+        let requiredDependencies: [DependencyEntry] = Array(dependencies)
 
         do {
             let dependencySet = try DependencySet(requiredDependencies: requiredDependencies,

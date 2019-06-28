@@ -93,13 +93,14 @@ final class ResolverEventLogger {
             if isVerbose {
                 carthage.println("Dependencies for dependency '\(dependency)' with version \(version): \(transitiveDependencies)")
             }
-
         case .failedRetrievingTransitiveDependencies(let error, let dependency, let version):
             carthage.println("Caught error while retrieving dependencies for \(dependency) at version \(version): \(error)")
         case .failedRetrievingVersions(let error, let dependency, _):
             carthage.println("Caught error while retrieving versions for \(dependency): \(error)")
         case .rejected(let dependencySet, let error):
-            carthage.println("Rejected dependency set:\n\(dependencySet)\n\nReason: \(error)\n")
+            if isVerbose {
+                carthage.println("Rejected dependency set:\n\(dependencySet)\n\nReason: \(error)\n")
+            }
         }
     }
 }

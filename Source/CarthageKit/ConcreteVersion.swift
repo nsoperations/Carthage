@@ -135,7 +135,7 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
      The collection of definitions that define the versions in this set.
      */
     public private(set) var definitions: [ConcreteVersionSetDefinition]
-    private var effectiveVersionSpecifier: VersionSpecifier?
+    public private(set) var effectiveVersionSpecifier: VersionSpecifier?
 
     public var isPinned: Bool
 
