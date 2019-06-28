@@ -9,7 +9,7 @@ import ReactiveSwift
 
  It also keeps track of encountered conflicts.
  */
-final class DependencyRetriever {
+final class ResolverContext {
     private let pinnedVersions: [Dependency: PinnedVersion]
     let projectDependencyRetriever: ProjectDependencyRetrieverProtocol
 

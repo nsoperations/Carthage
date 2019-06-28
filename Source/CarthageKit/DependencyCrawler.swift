@@ -5,9 +5,7 @@ import ReactiveSwift
 /// Class which logs all dependencies it encounters and stores them in the specified local store to be able to support subsequent offline test cases.
 public final class DependencyCrawler {
     private let store: LocalDependencyStore
-    private let versionsForDependency: (Dependency) -> SignalProducer<PinnedVersion, CarthageError>
-    private let resolvedGitReference: (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-    private let dependenciesForDependency: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
+    private let dependencyRetriever: ProjectDependencyRetrieverProtocol
     private let ignoreErrors: Bool
 
     /// Specify mappings to anonymize private dependencies (which may not be disclosed as part of the diagnostics)
@@ -30,19 +28,15 @@ public final class DependencyCrawler {
     ///
     /// If ignoreErrors is true, any error during retrieval of the dependencies will not be fatal but will result in an empty array instead.
     public init(
-        versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
-        dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
-        resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>,
+        dependencyRetriever: ProjectDependencyRetrieverProtocol,
         store: LocalDependencyStore,
         mappings: [Dependency: Dependency]? = nil,
         ignoreErrors: Bool = false
         ) {
-        self.versionsForDependency = versionsForDependency
-        self.dependenciesForDependency = dependenciesForDependency
-        self.resolvedGitReference = resolvedGitReference
         self.store = store
         self.dependencyMappings = mappings
         self.ignoreErrors = ignoreErrors
+        self.dependencyRetriever = dependencyRetriever
 
         let (signal, observer) = Signal<ResolverEvent, NoError>.pipe()
         events = signal
@@ -107,10 +101,10 @@ public final class DependencyCrawler {
 
                 switch versionSpecifier {
                 case .gitReference(let hash):
-                    pinnedVersionsProducer = resolvedGitReference(dependency, hash)
+                    pinnedVersionsProducer = dependencyRetriever.resolvedGitReference(dependency, reference: hash)
                     gitReference = hash
                 default:
-                    pinnedVersionsProducer = versionsForDependency(dependency)
+                    pinnedVersionsProducer = dependencyRetriever.versions(for: dependency)
                 }
 
                 guard let pinnedVersions: [PinnedVersion] = try pinnedVersionsProducer.collect().first()?.get() else {
@@ -149,7 +143,7 @@ public final class DependencyCrawler {
 
     private func findDependencies(for dependency: Dependency, version: PinnedVersion) throws -> [(Dependency, VersionSpecifier)] {
         do {
-            guard let transitiveDependencies: [(Dependency, VersionSpecifier)] = try dependenciesForDependency(dependency, version).collect().first()?.get() else {
+            guard let transitiveDependencies: [(Dependency, VersionSpecifier)] = try dependencyRetriever.dependencies(for: dependency, version: version).collect().first()?.get() else {
                 throw DependencyCrawlerError.dependencyRetrievalFailure(message: "Could not find transitive dependencies for dependency: \(dependency), version: \(version)")
             }
 

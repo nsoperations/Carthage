@@ -58,10 +58,10 @@ public final class BackTrackingResolver: ResolverProtocol {
         let result: Result<[Dependency: PinnedVersion], CarthageError>
 
         let pinnedVersions = lastResolved ?? [Dependency: PinnedVersion]()
-        let dependencyRetriever = DependencyRetriever(projectDependencyRetriever: projectDependencyRetriever,
+        let resolverContext = ResolverContext(projectDependencyRetriever: projectDependencyRetriever,
                                                       pinnedVersions: pinnedVersions)
 
-        dependencyRetriever.eventObserver = self.eventPublisher.send
+        resolverContext.eventObserver = self.eventPublisher.send
 
         let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
         let requiredDependencies: [DependencyEntry] = Array(dependencies)
@@ -69,7 +69,7 @@ public final class BackTrackingResolver: ResolverProtocol {
         do {
             let dependencySet = try DependencySet(requiredDependencies: requiredDependencies,
                                                   updatableDependencyNames: updatableDependencyNames,
-                                                  retriever: dependencyRetriever)
+                                                  resolverContext: resolverContext)
             let resolverResult = try backtrack(dependencySet: dependencySet, rootDependencies: requiredDependencies.map { $0.0 })
 
             switch resolverResult.state {

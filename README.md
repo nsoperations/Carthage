@@ -64,6 +64,8 @@ see [Installing Carthage](#installing-carthage)
 
 - Fixed bug in determining the swift framework version if a non-default generated objective C header was configured for that framework.
 - Fixed documentation for the `--no-use-binaries` build option.
+- Fixed issues with the resolver regarding the resolution of git references (branch dependencies)
+- Enabled verbose resolver logging if `--verbose` option is active during `update`
 
 ### 0.36.0+nsoperations
 

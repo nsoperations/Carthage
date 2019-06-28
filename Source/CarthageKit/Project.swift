@@ -351,9 +351,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                   dependencyMappings: [Dependency: Dependency]? = nil,
                                   eventObserver: ((ResolverEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
         let crawler = DependencyCrawler(
-            versionsForDependency: dependencyRetriever.versions(for:),
-            dependenciesForDependency: dependencyRetriever.dependencies(for:version:),
-            resolvedGitReference: dependencyRetriever.resolvedGitReference,
+            dependencyRetriever: dependencyRetriever,
             store: store,
             mappings: dependencyMappings,
             ignoreErrors: ignoreErrors

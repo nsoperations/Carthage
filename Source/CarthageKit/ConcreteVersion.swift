@@ -290,7 +290,6 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
             semanticVersions.removeAll()
             nonSemanticVersions.removeAll()
         case .gitReference(let hash):
-            assert(hash.isGitCommitSha, "Expected only git commit sha")
             preReleaseVersions.removeAll()
             semanticVersions.removeAll()
             nonSemanticVersions.removeAll(except: ConcreteVersion(pinnedVersion: PinnedVersion(hash)))

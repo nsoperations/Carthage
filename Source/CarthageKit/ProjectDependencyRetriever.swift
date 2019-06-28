@@ -25,7 +25,7 @@ extension ProjectDependencyRetrieverProtocol {
         guard !ref.isGitCommitSha else {
             return .success(ref)
         }
-        return resolvedGitReference(dependency, reference: ref).single()!.map { $0.commitish }
+        return resolvedGitReference(dependency, reference: ref).first()?.map { $0.commitish } ?? Result.failure(CarthageError.requiredVersionNotFound(dependency, .gitReference(ref)))
     }
 }
 
@@ -825,16 +825,6 @@ public final class ProjectDependencyRetriever: ProjectDependencyRetrieverProtoco
                                                          configuration: configuration,
                                                          buildProducts: frameworkURLs,
                                                          rootDirectoryURL: self.directoryURL)
-    }
-}
-
-extension VersionSpecifier {
-    func effectiveSpecifier(for dependency: Dependency, retriever: ProjectDependencyRetrieverProtocol) throws -> VersionSpecifier {
-        if case let .gitReference(ref) = self, !ref.isGitCommitSha {
-            let hash = try retriever.resolvedCommitHash(for: ref, dependency: dependency).get()
-            return .gitReference(hash)
-        }
-        return self
     }
 }
 

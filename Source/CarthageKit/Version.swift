@@ -320,7 +320,6 @@ public enum VersionSpecifier: Hashable {
         case .any:
             return withVersion { !$0.isPreRelease }
         case let .gitReference(hash):
-            assert(hash.isGitCommitSha, "Expected only git commit sha")
             return version.commitish == hash
         case let .exactly(requirement):
             return withVersion { $0 == requirement }
@@ -533,6 +532,17 @@ extension VersionSpecifier {
         }
 
         return .exactly(exactly)
+    }
+}
+
+// Extension for replacing branch/tag or other git references with commit sha references.
+extension VersionSpecifier {
+    func effectiveSpecifier(for dependency: Dependency, retriever: ProjectDependencyRetrieverProtocol) throws -> VersionSpecifier {
+        if case let .gitReference(ref) = self, !ref.isGitCommitSha {
+            let hash = try retriever.resolvedCommitHash(for: ref, dependency: dependency).get()
+            return .gitReference(hash)
+        }
+        return self
     }
 }
 
