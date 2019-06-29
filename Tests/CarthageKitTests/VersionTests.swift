@@ -238,27 +238,27 @@ class VersionSpecifierIntersectionTests: XCTestCase {
 	
 	func testShouldReturnTheHigherMinorOrPatchVersionWhenOneIsCompatiblewith() {
 		testIntersection(.compatibleWith(v1_3_2), .compatibleWith(v1_3_2), expected: .compatibleWith(v1_3_2))
-		testIntersection(.compatibleWith(v1_3_2), .compatibleWith(v2_1_1), expected: nil)
+		testIntersection(.compatibleWith(v1_3_2), .compatibleWith(v2_1_1), expected: .empty)
 		testIntersection(.compatibleWith(v2_1_1), .compatibleWith(v2_2_0), expected: .compatibleWith(v2_2_0))
 		testIntersection(.compatibleWith(v2_1_1), .exactly(v2_2_0), expected: .exactly(v2_2_0))
-		testIntersection(.compatibleWith(v2_2_0), .exactly(v2_2_0_alpha), expected: nil)
+		testIntersection(.compatibleWith(v2_2_0), .exactly(v2_2_0_alpha), expected: .empty)
 		testIntersection(.compatibleWith(v2_2_0), .exactly(v2_2_0_b421), expected: .exactly(v2_2_0_b421))
 		testIntersection(.compatibleWith(v2_2_0_alpha), .exactly(v2_2_0), expected: .exactly(v2_2_0))
 		testIntersection(.compatibleWith(v2_2_0_b421), .exactly(v2_2_0), expected: .exactly(v2_2_0))
 	}
 	
 	func testShouldOnlyMatchExactSpecifiersForExactly() {
-		testIntersection(.exactly(v1_3_2), .atLeast(v2_1_1), expected: nil)
-		testIntersection(.exactly(v2_1_1), .compatibleWith(v1_3_2), expected: nil)
-		testIntersection(.exactly(v2_1_1), .compatibleWith(v2_2_0), expected: nil)
+		testIntersection(.exactly(v1_3_2), .atLeast(v2_1_1), expected: .empty)
+		testIntersection(.exactly(v2_1_1), .compatibleWith(v1_3_2), expected: .empty)
+		testIntersection(.exactly(v2_1_1), .compatibleWith(v2_2_0), expected: .empty)
 		testIntersection(.exactly(v1_3_2), .exactly(v1_3_2), expected: VersionSpecifier.exactly(v1_3_2))
-		testIntersection(.exactly(v2_1_1), .exactly(v1_3_2), expected: nil)
-		testIntersection(.exactly(v2_2_0_alpha), .exactly(v2_2_0), expected: nil)
-		testIntersection(.exactly(v2_2_0_b421), .exactly(v2_2_0), expected: nil)
+		testIntersection(.exactly(v2_1_1), .exactly(v1_3_2), expected: .empty)
+		testIntersection(.exactly(v2_2_0_alpha), .exactly(v2_2_0), expected: .empty)
+		testIntersection(.exactly(v2_2_0_b421), .exactly(v2_2_0), expected: .empty)
 	}
 	
 	func testShouldLet011BeCompatibleWith012ButNot02() {
 		testIntersection(.compatibleWith(v0_1_0), .compatibleWith(v0_1_1), expected: .compatibleWith(v0_1_1))
-		testIntersection(.compatibleWith(v0_1_0), .compatibleWith(v0_2_0), expected: nil)
+		testIntersection(.compatibleWith(v0_1_0), .compatibleWith(v0_2_0), expected: .empty)
 	}
 }

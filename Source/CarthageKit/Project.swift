@@ -743,7 +743,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         resolverType: ResolverProtocol.Type,
         dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
 
-        let resolver = resolverType.init(projectDependencyRetriever: self.dependencyRetriever)
+        let resolver = resolverType.init(projectDependencyRetriever: store)
         return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 

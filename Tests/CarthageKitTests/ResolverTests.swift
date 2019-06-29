@@ -126,8 +126,8 @@ class ResolverTests: XCTestCase {
 		let resolved = db.resolve(resolverType,
 								  [
 									github1: .any,
-									// Newly added dependencies which are not inclued in the
-									// list should not be resolved.
+									// Newly added dependencies which are not included in the
+									// list should be resolved to avoid invalid dependency trees.
 									git1: .any,
 									],
 								  resolved: [ github1: .v1_0_0, github2: .v1_0_0, github3: .v1_0_0, github4: .v1_0_0 ],
@@ -137,6 +137,7 @@ class ResolverTests: XCTestCase {
 		switch resolved {
 		case .success(let value):
 			expect(value) == [
+                git1: .v1_0_0,
 				github4: .v1_0_0,
 				github3: .v1_2_0,
 				github2: .v1_1_0,
@@ -462,15 +463,10 @@ class ResolverTests: XCTestCase {
 		do {
 			_ = try signalProducer.first()?.get()
 			fail("Expected incompatibility error to be thrown")
-		} catch {
-			print("Caught error: \(error)")
-			switch error {
-			case CarthageError.incompatibleRequirements:
-				return
-			default:
-				break
-			}
-			fail("Expected incompatibleRequirements error to be thrown")
+		} catch CarthageError.incompatibleRequirements {
+            //OK
+        } catch {
+			fail("Expected incompatibleRequirements error to be thrown, but got: \(error)")
 		}
 	}
 	
