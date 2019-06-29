@@ -38,7 +38,7 @@ extension Version {
 }
 // swiftlint:enable no_extension_access_modifier
 
-internal struct DB: ProjectDependencyRetrieverProtocol {
+internal struct DB: DependencyRetrieverProtocol {
 	var versions: [Dependency: [PinnedVersion: [Dependency: VersionSpecifier]]]
 	var references: [Dependency: [String: PinnedVersion]] = [:]
 	

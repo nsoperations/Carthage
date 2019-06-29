@@ -11,7 +11,7 @@ import ReactiveSwift
  */
 final class ResolverContext {
     private let pinnedVersions: [Dependency: PinnedVersion]
-    let projectDependencyRetriever: ProjectDependencyRetrieverProtocol
+    let projectDependencyRetriever: DependencyRetrieverProtocol
 
     private var dependencyCache = [PinnedDependency: [DependencyEntry]]()
     private var versionsCache = [DependencyVersionSpec: ConcreteVersionSet]()
@@ -21,7 +21,7 @@ final class ResolverContext {
 
     var eventObserver: ((ResolverEvent) -> Void)?
 
-    public init(projectDependencyRetriever: ProjectDependencyRetrieverProtocol, pinnedVersions: [Dependency: PinnedVersion]) {
+    public init(projectDependencyRetriever: DependencyRetrieverProtocol, pinnedVersions: [Dependency: PinnedVersion]) {
         self.projectDependencyRetriever = projectDependencyRetriever
         self.pinnedVersions = pinnedVersions
     }

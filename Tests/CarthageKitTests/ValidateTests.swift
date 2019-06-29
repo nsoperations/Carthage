@@ -198,7 +198,7 @@ class ValidateTests: XCTestCase {
     }
 }
 
-private class MockProjectDependencyRetriever: ProjectDependencyRetrieverProtocol {
+private class MockProjectDependencyRetriever: DependencyRetrieverProtocol {
     func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
         return SignalProducer<(Dependency, VersionSpecifier), CarthageError>.empty
     }

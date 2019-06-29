@@ -16,7 +16,7 @@ public protocol ResolverProtocol {
 
     var events: Signal<ResolverEvent, NoError> { get }
 
-    init(projectDependencyRetriever: ProjectDependencyRetrieverProtocol)
+    init(projectDependencyRetriever: DependencyRetrieverProtocol)
 
     func resolve(
         dependencies: [Dependency: VersionSpecifier],

@@ -21,9 +21,9 @@ public struct CompatibilityInfo: Equatable {
     /// Requirements with which the pinned version of this dependency may or may not be compatible
     private let requirements: [Dependency: VersionSpecifier]
 
-    private let projectDependencyRetriever: ProjectDependencyRetrieverProtocol
+    private let projectDependencyRetriever: DependencyRetrieverProtocol
 
-    public init(dependency: Dependency, pinnedVersion: PinnedVersion, requirements: [Dependency: VersionSpecifier], projectDependencyRetriever: ProjectDependencyRetrieverProtocol) {
+    public init(dependency: Dependency, pinnedVersion: PinnedVersion, requirements: [Dependency: VersionSpecifier], projectDependencyRetriever: DependencyRetrieverProtocol) {
         self.dependency = dependency
         self.pinnedVersion = pinnedVersion
         self.requirements = requirements
@@ -68,7 +68,7 @@ public struct CompatibilityInfo: Equatable {
 
     /// Constructs CompatibilityInfo objects for dependencies with incompatibilities
     /// given a dictionary of dependencies with pinned versions and their corresponding requirements
-    public static func incompatibilities(for dependencies: [Dependency: PinnedVersion], requirements: CompatibilityInfo.Requirements, projectDependencyRetriever: ProjectDependencyRetrieverProtocol) -> Result<[CompatibilityInfo], CarthageError> {
+    public static func incompatibilities(for dependencies: [Dependency: PinnedVersion], requirements: CompatibilityInfo.Requirements, projectDependencyRetriever: DependencyRetrieverProtocol) -> Result<[CompatibilityInfo], CarthageError> {
         return CompatibilityInfo.invert(requirements: requirements)
             .map { invertedRequirements -> [CompatibilityInfo] in
                 return dependencies.compactMap { dependency, version in

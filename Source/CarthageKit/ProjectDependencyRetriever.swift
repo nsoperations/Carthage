@@ -13,13 +13,13 @@ import XCDBLD
 import ReactiveTask
 import struct SPMUtility.Version
 
-public protocol ProjectDependencyRetrieverProtocol {
+public protocol DependencyRetrieverProtocol {
     func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
     func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError>
     func versions(for dependency: Dependency) -> SignalProducer<PinnedVersion, CarthageError>
 }
 
-extension ProjectDependencyRetrieverProtocol {
+extension DependencyRetrieverProtocol {
     /// Resolves the specified git ref to a commit hash
     public func resolvedCommitHash(for ref: String, dependency: Dependency) -> Result<String, CarthageError> {
         guard !ref.isGitCommitSha else {
@@ -29,7 +29,7 @@ extension ProjectDependencyRetrieverProtocol {
     }
 }
 
-public final class ProjectDependencyRetriever: ProjectDependencyRetrieverProtocol {
+public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
     private typealias CachedVersions = [Dependency: [PinnedVersion]]
     private typealias CachedGitReferences = [DependencyRef: PinnedVersion]

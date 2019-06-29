@@ -304,7 +304,7 @@ public enum VersionSpecifier: Hashable {
 
     /// Determines whether the given version satisfies this version specifier.
     public func isSatisfied(by version: PinnedVersion) -> Bool {
-        func withVersion(_ predicate: (Version) -> Bool) -> Bool {
+        func withSemanticVersion(_ predicate: (Version) -> Bool) -> Bool {
             if let semanticVersion = version.semanticVersion {
                 return predicate(semanticVersion)
             } else {
@@ -318,14 +318,14 @@ public enum VersionSpecifier: Hashable {
         case .empty:
             return false
         case .any:
-            return withVersion { !$0.isPreRelease }
+            return withSemanticVersion { !$0.isPreRelease }
         case let .gitReference(hash):
             return version.commitish == hash
         case let .exactly(requirement):
-            return withVersion { $0 == requirement }
+            return withSemanticVersion { $0 == requirement }
 
         case let .atLeast(requirement):
-            return withVersion { version in
+            return withSemanticVersion { version in
                 let versionIsNewer = version >= requirement
 
                 // Only pick a pre-release version if the requirement is also
@@ -335,7 +335,7 @@ public enum VersionSpecifier: Hashable {
                 return notPreReleaseOrSameComponents && versionIsNewer
             }
         case let .compatibleWith(requirement):
-            return withVersion { version in
+            return withSemanticVersion { version in
 
                 let versionIsNewer = version >= requirement
                 let notPreReleaseOrSameComponents =	!version.isPreRelease
@@ -537,7 +537,7 @@ extension VersionSpecifier {
 
 // Extension for replacing branch/tag or other git references with commit sha references.
 extension VersionSpecifier {
-    func effectiveSpecifier(for dependency: Dependency, retriever: ProjectDependencyRetrieverProtocol) throws -> VersionSpecifier {
+    func effectiveSpecifier(for dependency: Dependency, retriever: DependencyRetrieverProtocol) throws -> VersionSpecifier {
         if case let .gitReference(ref) = self, !ref.isGitCommitSha {
             let hash = try retriever.resolvedCommitHash(for: ref, dependency: dependency).get()
             return .gitReference(hash)

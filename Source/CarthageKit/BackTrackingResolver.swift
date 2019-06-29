@@ -14,7 +14,7 @@ public final class BackTrackingResolver: ResolverProtocol {
     /// DependencyCrawler events signal
     public let events: Signal<ResolverEvent, NoError>
     private let eventPublisher: Signal<ResolverEvent, NoError>.Observer
-    private let projectDependencyRetriever: ProjectDependencyRetrieverProtocol
+    private let projectDependencyRetriever: DependencyRetrieverProtocol
 
     /**
      Current resolver state, accepted or rejected.
@@ -36,7 +36,7 @@ public final class BackTrackingResolver: ResolverProtocol {
      resolvedGitReference - Resolves an arbitrary Git reference to the
      latest object.
      */
-    public init(projectDependencyRetriever: ProjectDependencyRetrieverProtocol) {
+    public init(projectDependencyRetriever: DependencyRetrieverProtocol) {
         self.projectDependencyRetriever = projectDependencyRetriever
 
         let (signal, observer) = Signal<ResolverEvent, NoError>.pipe()

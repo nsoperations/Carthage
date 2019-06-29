@@ -858,7 +858,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     }
 }
 
-private class OutdatedDependencyRetriever: ProjectDependencyRetrieverProtocol {
+private class OutdatedDependencyRetriever: DependencyRetrieverProtocol {
     private let impl: ProjectDependencyRetriever
     private let includeNested: Bool
 

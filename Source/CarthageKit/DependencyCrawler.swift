@@ -5,7 +5,7 @@ import ReactiveSwift
 /// Class which logs all dependencies it encounters and stores them in the specified local store to be able to support subsequent offline test cases.
 public final class DependencyCrawler {
     private let store: LocalDependencyStore
-    private let dependencyRetriever: ProjectDependencyRetrieverProtocol
+    private let dependencyRetriever: DependencyRetrieverProtocol
     private let ignoreErrors: Bool
 
     /// Specify mappings to anonymize private dependencies (which may not be disclosed as part of the diagnostics)
@@ -28,7 +28,7 @@ public final class DependencyCrawler {
     ///
     /// If ignoreErrors is true, any error during retrieval of the dependencies will not be fatal but will result in an empty array instead.
     public init(
-        dependencyRetriever: ProjectDependencyRetrieverProtocol,
+        dependencyRetriever: DependencyRetrieverProtocol,
         store: LocalDependencyStore,
         mappings: [Dependency: Dependency]? = nil,
         ignoreErrors: Bool = false
