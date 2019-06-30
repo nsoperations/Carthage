@@ -1,0 +1,42 @@
+[
+  {
+    "versionSpecifier" : "~> 5.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/StyleKit.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/Security.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/BuildScripts.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 4.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/Foundation.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/SwiftLint.git"
+      }
+    }
+  }
+]

@@ -1,0 +1,6 @@
+git "https://git.behindmedia.com/BuildScripts.git" ~> 1.0.0
+git "https://git.behindmedia.com/Foundation.git" ~> 4.0.0
+git "https://git.behindmedia.com/PinPad.git" ~> 0.2.0
+git "https://git.behindmedia.com/Security.git" ~> 2.0.0
+git "https://git.behindmedia.com/StyleKit.git" ~> 5.0.0
+git "https://git.behindmedia.com/SwiftLint.git" ~> 1.0.0

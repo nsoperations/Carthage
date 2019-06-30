@@ -1,0 +1,50 @@
+[
+  {
+    "versionSpecifier" : "~> 4.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/Foundation.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "\"v2.10\"",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@gitlab.ing.net:2222\/Mirrors-iOS\/flockoffiles\/SwiftySRP"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/SwiftLint.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/Security.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 5.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/StyleKit.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/BuildScripts.git"
+      }
+    }
+  }
+]

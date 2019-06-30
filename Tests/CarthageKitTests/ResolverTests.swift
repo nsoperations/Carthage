@@ -5,6 +5,7 @@ import XCTest
 import ReactiveSwift
 import Result
 import Tentacle
+import struct SPMUtility.Version
 
 private func ==<A: Equatable, B: Equatable>(lhs: [(A, B)], rhs: [(A, B)]) -> Bool {
 	guard lhs.count == rhs.count else { return false }
@@ -469,6 +470,75 @@ class ResolverTests: XCTestCase {
 			fail("Expected incompatibleRequirements error to be thrown, but got: \(error)")
 		}
 	}
+    
+    func testShouldCorrectlyHandleGitReferences() {
+        guard let testCartfileURL = Bundle(for: ResolverTests.self).url(forResource: "Resolver/GitReference/Cartfile", withExtension: "") else {
+            fail("Could not load Resolver/GitReference/Cartfile from resources")
+            return
+        }
+        let projectDirectoryURL = testCartfileURL.deletingLastPathComponent()
+        let repositoryURL = projectDirectoryURL.appendingPathComponent("Repository")
+        
+        let project = Project(directoryURL: projectDirectoryURL)
+        let repository = LocalDependencyStore(directoryURL: repositoryURL)
+        
+        do {
+            guard let resolvedCartfile1 = try project.resolveUpdatedDependencies(from: repository,
+                                                                                 resolverType: resolverType.self,
+                                                                                 dependenciesToUpdate: nil).first()?.get() else {
+                fail("Could not load resolved cartfile")
+                return
+            }
+            
+            guard let pinnedVersionSwiftySRP1 = resolvedCartfile1.version(for: "SwiftySRP") else {
+                fail("SwiftySRP was not resolved")
+                return
+            }
+            
+            expect(pinnedVersionSwiftySRP1.commitish) == "17dd563b23a524d332dcf53808e6ab5da9eadf55"
+            
+            guard let pinnedVersionSecurity1 = resolvedCartfile1.version(for: "Security") else {
+                fail("Security was not resolved")
+                return
+            }
+            
+            expect(pinnedVersionSecurity1.semanticVersion) == Version(2, 1, 0)
+            
+            // Test whether the resolved cartfile is valid (should be the case)
+            try project.validate(resolvedCartfile: resolvedCartfile1, dependencyRetriever: repository).first()?.get()
+            
+            // Now resolve only Security, should yield the same result
+            
+            guard let resolvedCartfile2 = try project.resolveUpdatedDependencies(from: repository,
+                                               resolverType: resolverType.self,
+                                               dependenciesToUpdate: ["Security"]).first()?.get() else {
+                fail("Could not load resolved cartfile")
+                return
+            }
+            
+            guard let pinnedVersionSwiftySRP2 = resolvedCartfile2.version(for: "SwiftySRP") else {
+                fail("SwiftySRP was not resolved")
+                return
+            }
+            
+            expect(pinnedVersionSwiftySRP2.commitish) == "17dd563b23a524d332dcf53808e6ab5da9eadf55"
+            
+            guard let pinnedVersionSecurity2 = resolvedCartfile2.version(for: "Security") else {
+                fail("Security was not resolved")
+                return
+            }
+            
+            expect(pinnedVersionSecurity2.semanticVersion) == Version(2, 1, 0)
+            
+            // Test whether the resolved cartfile is valid (should be the case)
+            try project.validate(resolvedCartfile: resolvedCartfile2, dependencyRetriever: repository).first()?.get()
+            
+        } catch {
+            fail("Expected no error to be thrown, but got: \(error)")
+        }
+        
+        
+    }
 	
 	func testShouldCorrectlyResolveTheLatestVersion() {
 		
@@ -794,4 +864,17 @@ class ResolverTests: XCTestCase {
 			}
 		}
 	}
+}
+
+extension Project {
+    /// Updates dependencies by using the specified local dependency store instead of 'live' lookup for dependencies and their versions
+    /// Returns a signal with the resulting ResolvedCartfile upon success or a CarthageError upon failure.
+    fileprivate func resolveUpdatedDependencies(
+        from store: LocalDependencyStore,
+        resolverType: ResolverProtocol.Type,
+        dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
+        
+        let resolver = resolverType.init(projectDependencyRetriever: store)
+        return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
+    }
 }
