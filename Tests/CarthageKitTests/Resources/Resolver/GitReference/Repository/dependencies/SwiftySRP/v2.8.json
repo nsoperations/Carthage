@@ -1,0 +1,11 @@
+[
+  {
+    "versionSpecifier" : "~> 1.5.0",
+    "dependency" : {
+      "gitHub" : {
+        "repositoryOwner" : "flockoffiles",
+        "repositoryName" : "FFDataWrapper"
+      }
+    }
+  }
+]

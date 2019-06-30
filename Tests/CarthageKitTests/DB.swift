@@ -38,7 +38,7 @@ extension Version {
 }
 // swiftlint:enable no_extension_access_modifier
 
-internal struct DB {
+internal struct DB: DependencyRetrieverProtocol {
 	var versions: [Dependency: [PinnedVersion: [Dependency: VersionSpecifier]]]
 	var references: [Dependency: [String: PinnedVersion]] = [:]
 	
@@ -50,7 +50,7 @@ internal struct DB {
 		}
 	}
 	
-	func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+    func dependencies(for dependency: Dependency, version: PinnedVersion, tryCheckoutDirectory: Bool) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
 		if let dependencies = self.versions[dependency]?[version] {
 			return .init(dependencies.map { ($0.0, $0.1) })
 		} else {
@@ -67,11 +67,7 @@ internal struct DB {
 	}
 
 	func resolver(_ resolverType: ResolverProtocol.Type = BackTrackingResolver.self) -> ResolverProtocol {
-		return resolverType.init(
-			versionsForDependency: self.versions(for:),
-			dependenciesForDependency: self.dependencies(for:version:),
-			resolvedGitReference: self.resolvedGitReference(_:reference:)
-		)
+		return resolverType.init(projectDependencyRetriever: self)
 	}
 
 	func resolve(
@@ -80,11 +76,7 @@ internal struct DB {
 		resolved: [Dependency: PinnedVersion] = [:],
 		updating: Set<Dependency> = []
 		) -> Result<[Dependency: PinnedVersion], CarthageError> {
-		let resolver = resolverType.init(
-			versionsForDependency: self.versions(for:),
-			dependenciesForDependency: self.dependencies(for:version:),
-			resolvedGitReference: self.resolvedGitReference(_:reference:)
-		)
+		let resolver = resolverType.init(projectDependencyRetriever: self)
 		return resolver
 			.resolve(
 				dependencies: dependencies,

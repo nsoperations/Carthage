@@ -4,6 +4,12 @@ import SPMUtility
 
 /// Identifies a dependency, its pinned version, and its compatible and incompatible requirements
 public struct CompatibilityInfo: Equatable {
+    public static func == (lhs: CompatibilityInfo, rhs: CompatibilityInfo) -> Bool {
+        return lhs.dependency == rhs.dependency &&
+            lhs.pinnedVersion == rhs.pinnedVersion &&
+            lhs.requirements == rhs.requirements
+    }
+
     public typealias Requirements = [Dependency: [Dependency: VersionSpecifier]]
 
     /// The dependency
@@ -15,20 +21,29 @@ public struct CompatibilityInfo: Equatable {
     /// Requirements with which the pinned version of this dependency may or may not be compatible
     private let requirements: [Dependency: VersionSpecifier]
 
-    public init(dependency: Dependency, pinnedVersion: PinnedVersion, requirements: [Dependency: VersionSpecifier]) {
+    private let projectDependencyRetriever: DependencyRetrieverProtocol
+
+    public init(dependency: Dependency, pinnedVersion: PinnedVersion, requirements: [Dependency: VersionSpecifier], projectDependencyRetriever: DependencyRetrieverProtocol) {
         self.dependency = dependency
         self.pinnedVersion = pinnedVersion
         self.requirements = requirements
+        self.projectDependencyRetriever = projectDependencyRetriever
     }
 
     /// Requirements which are compatible with the pinned version of this dependency
     public var compatibleRequirements: [Dependency: VersionSpecifier] {
-        return requirements.filter { _, version in version.isSatisfied(by: pinnedVersion) }
+        return requirements.filter { dependency, versionSpecifier in
+            let effectiveVersionSpecifier = (try? versionSpecifier.effectiveSpecifier(for: self.dependency, retriever: projectDependencyRetriever)) ?? versionSpecifier
+            return effectiveVersionSpecifier.isSatisfied(by: pinnedVersion)
+        }
     }
 
     /// Requirements which are not compatible with the pinned version of this dependency
     public var incompatibleRequirements: [Dependency: VersionSpecifier] {
-        return requirements.filter { _, version in !version.isSatisfied(by: pinnedVersion) }
+        return requirements.filter { dependency, versionSpecifier in
+            let effectiveVersionSpecifier = (try? versionSpecifier.effectiveSpecifier(for: self.dependency, retriever: projectDependencyRetriever)) ?? versionSpecifier
+            return !effectiveVersionSpecifier.isSatisfied(by: pinnedVersion)
+        }
     }
 
     /// Accepts a dictionary which maps a dependency to the pinned versions of the dependencies it requires.
@@ -53,12 +68,12 @@ public struct CompatibilityInfo: Equatable {
 
     /// Constructs CompatibilityInfo objects for dependencies with incompatibilities
     /// given a dictionary of dependencies with pinned versions and their corresponding requirements
-    public static func incompatibilities(for dependencies: [Dependency: PinnedVersion], requirements: CompatibilityInfo.Requirements) -> Result<[CompatibilityInfo], CarthageError> {
+    public static func incompatibilities(for dependencies: [Dependency: PinnedVersion], requirements: CompatibilityInfo.Requirements, projectDependencyRetriever: DependencyRetrieverProtocol) -> Result<[CompatibilityInfo], CarthageError> {
         return CompatibilityInfo.invert(requirements: requirements)
             .map { invertedRequirements -> [CompatibilityInfo] in
                 return dependencies.compactMap { dependency, version in
                     if version.isSemantic, let requirements = invertedRequirements[dependency] {
-                        return CompatibilityInfo(dependency: dependency, pinnedVersion: version, requirements: requirements)
+                        return CompatibilityInfo(dependency: dependency, pinnedVersion: version, requirements: requirements, projectDependencyRetriever: projectDependencyRetriever)
                     }
                     return nil
                     }

@@ -64,7 +64,13 @@ public struct BinaryProject: Equatable {
 
         var definitions = [PinnedVersion: [BinaryProjectFile]]()
         for (key, value) in json {
-            let pinnedVersion = PinnedVersion(key)
+            let pinnedVersion: PinnedVersion
+            switch Version.from(Scanner(string: key)) {
+            case .success:
+                pinnedVersion = PinnedVersion(key)
+            case let .failure(error):
+                throw BinaryJSONError.invalidVersion(error)
+            }
             if let stringValue = value as? String {
                 let binaryURL = try parseURL(stringValue: stringValue)
                 let projectFile = BinaryProjectFile(url: binaryURL, configuration: nil, swiftVersion: nil)

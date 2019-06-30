@@ -300,10 +300,11 @@ public enum VersionSpecifier: Hashable {
     case compatibleWith(Version)
     case exactly(Version)
     case gitReference(String)
+    case empty
 
     /// Determines whether the given version satisfies this version specifier.
     public func isSatisfied(by version: PinnedVersion) -> Bool {
-        func withVersion(_ predicate: (Version) -> Bool) -> Bool {
+        func withSemanticVersion(_ predicate: (Version) -> Bool) -> Bool {
             if let semanticVersion = version.semanticVersion {
                 return predicate(semanticVersion)
             } else {
@@ -314,15 +315,17 @@ public enum VersionSpecifier: Hashable {
         }
 
         switch self {
+        case .empty:
+            return false
         case .any:
-            return withVersion { !$0.isPreRelease }
-        case .gitReference:
-            return true
+            return withSemanticVersion { !$0.isPreRelease }
+        case let .gitReference(hash):
+            return version.commitish == hash
         case let .exactly(requirement):
-            return withVersion { $0 == requirement }
+            return withSemanticVersion { $0 == requirement }
 
         case let .atLeast(requirement):
-            return withVersion { version in
+            return withSemanticVersion { version in
                 let versionIsNewer = version >= requirement
 
                 // Only pick a pre-release version if the requirement is also
@@ -332,7 +335,7 @@ public enum VersionSpecifier: Hashable {
                 return notPreReleaseOrSameComponents && versionIsNewer
             }
         case let .compatibleWith(requirement):
-            return withVersion { version in
+            return withSemanticVersion { version in
 
                 let versionIsNewer = version >= requirement
                 let notPreReleaseOrSameComponents =	!version.isPreRelease
@@ -379,6 +382,8 @@ extension VersionSpecifier: Scannable {
             }
 
             return .success(.gitReference(refName! as String))
+        } else if scanner.scanString("[]", into: nil) {
+            return .success(.empty)
         } else {
             return .success(.any)
         }
@@ -390,7 +395,8 @@ extension VersionSpecifier: CustomStringConvertible {
         switch self {
         case .any:
             return ""
-
+        case .empty:
+            return "[]"
         case let .exactly(version):
             return "== \(version)"
 
@@ -408,7 +414,7 @@ extension VersionSpecifier: CustomStringConvertible {
 
 extension VersionSpecifier {
 
-    func intersectionSpecifier(_ other: VersionSpecifier) -> VersionSpecifier? {
+    func intersectionSpecifier(_ other: VersionSpecifier) -> VersionSpecifier {
         return VersionSpecifier.intersection(self, other)
     }
 
@@ -417,12 +423,14 @@ extension VersionSpecifier {
     ///
     /// In other words, any version that satisfies the returned specifier will
     /// satisfy _both_ of the given specifiers.
-    static func intersection(_ lhs: VersionSpecifier, _ rhs: VersionSpecifier) -> VersionSpecifier? { // swiftlint:disable:this cyclomatic_complexity
+    static func intersection(_ lhs: VersionSpecifier, _ rhs: VersionSpecifier) -> VersionSpecifier { // swiftlint:disable:this cyclomatic_complexity
         switch (lhs, rhs) {
             // Unfortunately, patterns with a wildcard _ are not considered exhaustive,
         // so do the same thing manually. – swiftlint:disable:this vertical_whitespace_between_cases
         case (.any, .any), (.any, .exactly):
             return rhs
+        case (.empty, _), (_, .empty):
+            return .empty
 
         case let (.any, .atLeast(rv)):
             return .atLeast(rv.discardingBuildMetadata)
@@ -447,7 +455,7 @@ extension VersionSpecifier {
 
         case let (.gitReference(lv), .gitReference(rv)):
             if lv != rv {
-                return nil
+                return .empty
             }
 
             return lhs
@@ -466,7 +474,7 @@ extension VersionSpecifier {
 
         case let (.compatibleWith(lv), .compatibleWith(rv)):
             if lv.major != rv.major {
-                return nil
+                return .empty
             }
 
             // According to SemVer, any 0.x.y release may completely break the
@@ -476,7 +484,7 @@ extension VersionSpecifier {
             // spec but keeps ~> useful for 0.x.y versions.
             if lv.major == 0 && rv.major == 0 {
                 if lv.minor != rv.minor {
-                    return nil
+                    return .empty
                 }
             }
 
@@ -493,16 +501,16 @@ extension VersionSpecifier {
 
         case let (.exactly(lv), .exactly(rv)):
             if lv != rv {
-                return nil
+                return .empty
             }
 
             return lhs
         }
     }
 
-    private static func intersection(atLeast: Version, compatibleWith: Version) -> VersionSpecifier? {
+    private static func intersection(atLeast: Version, compatibleWith: Version) -> VersionSpecifier {
         if atLeast.major > compatibleWith.major {
-            return nil
+            return .empty
         } else if atLeast.major < compatibleWith.major {
             return .compatibleWith(compatibleWith)
         } else {
@@ -510,20 +518,31 @@ extension VersionSpecifier {
         }
     }
 
-    private static func intersection(atLeast: Version, exactly: Version) -> VersionSpecifier? {
+    private static func intersection(atLeast: Version, exactly: Version) -> VersionSpecifier {
         if atLeast > exactly {
-            return nil
+            return .empty
         }
 
         return .exactly(exactly)
     }
 
-    private static func intersection(compatibleWith: Version, exactly: Version) -> VersionSpecifier? {
+    private static func intersection(compatibleWith: Version, exactly: Version) -> VersionSpecifier {
         if exactly.major != compatibleWith.major || compatibleWith > exactly {
-            return nil
+            return .empty
         }
 
         return .exactly(exactly)
+    }
+}
+
+// Extension for replacing branch/tag or other git references with commit sha references.
+extension VersionSpecifier {
+    func effectiveSpecifier(for dependency: Dependency, retriever: DependencyRetrieverProtocol) throws -> VersionSpecifier {
+        if case let .gitReference(ref) = self, !ref.isGitCommitSha {
+            let hash = try retriever.resolvedCommitHash(for: ref, dependency: dependency).get()
+            return .gitReference(hash)
+        }
+        return self
     }
 }
 
@@ -534,13 +553,9 @@ extension Sequence where Iterator.Element == VersionSpecifier {
     ///
     /// In other words, any version that satisfies the returned specifier will
     /// satisfy _all_ of the given specifiers.
-    func intersectionSpecifier() -> VersionSpecifier? {
-        return self.reduce(nil) { (left: VersionSpecifier?, right: VersionSpecifier) -> VersionSpecifier? in
-            if let left = left {
-                return left.intersectionSpecifier(right)
-            } else {
-                return right
-            }
+    func intersectionSpecifier() -> VersionSpecifier {
+        return self.reduce(.any) { (left: VersionSpecifier, right: VersionSpecifier) -> VersionSpecifier in
+            return left.intersectionSpecifier(right)
         }
     }
 }

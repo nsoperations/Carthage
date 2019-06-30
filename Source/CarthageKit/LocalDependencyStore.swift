@@ -5,7 +5,7 @@ import ReactiveSwift
 
 /// Local store for storing/loading dependencies and their versions.
 /// This is for testing without requiring live connection to real repositories.
-public final class LocalDependencyStore {
+public final class LocalDependencyStore: DependencyRetrieverProtocol {
     private let directoryURL: URL
 
     /// Initializes with the URL to the directory containing the JSON files with the dependency information
@@ -68,6 +68,16 @@ public final class LocalDependencyStore {
             let jsonData = try encoder.encode(pinnedVersions)
 
             try jsonData.write(to: fileURL, options: [])
+            
+            if gitReference != nil {
+                // Create a copy for every pinned version
+                for pinnedVersion in pinnedVersions {
+                    let targetURL = canonicalPinnedVersionFileURL(for: dependency, gitReference: pinnedVersion.commitish)
+                    if targetURL != fileURL {
+                        try FileManager.default.copyItem(at: fileURL, to: targetURL, avoiding·rdar·32984063: true)
+                    }
+                }
+            }
 
             return Result.success(())
         } catch let error as NSError {
@@ -118,7 +128,7 @@ public final class LocalDependencyStore {
     }
 
     /// Implementation of method needed by the Resolver protocol
-    public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+    public func dependencies(for dependency: Dependency, version: PinnedVersion, tryCheckoutDirectory: Bool) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
         return SignalProducer<[(Dependency, VersionSpecifier)], CarthageError> { () -> Result<[(Dependency, VersionSpecifier)], CarthageError> in
             return self.loadTransitiveDependencies(for: dependency, version: version)
             }.flatten()

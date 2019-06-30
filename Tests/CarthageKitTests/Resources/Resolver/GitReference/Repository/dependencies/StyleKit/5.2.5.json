@@ -1,0 +1,18 @@
+[
+  {
+    "versionSpecifier" : "~> 4.3.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/Foundation.git"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 1.0.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "https:\/\/git.behindmedia.com\/SwiftLint.git"
+      }
+    }
+  }
+]

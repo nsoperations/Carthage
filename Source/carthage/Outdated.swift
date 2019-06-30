@@ -76,8 +76,8 @@ public struct OutdatedCommand: CommandProtocol {
             let project = Project(directoryURL: directoryURL)
             project.preferHTTPS = !self.useSSH
 
-            var eventSink = ProjectEventSink(colorOptions: colorOptions)
-            project.projectEvents.observeValues { eventSink.put($0) }
+            let eventSink = ProjectEventLogger(colorOptions: colorOptions)
+            project.projectEvents.observeValues { eventSink.log(event: $0) }
 
             return SignalProducer(value: project)
         }

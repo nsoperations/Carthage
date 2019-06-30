@@ -4,6 +4,9 @@ import ReactiveSwift
 import ReactiveTask
 
 extension String {
+
+    private static let gitSHACharacterSet = CharacterSet(charactersIn: "0123456789abcdef")
+
     /// Returns a producer that will enumerate each line of the receiver, then
     /// complete.
     internal var linesProducer: SignalProducer<String, NoError> {
@@ -34,6 +37,10 @@ extension String {
         } else {
             return self
         }
+    }
+
+    internal var isGitCommitSha: Bool {
+        return self.count == 40 && String.gitSHACharacterSet.isSuperset(of: CharacterSet(charactersIn: self))
     }
 }
 
@@ -298,7 +305,34 @@ extension URL {
     internal func swiftHeaderURL() -> URL? {
         let headersURL = self.appendingPathComponent("Headers", isDirectory: true).resolvingSymlinksInPath()
         let dirContents = try? FileManager.default.contentsOfDirectory(at: headersURL, includingPropertiesForKeys: [], options: [])
-        return dirContents?.first { $0.absoluteString.contains("-Swift.h") }
+        return dirContents?.first { $0.lastPathComponent.hasSuffix("-Swift.h") }
+    }
+
+    internal func candidateSwiftHeaderURLs() -> [URL] {
+        let fileManager = FileManager.default
+        let resourceKeys: Set<URLResourceKey> = [URLResourceKey.nameKey, URLResourceKey.isRegularFileKey]
+
+        var candidateURLs = [URL]()
+
+        guard let enumerator = fileManager.enumerator(at: self, includingPropertiesForKeys: Array(resourceKeys), options: []) else {
+            return candidateURLs
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys),
+                resourceValues.isRegularFile == true,
+                let name = resourceValues.name,
+                name.hasSuffix(".h")
+                else {
+                    continue
+            }
+
+            candidateURLs.append(fileURL)
+        }
+
+        let frameworkName = self.deletingPathExtension().lastPathComponent
+
+        return candidateURLs.sorted { $0.swiftHeaderProbability(frameworkName: frameworkName) > $1.swiftHeaderProbability(frameworkName: frameworkName) }
     }
 
     /// Returns the first `URL` to match `<self>/Modules/*.swiftmodule`. Otherwise `nil`.
@@ -543,5 +577,28 @@ extension Task {
     func getStdOutString(encoding: String.Encoding = .utf8) -> Result<String, TaskError> {
         return getStdOutData()
             .map { String(data: $0, encoding: encoding) ?? "" }
+    }
+}
+
+extension URL {
+    fileprivate func swiftHeaderProbability(frameworkName: String) -> Int {
+        var result = 0
+        let fileName = self.lastPathComponent
+        let isDefaultSwiftHeaderName = fileName.hasSuffix("-Swift.h")
+        let includesFrameworkName = fileName.contains(frameworkName)
+        let isInHeaderDirectory = self.deletingLastPathComponent().lastPathComponent == "Headers"
+
+        if isDefaultSwiftHeaderName {
+            result += 10
+        }
+
+        if includesFrameworkName {
+            result += 5
+        }
+
+        if isInHeaderDirectory {
+            result += 2
+        }
+        return result
     }
 }

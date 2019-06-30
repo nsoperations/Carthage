@@ -135,17 +135,23 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
      The collection of definitions that define the versions in this set.
      */
     public private(set) var definitions: [ConcreteVersionSetDefinition]
-    public var pinnedVersionSpecifier: VersionSpecifier?
+    public private(set) var effectiveVersionSpecifier: VersionSpecifier?
 
-    public var isPinned: Bool {
-        return pinnedVersionSpecifier != nil
-    }
+    public var isPinned: Bool
 
     // MARK: - Private properties
 
     private var semanticVersions: SortedSet<ConcreteVersion>
     private var nonSemanticVersions: SortedSet<ConcreteVersion>
     private var preReleaseVersions: SortedSet<ConcreteVersion>
+
+    public var pinnedVersions: [PinnedVersion] {
+        var result = [PinnedVersion]()
+        result.append(contentsOf: semanticVersions.map { $0.pinnedVersion })
+        result.append(contentsOf: preReleaseVersions.map { $0.pinnedVersion })
+        result.append(contentsOf: nonSemanticVersions.map { $0.pinnedVersion })
+        return result
+    }
 
     // MARK: - Initializers
 
@@ -160,12 +166,14 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
                  nonSemanticVersions: SortedSet<ConcreteVersion>,
                  preReleaseVersions: SortedSet<ConcreteVersion>,
                  definitions: [ConcreteVersionSetDefinition],
-                 pinnedVersionSpecifier: VersionSpecifier? = nil) {
+                 effectiveVersionSpecifier: VersionSpecifier? = nil,
+                 isPinned: Bool = false) {
         self.semanticVersions = semanticVersions
         self.nonSemanticVersions = nonSemanticVersions
         self.preReleaseVersions = preReleaseVersions
         self.definitions = definitions
-        self.pinnedVersionSpecifier = pinnedVersionSpecifier
+        self.effectiveVersionSpecifier = effectiveVersionSpecifier
+        self.isPinned = isPinned
     }
 
     // MARK: - Public methods
@@ -179,7 +187,8 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
             nonSemanticVersions: nonSemanticVersions,
             preReleaseVersions: preReleaseVersions,
             definitions: definitions,
-            pinnedVersionSpecifier: pinnedVersionSpecifier
+            effectiveVersionSpecifier: effectiveVersionSpecifier,
+            isPinned: isPinned
         )
     }
 
@@ -267,14 +276,23 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
      Retains all versions in this set which are compatible with the specified version specifier.
      */
     public func retainVersions(compatibleWith versionSpecifier: VersionSpecifier) {
+
+        let updatedVersionSpecifier: VersionSpecifier = effectiveVersionSpecifier.map { $0.intersectionSpecifier(versionSpecifier) } ?? versionSpecifier
+        self.effectiveVersionSpecifier = updatedVersionSpecifier
+
         // This is an optimization to achieve O(log(N)) time complexity for this method instead of O(N)
         // Should be kept in sync with implementation of VersionSpecifier (better to move it there)
-        switch versionSpecifier {
+        switch updatedVersionSpecifier {
         case .any:
             preReleaseVersions.removeAll()
-            return
-        case .gitReference:
-            return
+        case .empty:
+            preReleaseVersions.removeAll()
+            semanticVersions.removeAll()
+            nonSemanticVersions.removeAll()
+        case .gitReference(let hash):
+            preReleaseVersions.removeAll()
+            semanticVersions.removeAll()
+            nonSemanticVersions.removeAll(except: ConcreteVersion(pinnedVersion: PinnedVersion(hash)))
         case .exactly(let requirement):
             let fixedVersion = ConcreteVersion(semanticVersion: requirement)
             semanticVersions.formIntersection(elementsIn: fixedVersion...fixedVersion)
@@ -305,7 +323,7 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
      */
     public func conflictingDefinition(for versionSpecifier: VersionSpecifier) -> ConcreteVersionSetDefinition? {
         return definitions.first {
-            $0.versionSpecifier.intersectionSpecifier(versionSpecifier) == nil
+            $0.versionSpecifier.intersectionSpecifier(versionSpecifier) == .empty
         }
     }
 

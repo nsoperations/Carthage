@@ -10,9 +10,11 @@ import ReactiveSwift
  The implementation does not use the reactive stream APIs to be able to keep the time complexity down and have a simple algorithm.
  */
 public final class BackTrackingResolver: ResolverProtocol {
-    private let versionsForDependency: (Dependency) -> SignalProducer<PinnedVersion, CarthageError>
-    private let resolvedGitReference: (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-    private let dependenciesForDependency: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
+
+    /// DependencyCrawler events signal
+    public let events: Signal<ResolverEvent, NoError>
+    private let eventPublisher: Signal<ResolverEvent, NoError>.Observer
+    private let projectDependencyRetriever: DependencyRetrieverProtocol
 
     /**
      Current resolver state, accepted or rejected.
@@ -34,14 +36,12 @@ public final class BackTrackingResolver: ResolverProtocol {
      resolvedGitReference - Resolves an arbitrary Git reference to the
      latest object.
      */
-    public init(
-        versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
-        dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
-        resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-        ) {
-        self.versionsForDependency = versionsForDependency
-        self.dependenciesForDependency = dependenciesForDependency
-        self.resolvedGitReference = resolvedGitReference
+    public init(projectDependencyRetriever: DependencyRetrieverProtocol) {
+        self.projectDependencyRetriever = projectDependencyRetriever
+
+        let (signal, observer) = Signal<ResolverEvent, NoError>.pipe()
+        events = signal
+        eventPublisher = observer
     }
 
     /**
@@ -58,26 +58,18 @@ public final class BackTrackingResolver: ResolverProtocol {
         let result: Result<[Dependency: PinnedVersion], CarthageError>
 
         let pinnedVersions = lastResolved ?? [Dependency: PinnedVersion]()
-        let dependencyRetriever = DependencyRetriever(versionsForDependency: versionsForDependency,
-                                                      dependenciesForDependency: dependenciesForDependency,
-                                                      resolvedGitReference: resolvedGitReference,
+        let resolverContext = ResolverContext(projectDependencyRetriever: projectDependencyRetriever,
                                                       pinnedVersions: pinnedVersions)
-        let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
-        let requiredDependencies: [DependencyEntry]
-        let hasSpecificDepedenciesToUpdate = !updatableDependencyNames.isEmpty
 
-        if hasSpecificDepedenciesToUpdate {
-            requiredDependencies = dependencies.filter { dependency, _ in
-                updatableDependencyNames.contains(dependency.name) || pinnedVersions[dependency] != nil
-            }
-        } else {
-            requiredDependencies = Array(dependencies)
-        }
+        resolverContext.eventObserver = self.eventPublisher.send
+
+        let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
+        let requiredDependencies: [DependencyEntry] = Array(dependencies)
 
         do {
             let dependencySet = try DependencySet(requiredDependencies: requiredDependencies,
                                                   updatableDependencyNames: updatableDependencyNames,
-                                                  retriever: dependencyRetriever)
+                                                  resolverContext: resolverContext)
             let resolverResult = try backtrack(dependencySet: dependencySet, rootDependencies: requiredDependencies.map { $0.0 })
 
             switch resolverResult.state {
@@ -110,6 +102,7 @@ public final class BackTrackingResolver: ResolverProtocol {
      */
     private func backtrack(dependencySet: DependencySet, rootDependencies: [Dependency]) throws -> (state: ResolverState, dependencySet: DependencySet) {
         if dependencySet.isRejected {
+            eventPublisher.send(value: ResolverEvent.rejected(dependencySet: dependencySet.pinnedVersions, rejectionError: dependencySet.rejectionError!))
             return (.rejected, dependencySet)
         } else if dependencySet.isComplete {
             let valid = try dependencySet.validateForCyclicDepencies(rootDependencies: rootDependencies)

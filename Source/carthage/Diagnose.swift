@@ -43,8 +43,8 @@ public struct DiagnoseCommand: CommandProtocol {
             let directoryURL = URL(fileURLWithPath: self.directoryPath, isDirectory: true)
             let project: Project = Project(directoryURL: directoryURL)
 
-            var eventSink = ProjectEventSink(colorOptions: self.colorOptions)
-            project.projectEvents.observeValues { eventSink.put($0) }
+            let eventSink = ProjectEventLogger(colorOptions: self.colorOptions)
+            project.projectEvents.observeValues { eventSink.log(event: $0) }
 
             return SignalProducer(value: project)
         }
@@ -77,7 +77,7 @@ public struct DiagnoseCommand: CommandProtocol {
                     carthage.println(formatting.bullets + "Using dependency mappings from file: \(mappingsFilePath)")
                     dependencyMappings = try self.mappings(from: mappingsFilePath)
                 }
-                let logger: DiagnosticLogger = DiagnosticLogger(colorOptions: options.colorOptions, verbose: options.isVerbose)
+                let logger = ResolverEventLogger(colorOptions: options.colorOptions, verbose: options.isVerbose)
 
                 return project.storeDependencies(to: repository,
                                                  ignoreErrors: options.ignoreErrors,
@@ -175,34 +175,6 @@ public struct DiagnoseCommand: CommandProtocol {
             return dependency
         case .failure(let error):
             throw error
-        }
-    }
-
-    private class DiagnosticLogger {
-        let colorOptions: ColorOptions
-        let isVerbose: Bool
-
-        init(colorOptions: ColorOptions, verbose: Bool) {
-            self.colorOptions = colorOptions
-            self.isVerbose = verbose
-        }
-
-        func log(event: DependencyCrawlerEvent) {
-            switch event {
-            case .foundVersions(let versions, let dependency, let versionSpecifier):
-                if isVerbose {
-                    carthage.println("Versions for dependency '\(dependency)' compatible with versionSpecifier \(versionSpecifier): \(versions)")
-                }
-            case .foundTransitiveDependencies(let transitiveDependencies, let dependency, let version):
-                if isVerbose {
-                    carthage.println("Dependencies for dependency '\(dependency)' with version \(version): \(transitiveDependencies)")
-                }
-
-            case .failedRetrievingTransitiveDependencies(let error, let dependency, let version):
-                carthage.println("Caught error while retrieving dependencies for \(dependency) at version \(version): \(error)")
-            case .failedRetrievingVersions(let error, let dependency, _):
-                carthage.println("Caught error while retrieving versions for \(dependency): \(error)")
-            }
         }
     }
 }

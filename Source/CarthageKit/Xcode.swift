@@ -122,14 +122,14 @@ public final class Xcode {
                                     configuration: options.configuration,
                                     buildProducts: urls,
                                     rootDirectoryURL: rootDirectoryURL
-                                    )
+                                )
                             } else {
                                 return VersionFile.createVersionFileForCurrentProject(
                                     platforms: options.platforms,
                                     configuration: options.configuration,
                                     buildProducts: urls,
                                     rootDirectoryURL: rootDirectoryURL
-                                    )
+                                )
                             }
                         }
                         // Discard any Success values, since we want to

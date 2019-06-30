@@ -455,7 +455,9 @@ public final class Git {
     /// Attempts to resolve the given tag into an object SHA.
     static func resolveTagInRepository(_ repositoryFileURL: URL, _ tag: String) -> SignalProducer<String, CarthageError> {
         return launchGitTask([ "show-ref", "--tags", "--hash", tag ], repositoryFileURL: repositoryFileURL)
-            .map { string in string.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map { string in
+                string.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             .mapError { error in
                 return CarthageError.repositoryCheckoutFailed(
                     workingDirectoryURL: repositoryFileURL,

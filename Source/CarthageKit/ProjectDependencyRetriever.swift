@@ -13,13 +13,40 @@ import XCDBLD
 import ReactiveTask
 import struct SPMUtility.Version
 
-public final class ProjectDependencyRetriever {
+public protocol DependencyRetrieverProtocol {
+    func dependencies(
+        for dependency: Dependency,
+        version: PinnedVersion,
+        tryCheckoutDirectory: Bool
+        ) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
+    func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError>
+    func versions(for dependency: Dependency) -> SignalProducer<PinnedVersion, CarthageError>
+}
+
+extension DependencyRetrieverProtocol {
+    /// Resolves the specified git ref to a commit hash
+    public func resolvedCommitHash(for ref: String, dependency: Dependency) -> Result<String, CarthageError> {
+        guard !ref.isGitCommitSha else {
+            return .success(ref)
+        }
+        return resolvedGitReference(dependency, reference: ref).first()?.map { $0.commitish } ?? Result.failure(CarthageError.requiredVersionNotFound(dependency, .gitReference(ref)))
+    }
+    
+    /// Loads the dependencies for the given dependency, at the given version.
+    public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+        return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
+    }
+}
+
+public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
     private typealias CachedVersions = [Dependency: [PinnedVersion]]
+    private typealias CachedGitReferences = [DependencyRef: PinnedVersion]
 
     /// Caches versions to avoid expensive lookups, and unnecessary
     /// fetching/cloning.
     private var cachedVersions: CachedVersions = [:]
+    private var cachedGitReferences: CachedGitReferences = [:]
     private let cachedVersionsQueue = SerialProducerQueue(name: "org.carthage.Constants.Project.cachedVersionsQueue")
 
     private typealias CachedBinaryProjects = [URL: BinaryProject]
@@ -68,11 +95,6 @@ public final class ProjectDependencyRetriever {
             .map { Set($0) }
             .concat(value: Set())
             .take(first: 1)
-    }
-
-    /// Loads the dependencies for the given dependency, at the given version.
-    public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
-        return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
     }
 
     /// Loads the dependencies for the given dependency, at the given version. Optionally can attempt to read from the Checkout directory
@@ -148,23 +170,26 @@ public final class ProjectDependencyRetriever {
 
     /// Attempts to resolve a Git reference to a version.
     public func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError> {
-        var lock: Lock?
-        return cloneOrFetchDependencyLocked(dependency, commitish: reference)
-            .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<PinnedVersion, CarthageError> in
-                lock = urlLock
-                let repositoryURL = urlLock.url
-                return Git.resolveTagInRepository(repositoryURL, reference)
-                    .map { _ in
-                        // If the reference is an exact tag, resolves it to the tag.
-                        return PinnedVersion(reference)
-                    }
-                    .flatMapError { _ in
-                        return Git.resolveReferenceInRepository(repositoryURL, reference)
-                            .map(PinnedVersion.init)
+        return SignalProducer<CachedGitReferences, CarthageError>(value: self.cachedGitReferences)
+            .flatMap(.merge) { gitReferences -> SignalProducer<PinnedVersion, CarthageError> in
+                let key = DependencyRef(dependency: dependency, ref: reference)
+                if let version = gitReferences[key] {
+                    return SignalProducer<PinnedVersion, CarthageError>(value: version)
+                } else {
+                    var lock: Lock?
+                    return self.cloneOrFetchDependencyLocked(dependency, commitish: reference)
+                        .flatMap(.concat) { (urlLock: URLLock) -> SignalProducer<PinnedVersion, CarthageError> in
+                            lock = urlLock
+                            let repositoryURL = urlLock.url
+                            return Git.resolveReferenceInRepository(repositoryURL, reference)
+                                .map(PinnedVersion.init)
+                        }.on(
+                            terminated: { lock?.unlock() },
+                            value: { self.cachedGitReferences[key] = $0 }
+                    )
                 }
-            }.on(terminated: {
-                lock?.unlock()
-            })
+            }
+            .startOnQueue(cachedVersionsQueue)
     }
 
     /// Sends all versions available for the given project.
@@ -181,7 +206,10 @@ public final class ProjectDependencyRetriever {
                 .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<String, CarthageError> in
                     lock = urlLock
                     return Git.listTags(urlLock.url) }
-                .map { PinnedVersion($0) }
+                .filterMap {
+                    let pinnedVersion = PinnedVersion($0)
+                    return pinnedVersion.isSemantic ? pinnedVersion : nil
+                }
                 .on(terminated: {
                     lock?.unlock()
                 })
@@ -369,7 +397,7 @@ public final class ProjectDependencyRetriever {
         var tempDir: URL?
 
         return FileManager.default.reactive.createTemporaryDirectory()
-            .flatMap(.merge) { (tempDirectoryURL) -> SignalProducer<URL, CarthageError> in
+            .flatMap(.merge) { tempDirectoryURL -> SignalProducer<URL, CarthageError> in
                 tempDir = tempDirectoryURL
                 return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryURL: self.directoryURL, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
             }
@@ -379,7 +407,7 @@ public final class ProjectDependencyRetriever {
                     .flatMap(.merge) { swiftVersion -> SignalProducer<URL, CarthageError> in
                         self.projectEventsObserver?.send(value: .storingBinaries(dependency, pinnedVersion.description))
                         return AbstractBinariesCache.storeFile(at: archiveURL, for: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, lockTimeout: self.lockTimeout, deleteSource: true)
-                    }
+                }
             }
             .on(terminated: {
                 tempDir?.removeIgnoringErrors()
@@ -561,7 +589,7 @@ public final class ProjectDependencyRetriever {
     private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
         return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
-            .attemptMap({ (urlLock) -> Result<URLLock, CarthageError> in
+            .attemptMap({ urlLock -> Result<URLLock, CarthageError> in
                 if let lock = urlLock {
                     return .success(lock)
                 } else {
@@ -684,14 +712,14 @@ public final class ProjectDependencyRetriever {
             }
 
             let uniquePairs = destinationMap
-                .filter { $0.value.count == 1}
+                .filter { $0.value.count == 1 }
                 .map { SourceURLAndDestinationURL(frameworkSourceURL: $0.value.first!,
                                                   frameworkDestinationURL: $0.key)}
             return .success(uniquePairs)
         }
-        
+
         let dependencySourceURL = self.directoryURL.appendingPathComponent(dependency.relativePath)
-        
+
         return SignalProducer<URL, CarthageError>(value: zipFile)
             .flatMap(.concat, Archive.unarchive(archive:))
             .flatMap(.concat) { tempDirectoryURL -> SignalProducer<(), CarthageError> in
@@ -709,9 +737,9 @@ public final class ProjectDependencyRetriever {
                             }
                             .collect()
                             .flatMap(.merge) { destinationUrls -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
-                                let frameworkUrlAndDestinationUrlPairs = zip(frameworksUrls.map{$0.standardizedFileURL},
-                                                                             destinationUrls.map{$0.standardizedFileURL})
-                                    .map { SourceURLAndDestinationURL(frameworkSourceURL:$0,
+                                let frameworkUrlAndDestinationUrlPairs = zip(frameworksUrls.map { $0.standardizedFileURL },
+                                                                             destinationUrls.map { $0.standardizedFileURL })
+                                    .map { SourceURLAndDestinationURL(frameworkSourceURL: $0,
                                                                       frameworkDestinationURL: $1) }
 
                                 return uniqueSourceDestinationPairs(frameworkUrlAndDestinationUrlPairs)
@@ -726,28 +754,28 @@ public final class ProjectDependencyRetriever {
                             .then(SignalProducer<SourceURLAndDestinationURL, CarthageError>(value: pair))
                     }
                     // If the framework is compatible copy it over to the destination folder in Carthage/Build
-                    .flatMap(.merge) { frameworkSourceURL, frameworkDestinationURL  -> SignalProducer<URL, CarthageError> in
+                    .flatMap(.merge) { frameworkSourceURL, frameworkDestinationURL -> SignalProducer<URL, CarthageError> in
                         let destinationDirectoryURL = frameworkDestinationURL.deletingLastPathComponent()
                         return Frameworks.BCSymbolMapsForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
                             .moveFileURLsIntoDirectory(destinationDirectoryURL)
                             .then(
                                 Frameworks.dSYMForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
-                                .attemptMap { dsymURL -> Result<URL, CarthageError> in
-                                    return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL).map { _ in dsymURL }
-                                }
-                                .moveFileURLsIntoDirectory(destinationDirectoryURL)
+                                    .attemptMap { dsymURL -> Result<URL, CarthageError> in
+                                        return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL).map { _ in dsymURL }
+                                    }
+                                    .moveFileURLsIntoDirectory(destinationDirectoryURL)
                             )
                             .then(
                                 SignalProducer<URL, CarthageError>(value: frameworkSourceURL).moveFileURLsIntoDirectory(destinationDirectoryURL)
                             )
                             .then(
                                 SignalProducer(value: frameworkDestinationURL)
-                            )
+                        )
                     }
                     .collect()
                     // Write the .version file
                     .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
-                        
+
                         let versionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: tempDirectoryURL)
                         if versionFileURL.isExistingFile {
                             let targetVersionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: self.directoryURL)
@@ -788,7 +816,7 @@ public final class ProjectDependencyRetriever {
             .appendingPathComponent(destinationURLInWorkingDir.path, isDirectory: true)
             .standardizedFileURL)
     }
-    
+
     /// Creates a .version file for all of the provided frameworks.
     private func createVersionFilesForFrameworks(
         _ frameworkURLs: [URL],
@@ -802,4 +830,9 @@ public final class ProjectDependencyRetriever {
                                                          buildProducts: frameworkURLs,
                                                          rootDirectoryURL: self.directoryURL)
     }
+}
+
+private struct DependencyRef: Hashable {
+    public let dependency: Dependency
+    public let ref: String
 }

@@ -178,14 +178,15 @@ public final class Project { // swiftlint:disable:this type_body_length
     public func updateDependencies(
         shouldCheckout: Bool = true,
         buildOptions: BuildOptions,
-        dependenciesToUpdate: [String]? = nil
+        dependenciesToUpdate: [String]? = nil,
+        resolverEventObserver: ((ResolverEvent) -> Void)? = nil
         ) -> SignalProducer<(), CarthageError> {
         let resolverClass = BackTrackingResolver.self
-        let resolver = resolverClass.init(
-            versionsForDependency: dependencyRetriever.versions(for:),
-            dependenciesForDependency: dependencyRetriever.dependencies(for:version:),
-            resolvedGitReference: dependencyRetriever.resolvedGitReference
-        )
+        let resolver = resolverClass.init(projectDependencyRetriever: self.dependencyRetriever)
+
+        if let eventObserver = resolverEventObserver {
+            resolver.events.observeValues(eventObserver)
+        }
 
         let dependenciesProducer = self.loadCombinedCartfile().map { Array($0.dependencies.keys) }
 
@@ -281,20 +282,15 @@ public final class Project { // swiftlint:disable:this type_body_length
     ///
     /// This will fetch dependency repositories as necessary, but will not check
     /// them out into the project's working directory.
-    public func outdatedDependencies(_ includeNestedDependencies: Bool, resolver: ResolverProtocol? = nil) -> SignalProducer<[OutdatedDependency], CarthageError> {
+    public func outdatedDependencies(_ includeNestedDependencies: Bool,
+                                     resolver: ResolverProtocol? = nil,
+                                     resolverEventObserver: ((ResolverEvent) -> Void)? = nil) -> SignalProducer<[OutdatedDependency], CarthageError> {
         let resolverClass = BackTrackingResolver.self
-        let dependencies: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
-        if includeNestedDependencies {
-            dependencies = dependencyRetriever.dependencies(for:version:)
-        } else {
-            dependencies = { _, _ in .empty }
-        }
+        let resolver = resolver ?? resolverClass.init(projectDependencyRetriever: OutdatedDependencyRetriever(impl: self.dependencyRetriever, includeNested: includeNestedDependencies))
 
-        let resolver = resolver ?? resolverClass.init(
-            versionsForDependency: dependencyRetriever.versions(for:),
-            dependenciesForDependency: dependencies,
-            resolvedGitReference: dependencyRetriever.resolvedGitReference
-        )
+        if let eventObserver = resolverEventObserver {
+            resolver.events.observeValues(eventObserver)
+        }
 
         let outdatedDependencies = SignalProducer
             .combineLatest(
@@ -335,8 +331,10 @@ public final class Project { // swiftlint:disable:this type_body_length
         }
     }
 
-    public func validate() -> SignalProducer<(), CarthageError> {
-        return self.loadResolvedCartfile().flatMap(.merge, self.validate)
+    public func validate(dependencyRetriever: DependencyRetrieverProtocol? = nil) -> SignalProducer<(), CarthageError> {
+        return self.loadResolvedCartfile().flatMap(.merge) { resolvedCartfile in
+            return self.validate(resolvedCartfile: resolvedCartfile, dependencyRetriever: dependencyRetriever)
+        }
     }
 
     /// Stores all possible dependencies and versions of those dependencies in the specified local dependency store.
@@ -353,11 +351,9 @@ public final class Project { // swiftlint:disable:this type_body_length
     public func storeDependencies(to store: LocalDependencyStore,
                                   ignoreErrors: Bool = false,
                                   dependencyMappings: [Dependency: Dependency]? = nil,
-                                  eventObserver: ((DependencyCrawlerEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
+                                  eventObserver: ((ResolverEvent) -> Void)? = nil) -> SignalProducer<(Cartfile, ResolvedCartfile?), CarthageError> {
         let crawler = DependencyCrawler(
-            versionsForDependency: dependencyRetriever.versions(for:),
-            dependenciesForDependency: dependencyRetriever.dependencies(for:version:),
-            resolvedGitReference: dependencyRetriever.resolvedGitReference,
+            dependencyRetriever: dependencyRetriever,
             store: store,
             mappings: dependencyMappings,
             ignoreErrors: ignoreErrors
@@ -462,15 +458,18 @@ public final class Project { // swiftlint:disable:this type_body_length
     /// are compatible with the versions specified in the Cartfile for each of those projects.
     ///
     /// Either emits a value to indicate success or an error.
-    func validate(resolvedCartfile: ResolvedCartfile) -> SignalProducer<(), CarthageError> {
+    func validate(resolvedCartfile: ResolvedCartfile, dependencyRetriever: DependencyRetrieverProtocol? = nil) -> SignalProducer<(), CarthageError> {
+        
+        let effectiveDependencyRetriever: DependencyRetrieverProtocol = dependencyRetriever ?? self.dependencyRetriever
+        
         return SignalProducer(value: resolvedCartfile)
             .flatMap(.concat) { (resolved: ResolvedCartfile) -> SignalProducer<([Dependency: PinnedVersion], CompatibilityInfo.Requirements), CarthageError> in
-                let requirements = self.requirementsByDependency(resolvedCartfile: resolved, tryCheckoutDirectory: true)
+                let requirements = self.requirementsByDependency(resolvedCartfile: resolved, tryCheckoutDirectory: true, dependencyRetriever: effectiveDependencyRetriever)
                 return SignalProducer.zip(SignalProducer(value: resolved.dependencies), requirements)
             }
             .flatMap(.concat) { (info: ([Dependency: PinnedVersion], CompatibilityInfo.Requirements)) -> SignalProducer<[CompatibilityInfo], CarthageError> in
                 let (dependencies, requirements) = info
-                return .init(result: CompatibilityInfo.incompatibilities(for: dependencies, requirements: requirements))
+                return .init(result: CompatibilityInfo.incompatibilities(for: dependencies, requirements: requirements, projectDependencyRetriever: effectiveDependencyRetriever))
             }
             .flatMap(.concat) { incompatibilities -> SignalProducer<(), CarthageError> in
                 return incompatibilities.isEmpty ? .init(value: ()) : .init(error: .invalidResolvedCartfile(incompatibilities))
@@ -496,12 +495,16 @@ public final class Project { // swiftlint:disable:this type_body_length
     /// Finds the required dependencies and their corresponding version specifiers for each dependency in Cartfile.resolved.
     func requirementsByDependency(
         resolvedCartfile: ResolvedCartfile,
-        tryCheckoutDirectory: Bool
+        tryCheckoutDirectory: Bool,
+        dependencyRetriever: DependencyRetrieverProtocol? = nil
         ) -> SignalProducer<CompatibilityInfo.Requirements, CarthageError> {
+        
+        let effectiveDependencyRetriever = dependencyRetriever ?? self.dependencyRetriever
+        
         return SignalProducer(resolvedCartfile.dependencies)
             .flatMap(.concurrent(limit: 4)) { arg -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
                 let (dependency, pinnedVersion) = arg
-                return self.dependencyRetriever.dependencies(for: dependency, version: pinnedVersion, tryCheckoutDirectory: tryCheckoutDirectory)
+                return effectiveDependencyRetriever.dependencies(for: dependency, version: pinnedVersion, tryCheckoutDirectory: tryCheckoutDirectory)
                     .map { (dependency, $0) }
             }
             .collect()
@@ -738,23 +741,8 @@ public final class Project { // swiftlint:disable:this type_body_length
                         default:
                             return SignalProducer(error: error)
                         }
-                    }
+                }
         }
-    }
-
-    /// Updates dependencies by using the specified local dependency store instead of 'live' lookup for dependencies and their versions
-    /// Returns a signal with the resulting ResolvedCartfile upon success or a CarthageError upon failure.
-    func resolveUpdatedDependencies(
-        from store: LocalDependencyStore,
-        resolverType: ResolverProtocol.Type,
-        dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
-        let resolver = resolverType.init(
-            versionsForDependency: store.versions(for:),
-            dependenciesForDependency: store.dependencies(for:version:),
-            resolvedGitReference: store.resolvedGitReference
-        )
-
-        return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 
     // MARK: - Private
@@ -865,5 +853,30 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer(error: error)
             }
         }
+    }
+}
+
+private class OutdatedDependencyRetriever: DependencyRetrieverProtocol {
+    private let impl: ProjectDependencyRetriever
+    private let includeNested: Bool
+
+    init(impl: ProjectDependencyRetriever, includeNested: Bool) {
+        self.impl = impl
+        self.includeNested = includeNested
+    }
+
+    func dependencies(for dependency: Dependency, version: PinnedVersion, tryCheckoutDirectory: Bool) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+        guard includeNested else {
+            return SignalProducer<(Dependency, VersionSpecifier), CarthageError>.empty
+        }
+        return impl.dependencies(for: dependency, version: version, tryCheckoutDirectory: tryCheckoutDirectory)
+    }
+
+    func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError> {
+        return impl.resolvedGitReference(dependency, reference: reference)
+    }
+
+    func versions(for dependency: Dependency) -> SignalProducer<PinnedVersion, CarthageError> {
+        return impl.versions(for: dependency)
     }
 }

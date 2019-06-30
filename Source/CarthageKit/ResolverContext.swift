@@ -9,11 +9,9 @@ import ReactiveSwift
 
  It also keeps track of encountered conflicts.
  */
-final class DependencyRetriever {
-    private var pinnedVersions: [Dependency: PinnedVersion]
-    private let versionsForDependency: (Dependency) -> SignalProducer<PinnedVersion, CarthageError>
-    private let resolvedGitReference: (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>
-    private let dependenciesForDependency: (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
+final class ResolverContext {
+    private let pinnedVersions: [Dependency: PinnedVersion]
+    let projectDependencyRetriever: DependencyRetrieverProtocol
 
     private var dependencyCache = [PinnedDependency: [DependencyEntry]]()
     private var versionsCache = [DependencyVersionSpec: ConcreteVersionSet]()
@@ -21,15 +19,10 @@ final class DependencyRetriever {
     private var cachedSortedProblematicDependencies: [Dependency]?
     private var problematicDependencyDictionary = [Dependency: Int]()
 
-    public init(
-        versionsForDependency: @escaping (Dependency) -> SignalProducer<PinnedVersion, CarthageError>,
-        dependenciesForDependency: @escaping (Dependency, PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>,
-        resolvedGitReference: @escaping (Dependency, String) -> SignalProducer<PinnedVersion, CarthageError>,
-        pinnedVersions: [Dependency: PinnedVersion]
-        ) {
-        self.versionsForDependency = versionsForDependency
-        self.dependenciesForDependency = dependenciesForDependency
-        self.resolvedGitReference = resolvedGitReference
+    var eventObserver: ((ResolverEvent) -> Void)?
+
+    public init(projectDependencyRetriever: DependencyRetrieverProtocol, pinnedVersions: [Dependency: PinnedVersion]) {
+        self.projectDependencyRetriever = projectDependencyRetriever
         self.pinnedVersions = pinnedVersions
     }
 
@@ -43,7 +36,7 @@ final class DependencyRetriever {
             for: versionedDependency,
             byStoringDefault: try findAllVersionsUncached(for: dependency, compatibleWith: versionSpecifier, isUpdatable: isUpdatable)
         )
-        return concreteVersionSet
+        return concreteVersionSet.copy
     }
 
     /**
@@ -115,15 +108,15 @@ final class DependencyRetriever {
 
         if !isUpdatable, let pinnedVersion = pinnedVersions[dependency] {
             versionSet.insert(ConcreteVersion(pinnedVersion: pinnedVersion))
-            versionSet.pinnedVersionSpecifier = versionSpecifier
-        } else if isUpdatable {
+            versionSet.isPinned = true
+        } else {
             let pinnedVersionsProducer: SignalProducer<PinnedVersion, CarthageError>
 
             switch versionSpecifier {
             case .gitReference(let hash):
-                pinnedVersionsProducer = resolvedGitReference(dependency, hash)
+                pinnedVersionsProducer = projectDependencyRetriever.resolvedGitReference(dependency, reference: hash)
             default:
-                pinnedVersionsProducer = versionsForDependency(dependency)
+                pinnedVersionsProducer = projectDependencyRetriever.versions(for: dependency)
             }
 
             try pinnedVersionsProducer.reduce(into: versionSet) { vs, pinnedVersion in
@@ -132,14 +125,19 @@ final class DependencyRetriever {
                 }.wait().get()
         }
 
-        versionSet.retainVersions(compatibleWith: versionSpecifier)
+        let effectiveVersionSpecifier = try versionSpecifier.effectiveSpecifier(for: dependency, retriever: self.projectDependencyRetriever)
+        versionSet.retainVersions(compatibleWith: effectiveVersionSpecifier)
+        eventObserver?(ResolverEvent.foundVersions(versions: versionSet.pinnedVersions, dependency: dependency, versionSpecifier: versionSpecifier))
         return versionSet
     }
 
     private func findDependenciesUncached(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyEntry] {
-        guard let result = try dependenciesForDependency(dependency, version.pinnedVersion).collect().first()?.get() else {
+        guard let result = try projectDependencyRetriever.dependencies(for: dependency, version: version.pinnedVersion).collect().first()?.get() else {
             throw DependencyRetrieverError.assertionFailure("Could not dematerialize dependencies for dependency: \(dependency) and version: \(version)")
         }
+
+        eventObserver?(ResolverEvent.foundTransitiveDependencies(transitiveDependencies: result, dependency: dependency, version: version.pinnedVersion))
+
         return result
     }
 
@@ -214,7 +212,7 @@ private struct DependencyVersionSpec: Hashable {
     public let isUpdatable: Bool
     private let hash: Int
 
-    init(dependency: Dependency, versionSpecifier: VersionSpecifier, isUpdatable: Bool) {
+    init(dependency: Dependency, versionSpecifier: VersionSpecifier, isUpdatable: Bool = true) {
         self.dependency = dependency
         self.versionSpecifier = versionSpecifier
         self.isUpdatable = isUpdatable

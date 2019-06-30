@@ -1,0 +1,18 @@
+[
+  {
+    "versionSpecifier" : "\"master\"",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@gitlab.ing.net:2222\/Mirrors-iOS\/filom\/ASN1Decoder"
+      }
+    }
+  },
+  {
+    "versionSpecifier" : "~> 2.7.0",
+    "dependency" : {
+      "git" : {
+        "urlString" : "ssh:\/\/git@gitlab.ing.net:2222\/Mirrors-iOS\/flockoffiles\/SwiftySRP"
+      }
+    }
+  }
+]

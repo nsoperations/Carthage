@@ -94,6 +94,14 @@ class BinaryProjectTests: XCTestCase {
 		}
 	}
 	
+	func testShouldFailWithAnInvalidSemanticVersion() {
+		let jsonData = "{ \"1.a\": \"https://my.domain.com/release/1.0.0/framework.zip\" }".data(using: .utf8)!
+		
+		let actualError = BinaryProject.from(jsonData: jsonData).error
+		
+		expect(actualError) == .invalidVersion(ScannableError(message: "expected minor version number", currentLine: "1.a"))
+	}
+	
 	func testShouldFailWithANonParseableUrl() {
 		let jsonData = "{ \"1.0\": \"💩\" }".data(using: .utf8)!
 		

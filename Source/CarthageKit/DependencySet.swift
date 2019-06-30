@@ -47,28 +47,34 @@ final class DependencySet {
 
     private var contents: [Dependency: ConcreteVersionSet]
     private var updatableDependencyNames: Set<String>
-    private let retriever: DependencyRetriever
+    private let resolverContext: ResolverContext
+
+    public var pinnedVersions: [Dependency: [PinnedVersion]] {
+        return contents.mapValues({ versionSet -> [PinnedVersion] in
+            versionSet.pinnedVersions
+        })
+    }
 
     // MARK: - Initializers
 
     public convenience init(requiredDependencies: [DependencyEntry],
                             updatableDependencyNames: Set<String>,
-                            retriever: DependencyRetriever) throws {
+                            resolverContext: ResolverContext) throws {
         self.init(unresolvedDependencies: SortedSet(requiredDependencies.map { $0.key }),
                   updatableDependencyNames: updatableDependencyNames,
                   contents: [Dependency: ConcreteVersionSet](),
-                  retriever: retriever)
+                  resolverContext: resolverContext)
         try self.expand(parent: nil, with: requiredDependencies)
     }
 
     private init(unresolvedDependencies: SortedSet<Dependency>,
                  updatableDependencyNames: Set<String>,
                  contents: [Dependency: ConcreteVersionSet],
-                 retriever: DependencyRetriever) {
+                 resolverContext: ResolverContext) {
         self.unresolvedDependencies = unresolvedDependencies
         self.updatableDependencyNames = updatableDependencyNames
         self.contents = contents
-        self.retriever = retriever
+        self.resolverContext = resolverContext
     }
 
     // MARK: - Public methods
@@ -81,7 +87,7 @@ final class DependencySet {
             unresolvedDependencies: unresolvedDependencies,
             updatableDependencyNames: updatableDependencyNames,
             contents: contents.mapValues { $0.copy },
-            retriever: retriever)
+            resolverContext: resolverContext)
     }
 
     /**
@@ -95,7 +101,7 @@ final class DependencySet {
      Returns the next unresolved dependency for processing. The dependency returned is the dependency with the highest likelyhood of producing a conflict.
      */
     public var nextUnresolvedDependency: Dependency? {
-        return retriever.problematicDependencies.first { unresolvedDependencies.contains($0) } ?? unresolvedDependencies.first
+        return resolverContext.problematicDependencies.first { unresolvedDependencies.contains($0) } ?? unresolvedDependencies.first
     }
 
     /**
@@ -142,7 +148,7 @@ final class DependencySet {
                 }
 
                 let concreteVersionedDependency = ConcreteVersionedDependency(dependency: dependency, concreteVersion: version)
-                let optionalCachedConflict = retriever.cachedConflict(for: concreteVersionedDependency)
+                let optionalCachedConflict = resolverContext.cachedConflict(for: concreteVersionedDependency)
                 let newSet: DependencySet
 
                 if let cachedConflict = optionalCachedConflict, cachedConflict.conflictingDependencies == nil {
@@ -183,7 +189,7 @@ final class DependencySet {
 
                 if !newSet.isRejected {
                     if try newSet.expand(parent: ConcreteVersionedDependency(dependency: dependency, concreteVersion: version),
-                                         with: try retriever.findDependencies(for: dependency, version: version),
+                                         with: try resolverContext.findDependencies(for: dependency, version: version),
                                          forceUpdatable: isUpdatableDependency(dependency)) {
                         newSet.unresolvedDependencies.remove(dependency)
                     }
@@ -270,7 +276,7 @@ final class DependencySet {
         let dependencySet = DependencySet(unresolvedDependencies: SortedSet<Dependency>(),
                                           updatableDependencyNames: Set<String>(),
                                           contents: [Dependency: ConcreteVersionSet](),
-                                          retriever: self.retriever)
+                                          resolverContext: self.resolverContext)
         dependencySet.rejectionError = rejectionError
         return dependencySet
     }
@@ -296,9 +302,10 @@ final class DependencySet {
         return false
     }
 
-    private func constrainVersions(for dependency: Dependency, with versionSpecifier: VersionSpecifier) -> Bool {
+    private func constrainVersions(for dependency: Dependency, with versionSpecifier: VersionSpecifier) throws -> Bool {
         if let versionSet = versions(for: dependency) {
-            versionSet.retainVersions(compatibleWith: versionSpecifier)
+            let effectiveVersionSpecifier = try versionSpecifier.effectiveSpecifier(for: dependency, retriever: self.resolverContext.projectDependencyRetriever)
+            versionSet.retainVersions(compatibleWith: effectiveVersionSpecifier)
             return !versionSet.isEmpty
         }
         return false
@@ -339,9 +346,9 @@ final class DependencySet {
                         conflictingWith conflictingDependency: ConcreteVersionedDependency? = nil) {
         rejectionError = error
         if let nonNilDefiningDependency = definingDependency {
-            retriever.addCachedConflict(for: nonNilDefiningDependency, conflictingWith: conflictingDependency, error: error)
+            resolverContext.addCachedConflict(for: nonNilDefiningDependency, conflictingWith: conflictingDependency, error: error)
         }
-        retriever.addProblematicDependency(dependency)
+        resolverContext.addProblematicDependency(dependency)
     }
 
     /**
@@ -353,7 +360,12 @@ final class DependencySet {
         let existingVersionSet = versions(for: transitiveDependency)
 
         if existingVersionSet == nil || (existingVersionSet!.isPinned && isUpdatable) {
-            let validVersions = try retriever.findAllVersions(for: transitiveDependency, compatibleWith: versionSpecifier, isUpdatable: isUpdatable)
+            let validVersions = try resolverContext.findAllVersions(for: transitiveDependency, compatibleWith: versionSpecifier, isUpdatable: isUpdatable)
+
+            if let existingVersionSpecifier = existingVersionSet?.effectiveVersionSpecifier {
+                // We need to take the existing version specifier into account, constrain the version with this specifier
+                validVersions.retainVersions(compatibleWith: existingVersionSpecifier)
+            }
 
             if !setVersions(validVersions, for: transitiveDependency) {
                 let error: CarthageError
@@ -367,14 +379,14 @@ final class DependencySet {
             }
 
             unresolvedDependencies.insert(transitiveDependency)
-            existingVersionSet?.pinnedVersionSpecifier = nil
+            existingVersionSet?.isPinned = false
             validVersions.addDefinition(definition)
         } else if let versionSet = existingVersionSet {
             defer {
                 versionSet.addDefinition(definition)
             }
 
-            if !constrainVersions(for: transitiveDependency, with: versionSpecifier) {
+            if try !constrainVersions(for: transitiveDependency, with: versionSpecifier) {
                 assert(!versionSet.definitions.isEmpty, "Expected definitions to not be empty")
                 if let incompatibleDefinition = versionSet.conflictingDefinition(for: versionSpecifier) {
                     let existingRequirement: CarthageError.VersionRequirement = (specifier: incompatibleDefinition.versionSpecifier,
@@ -410,7 +422,7 @@ final class DependencySet {
             if let versionSet = contents[dependency] {
                 // Only check the most appropriate version
                 if let version = versionSet.first {
-                    let transitiveDependencies = try retriever.findDependencies(for: dependency, version: version).map { $0.0 }
+                    let transitiveDependencies = try resolverContext.findDependencies(for: dependency, version: version).map { $0.0 }
                     if try hasCycle(for: transitiveDependencies, parent: dependency, stack: &stack) {
                         return true
                     }
@@ -431,6 +443,8 @@ extension VersionSpecifier {
      */
     fileprivate var precedence: Int {
         switch self {
+        case .empty:
+            return 6
         case .gitReference:
             return 5
         case .exactly:

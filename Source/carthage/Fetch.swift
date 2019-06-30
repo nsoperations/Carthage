@@ -25,11 +25,11 @@ public struct FetchCommand: CommandProtocol {
 
     public func run(_ options: Options) -> Result<(), CarthageError> {
         let dependency = Dependency.git(options.repositoryURL)
-        var eventSink = ProjectEventSink(colorOptions: options.colorOptions)
+        let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
         return ProjectDependencyRetriever.cloneOrFetch(dependency: dependency, preferHTTPS: true, lockTimeout: options.lockTimeout)
             .on(value: { event, _ in
                 if let event = event {
-                    eventSink.put(event)
+                    eventSink.log(event: event)
                 }
             })
             .waitOnCommand()
