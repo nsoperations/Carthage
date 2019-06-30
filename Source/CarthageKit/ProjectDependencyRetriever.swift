@@ -14,7 +14,11 @@ import ReactiveTask
 import struct SPMUtility.Version
 
 public protocol DependencyRetrieverProtocol {
-    func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
+    func dependencies(
+        for dependency: Dependency,
+        version: PinnedVersion,
+        tryCheckoutDirectory: Bool
+        ) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError>
     func resolvedGitReference(_ dependency: Dependency, reference: String) -> SignalProducer<PinnedVersion, CarthageError>
     func versions(for dependency: Dependency) -> SignalProducer<PinnedVersion, CarthageError>
 }
@@ -26,6 +30,11 @@ extension DependencyRetrieverProtocol {
             return .success(ref)
         }
         return resolvedGitReference(dependency, reference: ref).first()?.map { $0.commitish } ?? Result.failure(CarthageError.requiredVersionNotFound(dependency, .gitReference(ref)))
+    }
+    
+    /// Loads the dependencies for the given dependency, at the given version.
+    public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+        return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
     }
 }
 
@@ -86,11 +95,6 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             .map { Set($0) }
             .concat(value: Set())
             .take(first: 1)
-    }
-
-    /// Loads the dependencies for the given dependency, at the given version.
-    public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
-        return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
     }
 
     /// Loads the dependencies for the given dependency, at the given version. Optionally can attempt to read from the Checkout directory

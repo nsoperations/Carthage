@@ -199,7 +199,7 @@ class ValidateTests: XCTestCase {
 }
 
 private class MockProjectDependencyRetriever: DependencyRetrieverProtocol {
-    func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+    func dependencies(for dependency: Dependency, version: PinnedVersion, tryCheckoutDirectory: Bool) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
         return SignalProducer<(Dependency, VersionSpecifier), CarthageError>.empty
     }
 

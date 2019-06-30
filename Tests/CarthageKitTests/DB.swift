@@ -50,7 +50,7 @@ internal struct DB: DependencyRetrieverProtocol {
 		}
 	}
 	
-	func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+    func dependencies(for dependency: Dependency, version: PinnedVersion, tryCheckoutDirectory: Bool) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
 		if let dependencies = self.versions[dependency]?[version] {
 			return .init(dependencies.map { ($0.0, $0.1) })
 		} else {

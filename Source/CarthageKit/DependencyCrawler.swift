@@ -117,9 +117,15 @@ public final class DependencyCrawler {
 
                 versionSet = pinnedVersions
             }
-
-            let filteredVersionSet = versionSet.filter { pinnedVersion -> Bool in
-                versionSpecifier.isSatisfied(by: pinnedVersion)
+            
+            let filteredVersionSet: [PinnedVersion]
+            if case .gitReference = versionSpecifier {
+                // Do not filter git references, because they are by definition compatible with the pinned versions that were retrieved.
+                filteredVersionSet = versionSet
+            } else {
+                filteredVersionSet = versionSet.filter { pinnedVersion -> Bool in
+                    versionSpecifier.isSatisfied(by: pinnedVersion)
+                }
             }
 
             eventPublisher.send(value:
