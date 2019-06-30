@@ -57,6 +57,9 @@ public enum ProjectEvent {
 
     /// Building an uncached project.
     case buildingUncached(Dependency)
+    
+    /// Rebuilding because the installed binary is not valid
+    case rebuildingBinary(Dependency)
 
     /// Waiting for a lock on the specified URL.
     case waiting(URL)
@@ -674,18 +677,11 @@ public final class Project { // swiftlint:disable:this type_body_length
                             .map { matches in return (dependency, version, matches) }
                     }
                     .filterMap { dependency, version, matches -> (Dependency, PinnedVersion)? in
-                        guard let versionFileMatches = matches else {
-                            self.projectEventsObserver.send(value: .buildingUncached(dependency))
+                        guard let versionFileMatches = matches, versionFileMatches else {
+                            self.projectEventsObserver.send(value: .rebuildingBinary(dependency))
                             return nil
                         }
-
-                        if versionFileMatches {
-                            self.projectEventsObserver.send(value: .skippedBuildingCached(dependency))
-                            return (dependency, version)
-                        } else {
-                            self.projectEventsObserver.send(value: .rebuildingCached(dependency))
-                            return nil
-                        }
+                        return (dependency, version)
                     }
                     .collect()
                     .map { installedDependencies -> [(Dependency, PinnedVersion)] in
