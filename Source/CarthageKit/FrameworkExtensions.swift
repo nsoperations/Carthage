@@ -42,6 +42,11 @@ extension String {
     internal var isGitCommitSha: Bool {
         return self.count == 40 && String.gitSHACharacterSet.isSuperset(of: CharacterSet(charactersIn: self))
     }
+    
+    /// Returns true if self contain any of the characters from the given set
+    internal func containsAny(_ characterSet: CharacterSet) -> Bool {
+        return self.rangeOfCharacter(from: characterSet) != nil
+    }
 }
 
 extension Signal {
@@ -226,6 +231,23 @@ extension Scanner {
         let lineRange: NSRange = nsString.lineRange(for: scanRange)
 
         return nsString.substring(with: lineRange)
+    }
+    
+    /// The string (as `Substring?`) that is left to scan.
+    ///
+    /// Accessing this variable will not advance the scanner location.
+    ///
+    /// - returns: `nil` in the unlikely event `self.scanLocation` splits an extended grapheme cluster.
+    internal var remainingSubstring: Substring? {
+        return Range(
+            NSRange(
+                location: self.scanLocation /* our UTF-16 offset */,
+                length: (self.string as NSString).length - self.scanLocation
+            ),
+            in: self.string
+            ).map {
+                self.string[$0]
+        }
     }
 }
 

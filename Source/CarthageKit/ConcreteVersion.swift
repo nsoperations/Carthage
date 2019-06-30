@@ -9,7 +9,7 @@ import BTree
  */
 struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
     public let pinnedVersion: PinnedVersion
-    public let semanticVersion: Version?
+    public let semanticVersion: SemanticVersion?
     private let hash: Int
     private let isUpperBound: Bool
 
@@ -24,7 +24,7 @@ struct ConcreteVersion: Comparable, Hashable, CustomStringConvertible {
         self.hash = pinnedVersion.hashValue
     }
 
-    public init(semanticVersion: Version, isUpperBound: Bool = false) {
+    public init(semanticVersion: SemanticVersion, isUpperBound: Bool = false) {
         self.pinnedVersion = PinnedVersion(semanticVersion.description)
         self.semanticVersion = semanticVersion
         self.hash = pinnedVersion.hashValue
@@ -300,17 +300,17 @@ final class ConcreteVersionSet: Sequence, CustomStringConvertible {
             let lowerBound = ConcreteVersion(semanticVersion: requirement)
             //We have to use the isUpperBound trick, because half open ranges from the left bound are not supported by SortedSet.
             let preReleaseUpperBound = ConcreteVersion(semanticVersion:
-                Version(requirement.major, requirement.minor, requirement.patch + 1), isUpperBound: true)
+                SemanticVersion(requirement.major, requirement.minor, requirement.patch + 1), isUpperBound: true)
             //Bounds are reversed because the versions are sorted in reverse order
             semanticVersions.formPrefix(through: lowerBound)
             preReleaseVersions.formIntersection(elementsIn: preReleaseUpperBound...lowerBound)
         case .compatibleWith(let requirement):
             let lowerBound = ConcreteVersion(semanticVersion: requirement)
             let upperBound = requirement.major > 0 ?
-                ConcreteVersion(semanticVersion: Version(requirement.major + 1, 0, 0), isUpperBound: true) :
-                ConcreteVersion(semanticVersion: Version(0, requirement.minor + 1, 0), isUpperBound: true)
+                ConcreteVersion(semanticVersion: SemanticVersion(requirement.major + 1, 0, 0), isUpperBound: true) :
+                ConcreteVersion(semanticVersion: SemanticVersion(0, requirement.minor + 1, 0), isUpperBound: true)
             let preReleaseUpperBound = ConcreteVersion(semanticVersion:
-                Version(requirement.major, requirement.minor, requirement.patch + 1), isUpperBound: true)
+                SemanticVersion(requirement.major, requirement.minor, requirement.patch + 1), isUpperBound: true)
             //Bounds are reversed because the versions are sorted in reverse order
             semanticVersions.formIntersection(elementsIn: upperBound...lowerBound)
             preReleaseVersions.formIntersection(elementsIn: preReleaseUpperBound...lowerBound)

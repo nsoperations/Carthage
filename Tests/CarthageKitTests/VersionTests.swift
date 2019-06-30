@@ -5,14 +5,14 @@ import XCTest
 
 class VersionTests: XCTestCase {
 	func testShouldParseSemanticVersions() {
-		expect(PinnedVersion("1.4").semanticVersion) == Version(1, 4, 0)
-		expect(PinnedVersion("v2.8.9").semanticVersion) == Version(2, 8, 9)
-		expect(PinnedVersion("2.8.2-alpha").semanticVersion) == Version(2, 8, 2, prereleaseIdentifiers: ["alpha"])
-		expect(PinnedVersion("2.8.2-alpha+build234").semanticVersion) == Version(2, 8, 2, prereleaseIdentifiers: ["alpha"], buildMetadataIdentifiers: ["build234"])
-		expect(PinnedVersion("2.8.2+build234").semanticVersion) == Version(2, 8, 2, buildMetadataIdentifiers: ["build234"])
-		expect(PinnedVersion("2.8.2-alpha.2.1.0").semanticVersion) == Version(2, 8, 2, prereleaseIdentifiers: ["alpha", "2", "1", "0"])
-        expect(PinnedVersion("v2.8-alpha").semanticVersion) == Version(2, 8, 0, prereleaseIdentifiers: ["alpha"])
-        expect(PinnedVersion("v2.8+build345").semanticVersion)  == Version(2, 8, 0, buildMetadataIdentifiers: ["build345"])
+		expect(PinnedVersion("1.4").semanticVersion) == SemanticVersion(1, 4, 0)
+		expect(PinnedVersion("v2.8.9").semanticVersion) == SemanticVersion(2, 8, 9)
+		expect(PinnedVersion("2.8.2-alpha").semanticVersion) == SemanticVersion(2, 8, 2, prereleaseIdentifiers: ["alpha"])
+		expect(PinnedVersion("2.8.2-alpha+build234").semanticVersion) == SemanticVersion(2, 8, 2, prereleaseIdentifiers: ["alpha"], buildMetadataIdentifiers: ["build234"])
+		expect(PinnedVersion("2.8.2+build234").semanticVersion) == SemanticVersion(2, 8, 2, buildMetadataIdentifiers: ["build234"])
+		expect(PinnedVersion("2.8.2-alpha.2.1.0").semanticVersion) == SemanticVersion(2, 8, 2, prereleaseIdentifiers: ["alpha", "2", "1", "0"])
+        expect(PinnedVersion("v2.8-alpha").semanticVersion) == SemanticVersion(2, 8, 0, prereleaseIdentifiers: ["alpha"])
+        expect(PinnedVersion("v2.8+build345").semanticVersion)  == SemanticVersion(2, 8, 0, buildMetadataIdentifiers: ["build345"])
 	}
 	
 	func testShouldFailOnInvalidSemanticVersions() {
@@ -201,14 +201,14 @@ class VersionSpecifierIsSatisfiedByTests: XCTestCase {
 }
 
 class VersionSpecifierIntersectionTests: XCTestCase {
-	let v0_1_0 = Version(0, 1, 0)
-	let v0_1_1 = Version(0, 1, 1)
-	let v0_2_0 = Version(0, 2, 0)
-	let v1_3_2 = Version(1, 3, 2)
-	let v2_1_1 = Version(2, 1, 1)
-	let v2_2_0 = Version(2, 2, 0)
-	let v2_2_0_b421 = Version(2, 2, 0, buildMetadataIdentifiers: ["b421"])
-	let v2_2_0_alpha = Version(2, 2, 0, prereleaseIdentifiers: ["alpha"])
+	let v0_1_0 = SemanticVersion(0, 1, 0)
+	let v0_1_1 = SemanticVersion(0, 1, 1)
+	let v0_2_0 = SemanticVersion(0, 2, 0)
+	let v1_3_2 = SemanticVersion(1, 3, 2)
+	let v2_1_1 = SemanticVersion(2, 1, 1)
+	let v2_2_0 = SemanticVersion(2, 2, 0)
+	let v2_2_0_b421 = SemanticVersion(2, 2, 0, buildMetadataIdentifiers: ["b421"])
+	let v2_2_0_alpha = SemanticVersion(2, 2, 0, prereleaseIdentifiers: ["alpha"])
 	
 	func testShouldReturnTheTighterSpecifierWhenOneIsAny() {
 		testIntersection(.any, .any, expected: .any)

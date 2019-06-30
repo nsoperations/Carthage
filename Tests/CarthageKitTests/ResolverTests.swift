@@ -501,7 +501,7 @@ class ResolverTests: XCTestCase {
                 return
             }
             
-            expect(pinnedVersionSecurity1.semanticVersion) == Version(2, 1, 0)
+            expect(pinnedVersionSecurity1.semanticVersion) == SemanticVersion(2, 1, 0)
             
             // Test whether the resolved cartfile is valid (should be the case)
             try project.validate(resolvedCartfile: resolvedCartfile1, dependencyRetriever: repository).first()?.get()
@@ -527,7 +527,7 @@ class ResolverTests: XCTestCase {
                 return
             }
             
-            expect(pinnedVersionSecurity2.semanticVersion) == Version(2, 1, 0)
+            expect(pinnedVersionSecurity2.semanticVersion) == SemanticVersion(2, 1, 0)
             
             // Test whether the resolved cartfile is valid (should be the case)
             try project.validate(resolvedCartfile: resolvedCartfile2, dependencyRetriever: repository).first()?.get()
