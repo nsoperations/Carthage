@@ -66,7 +66,7 @@ final class DebugSymbolsMapper {
         if let definedBuildSourceURL = buildSourceURL, let matchURL = matchURL(sourceURL: sourceURL, buildSourceURL: definedBuildSourceURL) {
             return matchURL
         }
-        throw CarthageError.invalidFramework(frameworkURL, description: "Could not find an appropriate debug symbols mapping for source path: \(sourceURL.path)")
+        throw CarthageError.invalidFramework(frameworkURL, description: "Could not find appropriate debug symbols mapping for source path: \(sourceURL.path)")
     }
 
     private static func matchURL(sourceURL: URL, buildSourceURL: URL) -> URL? {
