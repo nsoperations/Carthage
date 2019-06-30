@@ -5,7 +5,6 @@ import XCTest
 import ReactiveSwift
 import Result
 import Tentacle
-import struct SPMUtility.Version
 
 private func ==<A: Equatable, B: Equatable>(lhs: [(A, B)], rhs: [(A, B)]) -> Bool {
 	guard lhs.count == rhs.count else { return false }

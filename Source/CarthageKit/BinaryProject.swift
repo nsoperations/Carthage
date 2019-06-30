@@ -1,6 +1,5 @@
 import Foundation
 import Result
-import struct SPMUtility.Version
 
 public struct BinaryProjectFile: Equatable {
     let url: URL

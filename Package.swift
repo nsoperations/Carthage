@@ -19,7 +19,6 @@ let package = Package(
         .package(url: "https://github.com/nsoperations/BTree.git", from: "4.1.1"),
         .package(url: "https://github.com/Quick/Quick.git", from: "1.3.1"),
         .package(url: "https://github.com/Quick/Nimble.git", from: "7.3.0"),
-        .package(url: "https://github.com/apple/swift-package-manager.git", .revision("swift-DEVELOPMENT-SNAPSHOT-2019-03-04-a")),
     ],
     targets: [
         .target(
@@ -32,7 +31,7 @@ let package = Package(
         ),
         .target(
             name: "CarthageKit",
-            dependencies: ["XCDBLD", "Tentacle", "Curry", "SwiftPM-auto", "BTree"]
+            dependencies: ["XCDBLD", "Tentacle", "Curry", "BTree"]
         ),
         .testTarget(
             name: "CarthageKitTests",

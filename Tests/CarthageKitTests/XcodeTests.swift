@@ -7,9 +7,6 @@ import ReactiveSwift
 import ReactiveTask
 import Tentacle
 import XCDBLD
-import SPMUtility
-
-import struct Foundation.URL
 
 class XcodeTests: XCTestCase {
 	

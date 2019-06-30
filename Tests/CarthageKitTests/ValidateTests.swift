@@ -5,9 +5,6 @@ import XCTest
 import ReactiveSwift
 import Result
 import Tentacle
-import SPMUtility
-
-import struct Foundation.URL
 
 private extension CarthageError {
     var compatibilityInfos: [CompatibilityInfo] {

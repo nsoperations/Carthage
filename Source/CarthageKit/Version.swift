@@ -3,7 +3,6 @@
 import Foundation
 import Result
 import ReactiveSwift
-import SPMUtility
 
 extension Version {
     static func from(commitish: String) -> Result<Version, ScannableError> {

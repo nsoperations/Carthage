@@ -4,7 +4,6 @@ import ReactiveSwift
 import ReactiveTask
 import Result
 import Tentacle
-import SPMUtility
 
 /// The latest version of Carthage as a `Version`.
 public func remoteVersion() -> Version? {

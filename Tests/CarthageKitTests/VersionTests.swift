@@ -2,7 +2,6 @@
 import Foundation
 import Nimble
 import XCTest
-import SPMUtility
 
 class VersionTests: XCTestCase {
 	func testShouldParseSemanticVersions() {

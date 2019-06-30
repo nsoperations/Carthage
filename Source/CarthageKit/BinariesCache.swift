@@ -4,7 +4,6 @@ import Tentacle
 import ReactiveSwift
 import ReactiveTask
 import XCDBLD
-import struct SPMUtility.Version
 
 /// Cache for binary builds
 protocol BinariesCache {

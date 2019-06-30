@@ -1,6 +1,5 @@
 import Foundation
 import XCTest
-import SPMUtility
 import BTree
 @testable import CarthageKit
 

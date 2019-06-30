@@ -4,9 +4,6 @@ import Result
 import Tentacle
 import Nimble
 import XCTest
-import SPMUtility
-
-import struct Foundation.URL
 
 class CartfileTests: XCTestCase {
 	func testShouldParseACartfile() {

@@ -3,7 +3,6 @@ import ReactiveSwift
 import ReactiveTask
 import Result
 import Tentacle
-import SPMUtility
 
 extension SignalProducer where Value == Release, Error == CarthageError {
 

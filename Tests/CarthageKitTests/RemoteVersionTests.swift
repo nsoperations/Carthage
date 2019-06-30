@@ -3,7 +3,6 @@ import Nimble
 import ReactiveSwift
 import Tentacle
 import XCTest
-import SPMUtility
 
 import struct Foundation.URL
 
