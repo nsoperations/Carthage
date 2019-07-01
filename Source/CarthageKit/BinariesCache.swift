@@ -123,7 +123,15 @@ final class BinaryProjectCache: AbstractBinariesCache {
 
     override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
 
-        guard let binaryProject = self.binaryProjectDefinitions[dependency], let sourceURL = binaryProject.binaryURL(for: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion) else {
+        let effectiveConfiguration: String
+        switch dependency {
+        case .binary: // don't fail if binary-only frameworks aren't available for Debug.
+            effectiveConfiguration = "Release"
+        default:
+            effectiveConfiguration = configuration
+        }
+
+        guard let binaryProject = self.binaryProjectDefinitions[dependency], let sourceURL = binaryProject.binaryURL(for: pinnedVersion, configuration: effectiveConfiguration, swiftVersion: swiftVersion) else {
 
             let error: CarthageError
             if let semanticVersion = pinnedVersion.semanticVersion {
