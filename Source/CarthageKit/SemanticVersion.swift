@@ -3,22 +3,22 @@ import Result
 
 /// A struct representing a semver version.
 public struct SemanticVersion: Hashable {
-    
+
     /// The major version.
     public let major: Int
-    
+
     /// The minor version.
     public let minor: Int
-    
+
     /// The patch version.
     public let patch: Int
-    
+
     /// The pre-release identifier.
     public let prereleaseIdentifiers: [String]
-    
+
     /// The build metadata.
     public let buildMetadataIdentifiers: [String]
-    
+
     /// Create a version object.
     public init(
         _ major: Int,
@@ -37,36 +37,36 @@ public struct SemanticVersion: Hashable {
 }
 
 extension SemanticVersion: Comparable {
-    
+
     func isEqualWithoutPrerelease(_ other: SemanticVersion) -> Bool {
         return major == other.major && minor == other.minor && patch == other.patch
     }
-    
+
     public static func < (lhs: SemanticVersion, rhs: SemanticVersion) -> Bool {
         let lhsComparators = [lhs.major, lhs.minor, lhs.patch]
         let rhsComparators = [rhs.major, rhs.minor, rhs.patch]
-        
+
         if lhsComparators != rhsComparators {
             return lhsComparators.lexicographicallyPrecedes(rhsComparators)
         }
-        
+
         guard lhs.prereleaseIdentifiers.count > 0 else {
             return false // Non-prerelease lhs >= potentially prerelease rhs
         }
-        
+
         guard rhs.prereleaseIdentifiers.count > 0 else {
             return true // Prerelease lhs < non-prerelease rhs
         }
-        
+
         let zippedIdentifiers = zip(lhs.prereleaseIdentifiers, rhs.prereleaseIdentifiers)
         for (lhsPrereleaseIdentifier, rhsPrereleaseIdentifier) in zippedIdentifiers {
             if lhsPrereleaseIdentifier == rhsPrereleaseIdentifier {
                 continue
             }
-            
+
             let typedLhsIdentifier: Any = Int(lhsPrereleaseIdentifier) ?? lhsPrereleaseIdentifier
             let typedRhsIdentifier: Any = Int(rhsPrereleaseIdentifier) ?? rhsPrereleaseIdentifier
-            
+
             switch (typedLhsIdentifier, typedRhsIdentifier) {
             case let (int1 as Int, int2 as Int): return int1 < int2
             case let (string1 as String, string2 as String): return string1 < string2
@@ -76,7 +76,7 @@ extension SemanticVersion: Comparable {
                 return false
             }
         }
-        
+
         return lhs.prereleaseIdentifiers.count < rhs.prereleaseIdentifiers.count
     }
 }
@@ -95,7 +95,7 @@ extension SemanticVersion: CustomStringConvertible {
 }
 
 public extension SemanticVersion {
-    
+
     /// Create a version object from string.
     ///
     /// - Parameters:
@@ -103,25 +103,25 @@ public extension SemanticVersion {
     init?(string: String) {
         let prereleaseStartIndex = string.index(of: "-")
         let metadataStartIndex = string.index(of: "+")
-        
+
         let requiredEndIndex = prereleaseStartIndex ?? metadataStartIndex ?? string.endIndex
         let requiredCharacters = string.prefix(upTo: requiredEndIndex)
         let requiredComponents = requiredCharacters
             .split(separator: ".", maxSplits: 2, omittingEmptySubsequences: false)
             .map(String.init).compactMap({ Int($0) }).filter({ $0 >= 0 })
-        
+
         guard requiredComponents.count == 3 else { return nil }
-        
+
         self.major = requiredComponents[0]
         self.minor = requiredComponents[1]
         self.patch = requiredComponents[2]
-        
+
         func identifiers(start: String.Index?, end: String.Index) -> [String] {
             guard let start = start else { return [] }
             let identifiers = string[string.index(after: start)..<end]
             return identifiers.split(separator: ".").map(String.init)
         }
-        
+
         self.prereleaseIdentifiers = identifiers(
             start: prereleaseStartIndex,
             end: metadataStartIndex ?? string.endIndex)
@@ -132,18 +132,18 @@ public extension SemanticVersion {
 }
 
 extension SemanticVersion: ExpressibleByStringLiteral {
-    
+
     public init(stringLiteral value: String) {
         guard let version = SemanticVersion(string: value) else {
             fatalError("\(value) is not a valid version")
         }
         self = version
     }
-    
+
     public init(extendedGraphemeClusterLiteral value: String) {
         self.init(stringLiteral: value)
     }
-    
+
     public init(unicodeScalarLiteral value: String) {
         self.init(stringLiteral: value)
     }
@@ -164,22 +164,22 @@ extension SemanticVersion: Codable {
         var container = encoder.singleValueContainer()
         try container.encode(description)
     }
-    
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let string = try container.decode(String.self)
-        
+
         guard let version = SemanticVersion(string: string) else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: decoder.codingPath,
                 debugDescription: "Invalid version string \(string)"))
         }
-        
+
         self.init(version)
     }
 }
 
-// MARK:- Range operations
+// MARK: - Range operations
 
 extension ClosedRange where Bound == SemanticVersion {
     /// Marked as unavailable because we have custom rules for contains.
@@ -209,7 +209,7 @@ extension Range where Bound == SemanticVersion {
 }
 
 extension Range where Bound == SemanticVersion {
-    
+
     public func contains(version: SemanticVersion) -> Bool {
         // Special cases if version contains prerelease identifiers.
         if !version.prereleaseIdentifiers.isEmpty {
@@ -217,7 +217,7 @@ extension Range where Bound == SemanticVersion {
             if lowerBound.prereleaseIdentifiers.isEmpty && upperBound.prereleaseIdentifiers.isEmpty {
                 return false
             }
-            
+
             // At this point, one of the bounds contains prerelease identifiers.
             //
             // Reject 2.0.0-alpha when upper bound is 2.0.0.
@@ -225,7 +225,7 @@ extension Range where Bound == SemanticVersion {
                 return false
             }
         }
-        
+
         // Otherwise, apply normal contains rules.
         return version >= lowerBound && version < upperBound
     }
@@ -235,11 +235,11 @@ extension SemanticVersion {
     public var isPreRelease: Bool {
         return !prereleaseIdentifiers.isEmpty
     }
-    
+
     public var discardingBuildMetadata: SemanticVersion {
         return SemanticVersion(major, minor, patch, prereleaseIdentifiers: prereleaseIdentifiers)
     }
-    
+
     public func hasSameNumericComponents(version: SemanticVersion) -> Bool {
         return major == version.major
             && minor == version.minor
@@ -250,11 +250,11 @@ extension SemanticVersion {
 extension SemanticVersion {
     static func from(commitish: String) -> Result<SemanticVersion, ScannableError> {
         let scanner = Scanner(string: commitish)
-        
+
         // Skip leading characters, like "v" or "version-" or anything like
         // that.
         scanner.scanUpToCharacters(from: versionCharacterSet, into: nil)
-        
+
         return self.from(scanner).flatMap { version in
             if scanner.isAtEnd {
                 return .success(version)
@@ -263,27 +263,27 @@ extension SemanticVersion {
             }
         }
     }
-    
+
     /// Set of valid digts for SemVer versions
     /// - note: Please use this instead of `CharacterSet.decimalDigits`, as
     /// `decimalDigits` include more characters that are not contemplated in
     /// the SemVer spects (e.g. `FULLWIDTH` version of digits, like `４`)
     fileprivate static let semVerDecimalDigits = CharacterSet(charactersIn: "0123456789")
-    
+
     /// Set of valid characters for SemVer major.minor.patch section
     fileprivate static let versionCharacterSet = CharacterSet(charactersIn: ".")
         .union(SemanticVersion.semVerDecimalDigits)
-    
+
     fileprivate static let asciiAlphabeth = CharacterSet(
         charactersIn: "abcdefghijklmnopqrstuvxyzABCDEFGHIJKLMNOPQRSTUVXYZ"
     )
-    
+
     /// Set of valid character for SemVer build metadata section
     fileprivate static let invalidBuildMetadataCharacters = asciiAlphabeth
         .union(SemanticVersion.semVerDecimalDigits)
         .union(CharacterSet(charactersIn: "-"))
         .inverted
-    
+
     /// Separator of pre-release components
     fileprivate static let preReleaseComponentsSeparator = "."
 }
@@ -297,7 +297,7 @@ extension SemanticVersion: Scannable {
             let version = versionBuffer as String? else {
                 return .failure(ScannableError(message: "expected version", currentLine: scanner.currentLine))
         }
-        
+
         let components = version
             .split(omittingEmptySubsequences: false) { $0 == "." }
         guard !components.isEmpty else {
@@ -306,45 +306,45 @@ extension SemanticVersion: Scannable {
         guard components.count <= 3 else {
             return .failure(ScannableError(message: "found more than 3 dot-separated components in version", currentLine: scanner.currentLine))
         }
-        
+
         func parseVersion(at index: Int) -> Int? {
             return components.count > index ? Int(components[index]) : nil
         }
-        
+
         guard let major = parseVersion(at: 0) else {
             return .failure(ScannableError(message: "expected major version number", currentLine: scanner.currentLine))
         }
-        
+
         guard let minor = parseVersion(at: 1) else {
             return .failure(ScannableError(message: "expected minor version number", currentLine: scanner.currentLine))
         }
-        
+
         let hasPatchComponent = components.count > 2
         let patch = parseVersion(at: 2)
         guard !hasPatchComponent || patch != nil else {
             return .failure(ScannableError(message: "invalid patch version", currentLine: scanner.currentLine))
         }
-        
+
         let preRelease = scanner.scanStringWithPrefix("-", until: "+")
         let buildMetadata = scanner.scanStringWithPrefix("+", until: "")
         guard scanner.isAtEnd else {
             return .failure(ScannableError(message: "expected valid version", currentLine: scanner.currentLine))
         }
-        
+
         if
             let buildMetadata = buildMetadata,
             let error = SemanticVersion.validateBuildMetadata(buildMetadata, fullVersion: version)
         {
             return .failure(error)
         }
-        
+
         if
             let preRelease = preRelease,
             let error = SemanticVersion.validatePreRelease(preRelease, fullVersion: version)
         {
             return .failure(error)
         }
-        
+
         return .success(self.init(
             major,
             minor,
@@ -353,7 +353,7 @@ extension SemanticVersion: Scannable {
             buildMetadataIdentifiers: buildMetadata?.split(separator: ".").map(String.init) ?? []
         ))
     }
-    
+
     /// Checks validity of a build metadata string and returns an error if not valid
     static private func validateBuildMetadata(_ buildMetadata: String, fullVersion: String) -> ScannableError? {
         guard !buildMetadata.isEmpty else {
@@ -364,22 +364,22 @@ extension SemanticVersion: Scannable {
         }
         return nil
     }
-    
+
     /// Checks validity of a pre-release string and returns an error if not valid
     static private func validatePreRelease(_ preRelease: String, fullVersion: String) -> ScannableError? {
         guard !preRelease.isEmpty else {
             return ScannableError(message: "Pre-release is empty after '-', in \"\(fullVersion)\"")
         }
-        
+
         let components = preRelease.components(separatedBy: preReleaseComponentsSeparator)
         guard components.first(where: { $0.containsAny(invalidBuildMetadataCharacters) }) == nil else {
             return ScannableError(message: "Pre-release contains invalid characters, in \"\(fullVersion)\"")
         }
-        
+
         guard components.first(where: { $0.isEmpty }) == nil else {
             return ScannableError(message: "Pre-release component is empty, in \"\(fullVersion)\"")
         }
-        
+
         // swiftlint:disable:next first_where
         guard components
             .filter({ !$0.containsAny(SemanticVersion.semVerDecimalDigits.inverted) && $0 != "0" })
@@ -392,20 +392,20 @@ extension SemanticVersion: Scannable {
 }
 
 extension Scanner {
-    
+
     /// Scans a string that is supposed to start with the given prefix, until the given
     /// string is encountered.
     /// - returns: the scanned string without the prefix. If the string does not start with the prefix,
     /// or the scanner is at the end, it returns `nil` without advancing the scanner.
     fileprivate func scanStringWithPrefix(_ prefix: Character, until: String) -> String? {
         guard !self.isAtEnd, self.remainingSubstring?.first == prefix else { return nil }
-        
+
         var buffer: NSString?
         self.scanUpTo(until, into: &buffer)
         guard let stringWithPrefix = buffer as String?, stringWithPrefix.first == prefix else {
             return nil
         }
-        
+
         return String(stringWithPrefix.dropFirst())
     }
 }

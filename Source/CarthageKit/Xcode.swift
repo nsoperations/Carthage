@@ -24,10 +24,11 @@ public final class Xcode {
     static func build(
         dependency: Dependency,
         version: PinnedVersion,
-        _ rootDirectoryURL: URL,
+        rootDirectoryURL: URL,
         withOptions options: BuildOptions,
         lockTimeout: Int? = nil,
-        sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) }
+        sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) },
+        builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = nil
         ) -> BuildSchemeProducer {
         let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
         let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
@@ -37,7 +38,8 @@ public final class Xcode {
                                 dependency: (dependency, version),
                                 rootDirectoryURL: rootDirectoryURL,
                                 lockTimeout: lockTimeout,
-                                sdkFilter: sdkFilter
+                                sdkFilter: sdkFilter,
+                                builtProductsHandler: builtProductsHandler
             ).mapError { error in
                 switch (dependency, error) {
                 case let (_, .noSharedFrameworkSchemes(_, platforms)):
@@ -61,7 +63,8 @@ public final class Xcode {
         dependency: (dependency: Dependency, version: PinnedVersion)? = nil,
         rootDirectoryURL: URL,
         lockTimeout: Int? = nil,
-        sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) }
+        sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) },
+        builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = nil
         ) -> BuildSchemeProducer {
         precondition(directoryURL.isFileURL)
 
@@ -122,14 +125,14 @@ public final class Xcode {
                                     configuration: options.configuration,
                                     buildProducts: urls,
                                     rootDirectoryURL: rootDirectoryURL
-                                )
+                                    ).then(builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty)
                             } else {
                                 return VersionFile.createVersionFileForCurrentProject(
                                     platforms: options.platforms,
                                     configuration: options.configuration,
                                     buildProducts: urls,
                                     rootDirectoryURL: rootDirectoryURL
-                                )
+                                    ).then(builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty)
                             }
                         }
                         // Discard any Success values, since we want to

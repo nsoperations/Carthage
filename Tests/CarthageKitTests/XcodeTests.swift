@@ -158,7 +158,7 @@ class XcodeTests: XCTestCase {
 		let version = PinnedVersion("0.1")
 		
 		for dependency in dependencies {
-			let result = Xcode.build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug"))
+            let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug"))
 				.ignoreTaskData()
 				.on(value: { project, scheme in // swiftlint:disable:this end_closure
 					NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -397,7 +397,7 @@ class XcodeTests: XCTestCase {
 	func testShouldBuildForOnePlatform() {
 		let dependency = Dependency.gitHub(.dotCom, Repository(owner: "github", name: "Archimedes"))
 		let version = PinnedVersion("0.1")
-		let result = Xcode.build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS ]))
+		let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS ]))
 			.ignoreTaskData()
 			.on(value: { project, scheme in
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -423,7 +423,7 @@ class XcodeTests: XCTestCase {
 	func testShouldBuildForMultiplePlatforms() {
 		let dependency = Dependency.gitHub(.dotCom, Repository(owner: "github", name: "Archimedes"))
 		let version = PinnedVersion("0.1")
-		let result = Xcode.build(dependency: dependency, version: version, directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS, .iOS ]))
+		let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS, .iOS ]))
 			.ignoreTaskData()
 			.on(value: { project, scheme in
 				NSLog("Building scheme \"\(scheme)\" in \(project)")

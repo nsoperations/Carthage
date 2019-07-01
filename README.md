@@ -60,6 +60,10 @@ see [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.36.2+nsoperations
+
+- Fixed bug where build would fail for frameworks where the framework name differs from the dependency name.
+
 ### 0.36.1+nsoperations
 
 - Fixed bug in determining the swift framework version if a non-default generated objective C header was configured for that framework.

@@ -67,7 +67,7 @@ final class ProjectEventLogger {
         case let .buildingUncached(dependency):
             carthage.println(formatting.bullets + "No cache found for " + formatting.projectName(dependency.name)
                 + ", building with all downstream dependencies")
-            
+
         case let .rebuildingBinary(dependency):
             carthage.println(formatting.bullets + "Invalid binary found for " + formatting.projectName(dependency.name)
                 + ", rebuilding with all downstream dependencies")

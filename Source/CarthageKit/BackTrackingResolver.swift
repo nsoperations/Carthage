@@ -59,7 +59,7 @@ public final class BackTrackingResolver: ResolverProtocol {
 
         let pinnedVersions = lastResolved ?? [Dependency: PinnedVersion]()
         let resolverContext = ResolverContext(projectDependencyRetriever: projectDependencyRetriever,
-                                                      pinnedVersions: pinnedVersions)
+                                              pinnedVersions: pinnedVersions)
 
         resolverContext.eventObserver = self.eventPublisher.send
 

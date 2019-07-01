@@ -42,7 +42,7 @@ extension String {
     internal var isGitCommitSha: Bool {
         return self.count == 40 && String.gitSHACharacterSet.isSuperset(of: CharacterSet(charactersIn: self))
     }
-    
+
     /// Returns true if self contain any of the characters from the given set
     internal func containsAny(_ characterSet: CharacterSet) -> Bool {
         return self.rangeOfCharacter(from: characterSet) != nil
@@ -232,7 +232,7 @@ extension Scanner {
 
         return nsString.substring(with: lineRange)
     }
-    
+
     /// The string (as `Substring?`) that is left to scan.
     ///
     /// Accessing this variable will not advance the scanner location.

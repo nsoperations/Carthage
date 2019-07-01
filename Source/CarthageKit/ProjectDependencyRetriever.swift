@@ -30,7 +30,7 @@ extension DependencyRetrieverProtocol {
         }
         return resolvedGitReference(dependency, reference: ref).first()?.map { $0.commitish } ?? Result.failure(CarthageError.requiredVersionNotFound(dependency, .gitReference(ref)))
     }
-    
+
     /// Loads the dependencies for the given dependency, at the given version.
     public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
@@ -392,13 +392,13 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         }
     }
 
-    public func storeBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, toolchain: String?) -> SignalProducer<URL, CarthageError> {
+    public func storeBinaries(for dependency: Dependency, frameworkNames: [String], pinnedVersion: PinnedVersion, configuration: String, toolchain: String?) -> SignalProducer<URL, CarthageError> {
         var tempDir: URL?
 
         return FileManager.default.reactive.createTemporaryDirectory()
             .flatMap(.merge) { tempDirectoryURL -> SignalProducer<URL, CarthageError> in
                 tempDir = tempDirectoryURL
-                return Archive.archiveFrameworks(frameworkNames: [dependency.name], directoryURL: self.directoryURL, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
+                return Archive.archiveFrameworks(frameworkNames: frameworkNames, directoryURL: self.directoryURL, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
             }
             .flatMap(.merge) { archiveURL -> SignalProducer<URL, CarthageError> in
                 return SwiftToolchain.swiftVersion(usingToolchain: toolchain)

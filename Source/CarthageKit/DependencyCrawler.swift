@@ -117,7 +117,7 @@ public final class DependencyCrawler {
 
                 versionSet = pinnedVersions
             }
-            
+
             let filteredVersionSet: [PinnedVersion]
             if case .gitReference = versionSpecifier {
                 // Do not filter git references, because they are by definition compatible with the pinned versions that were retrieved.
