@@ -1,4 +1,3 @@
-
 /// Defines the current CarthageKit version.
 public struct CarthageKitVersion {
     public let value: SemanticVersion

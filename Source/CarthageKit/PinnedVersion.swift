@@ -11,20 +11,20 @@ public struct PinnedVersion: Hashable {
     public var isSemantic: Bool {
         return self.semanticVersion != nil
     }
-    
+
     private let _semanticVersion: LazyValue<SemanticVersion?>
-    
+
     public init(_ commitish: String) {
         self.commitish = commitish
         self._semanticVersion = LazyValue<SemanticVersion?> {
             return SemanticVersion.from(commitish: commitish).value
         }
     }
-    
+
     public static func == (lhs: PinnedVersion, rhs: PinnedVersion) -> Bool {
         return lhs.commitish == rhs.commitish
     }
-    
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(self.commitish)
     }
@@ -35,16 +35,16 @@ extension PinnedVersion: Scannable {
         if !scanner.scanString("\"", into: nil) {
             return .failure(ScannableError(message: "expected pinned version", currentLine: scanner.currentLine))
         }
-        
+
         var commitish: NSString?
         if !scanner.scanUpTo("\"", into: &commitish) || commitish == nil {
             return .failure(ScannableError(message: "empty pinned version", currentLine: scanner.currentLine))
         }
-        
+
         if !scanner.scanString("\"", into: nil) {
             return .failure(ScannableError(message: "unterminated pinned version", currentLine: scanner.currentLine))
         }
-        
+
         return .success(self.init(commitish! as String))
     }
 }

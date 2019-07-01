@@ -68,7 +68,7 @@ public final class LocalDependencyStore: DependencyRetrieverProtocol {
             let jsonData = try encoder.encode(pinnedVersions)
 
             try jsonData.write(to: fileURL, options: [])
-            
+
             if gitReference != nil {
                 // Create a copy for every pinned version
                 for pinnedVersion in pinnedVersions {

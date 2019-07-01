@@ -53,7 +53,7 @@ public enum ProjectEvent {
 
     /// Building an uncached project.
     case buildingUncached(Dependency)
-    
+
     /// Rebuilding because the installed binary is not valid
     case rebuildingBinary(Dependency)
 
@@ -458,9 +458,9 @@ public final class Project { // swiftlint:disable:this type_body_length
     ///
     /// Either emits a value to indicate success or an error.
     func validate(resolvedCartfile: ResolvedCartfile, dependencyRetriever: DependencyRetrieverProtocol? = nil) -> SignalProducer<(), CarthageError> {
-        
+
         let effectiveDependencyRetriever: DependencyRetrieverProtocol = dependencyRetriever ?? self.dependencyRetriever
-        
+
         return SignalProducer(value: resolvedCartfile)
             .flatMap(.concat) { (resolved: ResolvedCartfile) -> SignalProducer<([Dependency: PinnedVersion], CompatibilityInfo.Requirements), CarthageError> in
                 let requirements = self.requirementsByDependency(resolvedCartfile: resolved, tryCheckoutDirectory: true, dependencyRetriever: effectiveDependencyRetriever)
@@ -497,9 +497,9 @@ public final class Project { // swiftlint:disable:this type_body_length
         tryCheckoutDirectory: Bool,
         dependencyRetriever: DependencyRetrieverProtocol? = nil
         ) -> SignalProducer<CompatibilityInfo.Requirements, CarthageError> {
-        
+
         let effectiveDependencyRetriever = dependencyRetriever ?? self.dependencyRetriever
-        
+
         return SignalProducer(resolvedCartfile.dependencies)
             .flatMap(.concurrent(limit: 4)) { arg -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
                 let (dependency, pinnedVersion) = arg
@@ -700,15 +700,21 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let derivedDataPerXcode = baseURL.appendingPathComponent(self.xcodeVersionDirectory, isDirectory: true)
                 let derivedDataPerDependency = derivedDataPerXcode.appendingPathComponent(dependency.name, isDirectory: true)
                 let derivedDataVersioned = derivedDataPerDependency.appendingPathComponent(version.commitish, isDirectory: true)
+                let rootDirectoryURL = self.directoryURL
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
-                let storeBinaries: BuildSchemeProducer = options.useBinaries ?
-                    self.dependencyRetriever.storeBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain)
-                        .then(BuildSchemeProducer.empty) : BuildSchemeProducer.empty
+                let builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = options.useBinaries ? { builtProductURLs in
+                    let frameworkNames = builtProductURLs.compactMap { url -> String? in
+                        guard url.pathExtension == "framework" else {
+                            return nil
+                        }
+                        return url.deletingPathExtension().lastPathComponent
+                    }
+                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain).map { _ in }
+                    } : nil
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
-                    .then(Xcode.build(dependency: dependency, version: version, self.directoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter))
-                    .concat(storeBinaries)
+                    .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:
