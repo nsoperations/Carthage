@@ -66,6 +66,7 @@ see [Installing Carthage](#installing-carthage)
 - Fixed documentation for the `--no-use-binaries` build option.
 - Fixed issues with the resolver regarding the resolution of git references (branch dependencies)
 - Enabled verbose resolver logging if `--verbose` option is active during `update`
+- Fixed bug where binary-only frameworks would cause `bootstrap` command to fail because the debug symbol mapper would fail on the sources not being there.
 
 ### 0.36.0+nsoperations
 
