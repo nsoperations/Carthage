@@ -1,7 +1,6 @@
 import Foundation
 import Result
 import ReactiveSwift
-import SPMUtility
 
 public enum ResolverEvent {
     case foundVersions(versions: [PinnedVersion], dependency: Dependency, versionSpecifier: VersionSpecifier)

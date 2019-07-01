@@ -5,9 +5,6 @@ import XCTest
 import ReactiveSwift
 import Result
 import Tentacle
-import SPMUtility
-
-import struct Foundation.URL
 
 private extension CarthageError {
     var compatibilityInfos: [CompatibilityInfo] {
@@ -68,9 +65,9 @@ class ValidateTests: XCTestCase {
 
         // These tuples represent the desired version of a dependency, paired with its parent dependency;
         // moya_3_1_0 indicates that Moya expects a version compatible with 3.1.0 of *another* dependency
-        moya_3_1_0 = (moyaDependency, VersionSpecifier.compatibleWith(Version(3, 1, 0)))
-        moya_4_1_0 = (moyaDependency, VersionSpecifier.compatibleWith(Version(4, 1, 0)))
-        reactiveSwift_3_2_1 = (reactiveSwiftDependency, VersionSpecifier.compatibleWith(Version(3, 2, 1)))
+        moya_3_1_0 = (moyaDependency, VersionSpecifier.compatibleWith(SemanticVersion(3, 1, 0)))
+        moya_4_1_0 = (moyaDependency, VersionSpecifier.compatibleWith(SemanticVersion(4, 1, 0)))
+        reactiveSwift_3_2_1 = (reactiveSwiftDependency, VersionSpecifier.compatibleWith(SemanticVersion(3, 2, 1)))
     }
 
     func testShouldGroupDependenciesByParentDependency() {
@@ -101,10 +98,10 @@ class ValidateTests: XCTestCase {
         let d = Dependency.gitHub(.dotCom, Repository(owner: "d", name: "d"))
         let e = Dependency.gitHub(.dotCom, Repository(owner: "e", name: "e"))
 
-        let v1 = VersionSpecifier.compatibleWith(Version(1, 0, 0))
-        let v2 = VersionSpecifier.compatibleWith(Version(2, 0, 0))
-        let v3 = VersionSpecifier.compatibleWith(Version(3, 0, 0))
-        let v4 = VersionSpecifier.compatibleWith(Version(4, 0, 0))
+        let v1 = VersionSpecifier.compatibleWith(SemanticVersion(1, 0, 0))
+        let v2 = VersionSpecifier.compatibleWith(SemanticVersion(2, 0, 0))
+        let v3 = VersionSpecifier.compatibleWith(SemanticVersion(3, 0, 0))
+        let v4 = VersionSpecifier.compatibleWith(SemanticVersion(4, 0, 0))
 
         let requirements = [a: [b: v1, c: v2], d: [c: v3, e: v4]]
         guard let invertedRequirements = CompatibilityInfo.invert(requirements: requirements).value else {
@@ -118,11 +115,11 @@ class ValidateTests: XCTestCase {
 
     func testShouldIdentifyIncompatibleDependencies() {
         let commitish = VersionSpecifier.gitReference("commitish")
-        let v4_0_0 = VersionSpecifier.compatibleWith(Version(4, 0, 0))
-        let v2_0_0 = VersionSpecifier.compatibleWith(Version(2, 0, 0))
-        let v4_1_0 = VersionSpecifier.compatibleWith(Version(4, 1, 0))
-        let v3_1_0 = VersionSpecifier.compatibleWith(Version(3, 1, 0))
-        let v3_2_1 = VersionSpecifier.compatibleWith(Version(3, 2, 1))
+        let v4_0_0 = VersionSpecifier.compatibleWith(SemanticVersion(4, 0, 0))
+        let v2_0_0 = VersionSpecifier.compatibleWith(SemanticVersion(2, 0, 0))
+        let v4_1_0 = VersionSpecifier.compatibleWith(SemanticVersion(4, 1, 0))
+        let v3_1_0 = VersionSpecifier.compatibleWith(SemanticVersion(3, 1, 0))
+        let v3_2_1 = VersionSpecifier.compatibleWith(SemanticVersion(3, 2, 1))
 
         let dependencies: [Dependency: PinnedVersion] = [rxSwiftDependency: PinnedVersion("4.1.2"),
                                                          moyaDependency: PinnedVersion("10.0.2"),

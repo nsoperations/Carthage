@@ -1,6 +1,5 @@
 import Foundation
 import Result
-import struct SPMUtility.Version
 
 public struct BinaryProjectFile: Equatable {
     let url: URL
@@ -65,7 +64,7 @@ public struct BinaryProject: Equatable {
         var definitions = [PinnedVersion: [BinaryProjectFile]]()
         for (key, value) in json {
             let pinnedVersion: PinnedVersion
-            switch Version.from(Scanner(string: key)) {
+            switch SemanticVersion.from(Scanner(string: key)) {
             case .success:
                 pinnedVersion = PinnedVersion(key)
             case let .failure(error):

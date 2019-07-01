@@ -11,7 +11,6 @@ import ReactiveSwift
 import Tentacle
 import XCDBLD
 import ReactiveTask
-import struct SPMUtility.Version
 
 public protocol DependencyRetrieverProtocol {
     func dependencies(

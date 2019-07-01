@@ -3,9 +3,6 @@ import Result
 import ReactiveSwift
 import XCDBLD
 import ReactiveTask
-import SPMUtility
-import struct Foundation.URL
-import enum XCDBLD.Platform
 
 /// Describes the type of frameworks.
 enum FrameworkType {

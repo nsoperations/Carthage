@@ -3,10 +3,6 @@ import ReactiveSwift
 import ReactiveTask
 import Result
 import XCDBLD
-import SPMUtility
-
-import struct Foundation.URL
-import enum XCDBLD.Platform
 
 struct CachedFramework: Codable {
     enum CodingKeys: String, CodingKey {

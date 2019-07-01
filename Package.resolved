@@ -83,24 +83,6 @@
         }
       },
       {
-        "package": "llbuild",
-        "repositoryURL": "https://github.com/apple/swift-llbuild.git",
-        "state": {
-          "branch": "master",
-          "revision": "ed7a4a1c010002f2646b8aaf9f9e88e6f20795c1",
-          "version": null
-        }
-      },
-      {
-        "package": "SwiftPM",
-        "repositoryURL": "https://github.com/apple/swift-package-manager.git",
-        "state": {
-          "branch": "swift-DEVELOPMENT-SNAPSHOT-2019-03-04-a",
-          "revision": "916450f7e8a5aef13630edf9e6fc0b16ed9f5f65",
-          "version": null
-        }
-      },
-      {
         "package": "Tentacle",
         "repositoryURL": "https://github.com/mdiep/Tentacle.git",
         "state": {

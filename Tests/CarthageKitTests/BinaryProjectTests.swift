@@ -1,9 +1,6 @@
 import Foundation
 import Nimble
 import XCTest
-import SPMUtility
-
-import struct Foundation.URL
 
 @testable import CarthageKit
 

@@ -1,5 +1,4 @@
 import Foundation
-import SPMUtility
 
 internal enum SwiftVersionError: Error, Equatable {
     /// An error in determining the local Swift version

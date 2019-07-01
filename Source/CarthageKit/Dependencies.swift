@@ -4,10 +4,6 @@ import ReactiveSwift
 import Tentacle
 import XCDBLD
 import ReactiveTask
-import SPMUtility
-
-import struct Foundation.URL
-import enum XCDBLD.Platform
 
 final class Dependencies {
 
