@@ -79,7 +79,7 @@ class AlgorithmTests: XCTestCase {
 	}
 	
 	func testShouldPerformATopologicalSortOnTheProvidedGraphWhenTheSetIsEmpty() {
-		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set())
+		let sorted = Algorithms.topologicalSort(validGraph, nodes: nil)
 		
 		expect(sorted) == [
 			"Argo",

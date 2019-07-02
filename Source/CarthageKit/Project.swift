@@ -573,11 +573,14 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             }
             .flatMap(.latest) { (graph: DependencyGraph) -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                let dependenciesToInclude = Set(graph
-                    .map { dependency, _ in dependency }
-                    .filter { dependency in dependenciesToInclude?.contains(dependency.name) ?? false })
+                var filteredDependencies: Set<Dependency>? = nil
+                if let dependenciesToInclude = dependenciesToInclude {
+                    filteredDependencies = Set(graph
+                        .map { dependency, _ in dependency }
+                        .filter { dependency in dependenciesToInclude.contains(dependency.name) })
+                }
 
-                guard let sortedDependencies = Algorithms.topologicalSort(graph, nodes: dependenciesToInclude) else { // swiftlint:disable:this single_line_guard
+                guard let sortedDependencies = Algorithms.topologicalSort(graph, nodes: filteredDependencies) else { // swiftlint:disable:this single_line_guard
                     return SignalProducer(error: .dependencyCycle(graph))
                 }
 

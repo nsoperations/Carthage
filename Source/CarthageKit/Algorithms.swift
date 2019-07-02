@@ -66,19 +66,19 @@ final class Algorithms {
     /// include only the provided set of nodes and their transitively incoming
     /// nodes (dependencies).
     ///
-    /// If the provided `nodes` set is empty, returns the result of invoking
+    /// If the provided `nodes` set is nil, returns the result of invoking
     /// `topologicalSort()` with the provided graph.
     ///
     /// Throws an exception if the provided node(s) are not contained within the
     /// given graph.
     ///
     /// Returns nil if the provided graph has a cycle or is malformed.
-    static func topologicalSort<Node: Comparable>(_ graph: [Node: Set<Node>], nodes: Set<Node>) -> [Node]? {
-        guard !nodes.isEmpty else {
+    static func topologicalSort<Node: Comparable>(_ graph: [Node: Set<Node>], nodes: Set<Node>?) -> [Node]? {
+        guard let includeNodes = nodes else {
             return Algorithms.topologicalSort(graph)
         }
 
-        precondition(nodes.isSubset(of: Set(graph.keys)))
+        precondition(includeNodes.isSubset(of: Set(graph.keys)))
 
         // Ensure that the graph has no cycles, otherwise determining the set of
         // transitive incoming nodes could infinitely recurse.
@@ -86,7 +86,7 @@ final class Algorithms {
             return nil
         }
 
-        let relevantNodes = Set(nodes.flatMap { (node: Node) -> Set<Node> in
+        let relevantNodes = Set(includeNodes.flatMap { (node: Node) -> Set<Node> in
             Set([node]).union(Algorithms.transitiveIncomingNodes(graph, node: node))
         })
 
