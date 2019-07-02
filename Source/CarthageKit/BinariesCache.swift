@@ -240,10 +240,10 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
     }
 
     override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
-
-        let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, swiftVersion: swiftVersion.description, targetFilePath: destinationURL.path)
+        guard let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, swiftVersion: swiftVersion.description, targetFilePath: destinationURL.path) else {
+            return SignalProducer<(), CarthageError>.empty
+        }
         let versionString = pinnedVersion.description
-
         return task.launch()
             .mapError(CarthageError.taskError)
             .on(started: {
@@ -252,7 +252,11 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
-    private func task(dependencyName: String, dependencyVersion: String, buildConfiguration: String, swiftVersion: String, targetFilePath: String) -> Task {
+    private func task(dependencyName: String, dependencyVersion: String, buildConfiguration: String, swiftVersion: String, targetFilePath: String) -> Task? {
+
+        guard !taskCommand.isEmpty else {
+            return nil
+        }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CARTHAGE_CACHE_DEPENDENCY_NAME"] = dependencyName
@@ -264,3 +268,11 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
         return Task(launchCommand: self.taskCommand, environment: environment)
     }
 }
+
+class LocalBinariesCache: ExternalTaskBinariesCache {
+
+    init() {
+        super.init(taskCommand: "")
+    }
+}
+

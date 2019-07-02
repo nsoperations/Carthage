@@ -536,12 +536,11 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         if let cacheCommand = customCacheCommand {
             return ExternalTaskBinariesCache(taskCommand: cacheCommand)
         } else {
-            //Default binaries cache, only defined for GitHub dependencies
             switch dependency {
             case let .gitHub(server, repository):
                 return GitHubBinariesCache(repository: repository, client: Client(server: server))
             default:
-                return nil
+                return LocalBinariesCache()
             }
         }
     }
