@@ -60,6 +60,11 @@ see [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.36.3+nsoperations
+
+- Fixed bug where local binary caching would not work if CARTHAGE_CACHE_COMMAND environment variable was not present and the dependency was not a GitHub dependency.
+- Fixed bug where non-existent dependencies supplied to carthage build would result in all dependencies being built.
+
 ### 0.36.2+nsoperations
 
 - Fixed bug where build would fail for frameworks where the framework name differs from the dependency name.
