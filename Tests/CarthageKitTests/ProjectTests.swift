@@ -20,9 +20,9 @@ class ProjectBuildTests: XCTestCase {
     var noSharedSchemesDirectoryURL: URL!
     var noSharedSchemesBuildDirectoryURL: URL!
 
-    func build(directoryURL url: URL, platforms: Set<Platform> = [], cacheBuilds: Bool = true, dependenciesToBuild: [String]? = nil, configuration: String = "Debug") -> [String] {
+    func build(directoryURL url: URL, platforms: Set<Platform> = [], cacheBuilds: Bool = true, useBinaries: Bool = false, dependenciesToBuild: [String]? = nil, configuration: String = "Debug") -> [String] {
         let project = Project(directoryURL: url)
-        guard let result = project.buildCheckedOutDependenciesWithOptions(BuildOptions(configuration: configuration, platforms: platforms, cacheBuilds: cacheBuilds), dependenciesToBuild: dependenciesToBuild)
+        guard let result = project.buildCheckedOutDependenciesWithOptions(BuildOptions(configuration: configuration, platforms: platforms, cacheBuilds: cacheBuilds, useBinaries: useBinaries), dependenciesToBuild: dependenciesToBuild)
             .ignoreTaskData()
             .on(value: { project, scheme in
                 NSLog("Building scheme \"\(scheme)\" in \(project)")
