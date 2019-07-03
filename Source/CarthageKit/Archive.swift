@@ -188,41 +188,4 @@ public final class Archive {
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))
         }
     }
-
-}
-
-extension String {
-    fileprivate func removingPrefix(_ prefix: String) -> String {
-        if self.hasPrefix(prefix) {
-            let startIndex = self.index(self.startIndex, offsetBy: prefix.count)
-            return String(self[startIndex..<self.endIndex])
-        } else {
-            return self
-        }
-    }
-
-    fileprivate func removingSuffix(_ suffix: String) -> String {
-        if self.hasSuffix(suffix) {
-            let endIndex = self.index(self.endIndex, offsetBy: -suffix.count)
-            return String(self[self.startIndex..<endIndex])
-        } else {
-            return self
-        }
-    }
-
-    fileprivate func appendingPathComponent(_ component: String) -> String {
-        return (self as NSString).appendingPathComponent(component)
-    }
-
-    fileprivate func appendingPathExtension(_ pathExtension: String) -> String {
-        return (self as NSString).appendingPathExtension(pathExtension)!
-    }
-
-    fileprivate var deletingLastPathComponent: String {
-        return (self as NSString).deletingLastPathComponent
-    }
-
-    fileprivate var lastPathComponent: String {
-        return (self as NSString).lastPathComponent
-    }
 }

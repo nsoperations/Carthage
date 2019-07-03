@@ -52,6 +52,7 @@ class VersionFileTests: XCTestCase {
 										hash: "TestHASH",
 										swiftToolchainVersion: "4.2 (swiftlang-1000.11.37.1 clang-1000.11.45.1)")
 		let versionFile = VersionFile(commitish: "v1.0",
+                                      sourceHash: nil,
                                       configuration: "Debug",
 									  macOS: nil,
 									  iOS: [framework],
@@ -138,7 +139,7 @@ class VersionFileTests: XCTestCase {
 	
     func validate(file: VersionFile, matches: Bool, platform: Platform, commitish: String, configuration: String = "Debug", hashes: [String?],
 				  swiftVersionMatches: [Bool], fileName: FileString = #file, line: UInt = #line) {
-        _ = file.satisfies(platform: platform, commitish: commitish, configuration: configuration, hashes: hashes, swiftVersionMatches: swiftVersionMatches)
+        _ = file.satisfies(platform: platform, commitish: commitish, sourceHash: nil, configuration: configuration, hashes: hashes, swiftVersionMatches: swiftVersionMatches)
 			.on(value: { didMatch in
 				expect(didMatch, file: fileName, line: line) == matches
 			})
