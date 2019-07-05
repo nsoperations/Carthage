@@ -17,7 +17,7 @@ public final class Cache<K: Hashable, V> {
      */
     public var dictionary: [K: V] {
         return synchronized(self) {
-            return storage.reduce(into: [K: V](minimumCapacity: storage.count)) { (dict, entry) in
+            return storage.reduce(into: [K: V](minimumCapacity: storage.count)) { dict, entry in
                 if !entry.value.isExpired {
                     dict[entry.key] = entry.value.value
                 }
@@ -209,7 +209,7 @@ public final class Cache<K: Hashable, V> {
  Swift equivalence of @synchronized in ObjectiveC until a native language alternative comes around.
  */
 @discardableResult
-fileprivate func synchronized<T>(_ object: AnyObject, closure: () throws -> T) rethrows -> T {
+private func synchronized<T>(_ object: AnyObject, closure: () throws -> T) rethrows -> T {
     objc_sync_enter(object)
     defer {
         objc_sync_exit(object)

@@ -2,19 +2,19 @@ import Foundation
 import CommonCrypto
 
 final class SHA256Digest {
-    
+
     enum InputStreamError: Error {
         case createFailed(URL)
         case readFailed
     }
-    
+
     private lazy var context: CC_SHA256_CTX = {
         var shaContext = CC_SHA256_CTX()
         CC_SHA256_Init(&shaContext)
         return shaContext
     }()
-    private var result: Data? = nil
-    
+    private var result: Data?
+
     init() {
     }
 
@@ -24,7 +24,7 @@ final class SHA256Digest {
         }
         return try update(inputStream: inputStream)
     }
-    
+
     func update(inputStream: InputStream) throws {
         guard result == nil else {
             return
@@ -33,7 +33,7 @@ final class SHA256Digest {
         defer {
             inputStream.close()
         }
-        let bufferSize = 4096
+        let bufferSize = 4_096
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer {
             buffer.deallocate()
@@ -50,7 +50,7 @@ final class SHA256Digest {
             self.update(bytes: buffer, length: bytesRead)
         }
     }
-    
+
     func update(data: Data) {
         guard result == nil else {
             return
@@ -59,14 +59,14 @@ final class SHA256Digest {
             self.update(bytes: $0, length: data.count)
         }
     }
-    
+
     func update(bytes: UnsafeRawPointer, length: Int) {
         guard result == nil else {
             return
         }
         _ = CC_SHA256_Update(&self.context, bytes, CC_LONG(length))
     }
-    
+
     func finalize() -> Data {
         if let calculatedResult = result {
             return calculatedResult
@@ -77,7 +77,7 @@ final class SHA256Digest {
         result = theResult
         return theResult
     }
-    
+
     static func sum(_ data: Data) -> Data {
         let digest = SHA256Digest()
         digest.update(data: data)
@@ -103,11 +103,11 @@ extension Data {
         "c",
         "d",
         "e",
-        "f"
+        "f",
     ]
 
     var hexString: String {
-        return self.reduce(into: String(), { (result, byte) in
+        return self.reduce(into: String(), { result, byte in
             let c1: Character = Data.hexCharacterLookupTable[Int(byte >> 4)]
             let c2: Character = Data.hexCharacterLookupTable[Int(byte & 0x0F)]
             result.append(c1)

@@ -253,11 +253,11 @@ struct VersionFile: Codable {
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<Bool, CarthageError> {
-        
+
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
             return SignalProducer(value: false)
         }
-        
+
         guard let cachedFrameworks = self[platform], commitish == self.commitish, configuration == self.configuration else {
             return SignalProducer(value: false)
         }
@@ -451,7 +451,7 @@ extension VersionFile {
             .appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
         return versionFileURL
     }
-    
+
     /// Determines whether a dependency can be skipped because it is
     /// already cached.
     ///
@@ -479,7 +479,7 @@ extension VersionFile {
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
             .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
-            .flatMap(.concat) { (localSwiftVersion, sourceHash) in
+            .flatMap(.concat) { localSwiftVersion, sourceHash in
                 return versionFile.satisfies(platforms: platforms,
                                              commitish: commitish,
                                              sourceHash: sourceHash,
@@ -546,7 +546,7 @@ extension VersionFile {
             let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
             var enumerationError: (error: Error, url: URL)?
 
-            let errorHandler: (URL, Error) -> Bool = { (url, error) -> Bool in
+            let errorHandler: (URL, Error) -> Bool = { url, error -> Bool in
                 enumerationError = (error, url)
                 return false
             }

@@ -64,7 +64,7 @@ public final class Archive {
                         .map { url in framework.relativePath.deletingLastPathComponent.appendingPathComponent(url.lastPathComponent) }
                     let extraFilesProducer = SignalProducer(value: dSYM)
                         .concat(bcsymbolmapsProducer)
-                        .concat(versionFilePath.flatMap{ path -> SignalProducer<String, CarthageError>? in
+                        .concat(versionFilePath.flatMap { path -> SignalProducer<String, CarthageError>? in
                             return directoryURL.appendingPathComponent(path).isExistingFile ? SignalProducer<String, CarthageError>(value: path) : nil } ?? SignalProducer<String, CarthageError>.empty)
                     return SignalProducer(value: framework.relativePath)
                         .concat(extraFilesProducer)

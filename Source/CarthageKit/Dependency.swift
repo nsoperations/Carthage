@@ -50,7 +50,7 @@ public enum Dependency: Hashable {
     public var relativePath: String {
         return Dependency.relativePath(dependencyName: self.name)
     }
-    
+
     public static func relativePath(dependencyName: String) -> String {
         return carthageProjectCheckoutsPath.appendingPathComponent(dependencyName)
     }

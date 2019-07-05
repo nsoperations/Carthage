@@ -573,7 +573,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             }
             .flatMap(.latest) { (graph: DependencyGraph) -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                var filteredDependencies: Set<Dependency>? = nil
+                var filteredDependencies: Set<Dependency>?
                 if let dependenciesToInclude = dependenciesToInclude {
                     filteredDependencies = Set(graph
                         .map { dependency, _ in dependency }
