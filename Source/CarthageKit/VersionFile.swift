@@ -312,67 +312,7 @@ extension VersionFile {
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
 
-        /*
-         List all remotes known for this repository
-         and keep only the "fetch" urls by which the current repository
-         would be known for the purpose of fetching anyways.
-
-         Example of well-formed output:
-
-         $ git remote -v
-         origin   https://github.com/blender/Carthage.git (fetch)
-         origin   https://github.com/blender/Carthage.git (push)
-         upstream https://github.com/Carthage/Carthage.git (fetch)
-         upstream https://github.com/Carthage/Carthage.git (push)
-
-         Example of ill-formed output where upstream does not have a url:
-
-         $ git remote -v
-         origin   https://github.com/blender/Carthage.git (fetch)
-         origin   https://github.com/blender/Carthage.git (push)
-         upstream
-         */
-        let allRemoteURLs = Git.launchGitTask(["remote", "-v"])
-            .flatMap(.concat) { $0.linesProducer }
-            .map { $0.components(separatedBy: .whitespacesAndNewlines) }
-            .filter { $0.count >= 3 && $0.last == "(fetch)" } // Discard ill-formed output as of example
-            .map { ($0[0], $0[1]) }
-            .collect()
-
-        let currentProjectName = allRemoteURLs
-            // Assess the popularity of each remote url
-            .map { $0.reduce([String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]()) { remoteURLPopularityMap, remoteNameAndURL in
-                let (remoteName, remoteUrl) = remoteNameAndURL
-                var remoteURLPopularityMap = remoteURLPopularityMap
-                if let existingEntry = remoteURLPopularityMap[remoteName] {
-                    remoteURLPopularityMap[remoteName] = (existingEntry.popularity + 1, existingEntry.remoteNameAndURL)
-                } else {
-                    remoteURLPopularityMap[remoteName] = (0, (remoteName, remoteUrl))
-                }
-                return remoteURLPopularityMap
-                }
-            }
-            // Pick "origin" if it exists,
-            // otherwise sort remotes by popularity
-            // or alphabetically in case of a draw
-            .map { (remotePopularityMap: [String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]) -> String in
-                guard let origin = remotePopularityMap["origin"] else {
-                    let urlOfMostPopularRemote = remotePopularityMap.sorted { lhs, rhs in
-                        if lhs.value.popularity == rhs.value.popularity {
-                            return lhs.key < rhs.key
-                        }
-                        return lhs.value.popularity > rhs.value.popularity
-                        }
-                        .first?.value.remoteNameAndURL.url
-
-                    // If the reposiroty is not pushed to any remote
-                    // the list of remotes is empty, so call the current project... "_Current"
-                    return urlOfMostPopularRemote.flatMap { Dependency.git(GitURL($0)).name } ?? "_Current"
-                }
-
-                return Dependency.git(GitURL(origin.remoteNameAndURL.url)).name
-        }
-
+        let currentProjectName = Dependencies.fetchDependencyNameForRepository()
         let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap(.merge) { headCommitish in
@@ -509,53 +449,6 @@ extension VersionFile {
         return versionFileURL
     }
     
-    static func sourceHash(dependencyName: String, rootDirectoryURL: URL) -> Result<String, CarthageError> {
-        
-        let dependencyDir = rootDirectoryURL.appendingPathComponent(Dependency.relativePath(dependencyName: dependencyName))
-        
-        guard dependencyDir.isExistingDirectory else {
-            return .failure(CarthageError.readFailed(dependencyDir, nil))
-        }
-        
-        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
-        var enumerationError: (error: Error, url: URL)?
-
-        let errorHandler: (URL, Error) -> Bool = { (url, error) -> Bool in
-            enumerationError = (error, url)
-            return false
-        }
-        
-        guard let enumerator = FileManager.default.enumerator(at: dependencyDir, includingPropertiesForKeys: Array(resourceKeys), errorHandler: errorHandler) else {
-            return .failure(CarthageError.readFailed(dependencyDir, nil))
-        }
-        
-        let digest = SHA256Digest()
-        
-        for case let fileURL as URL in enumerator {
-            let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys)
-            guard let regularFile = resourceValues?.isRegularFile else {
-                return .failure(CarthageError.readFailed(fileURL, nil))
-            }
-            if regularFile {
-                guard let inputStream = InputStream(url: fileURL) else {
-                    return .failure(CarthageError.readFailed(fileURL, nil))
-                }
-                //calculate hash
-                do {
-                    try digest.update(inputStream: inputStream)
-                } catch {
-                    return .failure(CarthageError.readFailed(fileURL, error as NSError?))
-                }
-                break
-            }
-        }
-
-        if let error = enumerationError {
-            return .failure(CarthageError.readFailed(error.url, error.error as NSError))
-        }
-        return .success(digest.finalize().hexString)
-    }
-
     /// Determines whether a dependency can be skipped because it is
     /// already cached.
     ///
@@ -570,7 +463,8 @@ extension VersionFile {
         platforms: Set<Platform>,
         configuration: String,
         rootDirectoryURL: URL,
-        toolchain: String?
+        toolchain: String?,
+        checkSourceHash: Bool
         ) -> SignalProducer<Bool?, CarthageError> {
         let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
@@ -578,11 +472,11 @@ extension VersionFile {
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
         let commitish = version.commitish
-        let sourceHash = self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL).value
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
-            .flatMap(.concat) { localSwiftVersion in
+            .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
+            .flatMap(.concat) { (localSwiftVersion, sourceHash) in
                 return versionFile.satisfies(platforms: platforms,
                                              commitish: commitish,
                                              sourceHash: sourceHash,
@@ -602,25 +496,27 @@ extension VersionFile {
         rootDirectoryURL: URL,
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
-        return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
-            let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
-            let sourceHash = self.sourceHash(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL).value
 
-            let versionFile = VersionFile(
-                commitish: commitish,
-                sourceHash: sourceHash,
-                configuration: configuration,
-                macOS: platformCaches[Platform.macOS.rawValue],
-                iOS: platformCaches[Platform.iOS.rawValue],
-                watchOS: platformCaches[Platform.watchOS.rawValue],
-                tvOS: platformCaches[Platform.tvOS.rawValue])
+        return self.sourceHash(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
+            .flatMap(.merge) { sourceHash -> SignalProducer<(), CarthageError> in
+                return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
+                    let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
+                    let versionFile = VersionFile(
+                        commitish: commitish,
+                        sourceHash: sourceHash,
+                        configuration: configuration,
+                        macOS: platformCaches[Platform.macOS.rawValue],
+                        iOS: platformCaches[Platform.iOS.rawValue],
+                        watchOS: platformCaches[Platform.watchOS.rawValue],
+                        tvOS: platformCaches[Platform.tvOS.rawValue])
 
-            return versionFile.write(to: versionFileURL)
+                    return versionFile.write(to: versionFileURL)
+                }
         }
     }
 
     private static func hashForFileAtURL(_ frameworkFileURL: URL) -> SignalProducer<String, CarthageError> {
-        return SignalProducer<String, CarthageError>({ () -> Result<String, CarthageError> in
+        return SignalProducer<String, CarthageError> { () -> Result<String, CarthageError> in
             let digest = SHA256Digest()
             do {
                 try digest.update(url: frameworkFileURL)
@@ -628,6 +524,54 @@ extension VersionFile {
                 return .failure(CarthageError.readFailed(frameworkFileURL, error as NSError?))
             }
             return .success(digest.finalize().hexString)
-        })
+        }
+    }
+
+    private static func sourceHash(dependencyName: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
+        return SignalProducer<String?, CarthageError> { () -> Result<String?, CarthageError> in
+            let dependencyDir = rootDirectoryURL.appendingPathComponent(Dependency.relativePath(dependencyName: dependencyName))
+
+            guard dependencyDir.isExistingDirectory else {
+                // No hash can be calculated if there is no source dir, this is ok, binaries don't contain sources.
+                return .success(nil)
+            }
+
+            let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
+            var enumerationError: (error: Error, url: URL)?
+
+            let errorHandler: (URL, Error) -> Bool = { (url, error) -> Bool in
+                enumerationError = (error, url)
+                return false
+            }
+
+            guard let enumerator = FileManager.default.enumerator(at: dependencyDir, includingPropertiesForKeys: Array(resourceKeys), errorHandler: errorHandler) else {
+                return .failure(CarthageError.readFailed(dependencyDir, nil))
+            }
+
+            let digest = SHA256Digest()
+
+            for case let fileURL as URL in enumerator {
+                let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys)
+                guard let regularFile = resourceValues?.isRegularFile else {
+                    return .failure(CarthageError.readFailed(fileURL, nil))
+                }
+                if regularFile {
+                    guard let inputStream = InputStream(url: fileURL) else {
+                        return .failure(CarthageError.readFailed(fileURL, nil))
+                    }
+                    //calculate hash
+                    do {
+                        try digest.update(inputStream: inputStream)
+                    } catch {
+                        return .failure(CarthageError.readFailed(fileURL, error as NSError?))
+                    }
+                }
+            }
+
+            if let error = enumerationError {
+                return .failure(CarthageError.readFailed(error.url, error.error as NSError))
+            }
+            return .success(digest.finalize().hexString)
+        }
     }
 }
