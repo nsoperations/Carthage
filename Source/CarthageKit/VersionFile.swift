@@ -518,11 +518,10 @@ extension VersionFile {
         }
         
         let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
-        var enumeratorError: Error? = nil
-        var failedUrl: URL? = nil
+        var enumerationError: (error: Error, url: URL)?
+
         let errorHandler: (URL, Error) -> Bool = { (url, error) -> Bool in
-            enumeratorError = error
-            failedUrl = url
+            enumerationError = (error, url)
             return false
         }
         
@@ -550,12 +549,11 @@ extension VersionFile {
                 break
             }
         }
-        
-        guard enumeratorError == nil else {
-            return .failure(CarthageError.readFailed(failedUrl!, enumeratorError as NSError?))
+
+        if let error = enumerationError {
+            return .failure(CarthageError.readFailed(error.url, error.error as NSError))
         }
-        
-        return .success(String(data: digest.finalize(), encoding: .ascii)!)
+        return .success(digest.finalize().hexString)
     }
 
     /// Determines whether a dependency can be skipped because it is
@@ -575,12 +573,12 @@ extension VersionFile {
         toolchain: String?
         ) -> SignalProducer<Bool?, CarthageError> {
         let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
-        let sourceHash = self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL).value
         guard let versionFile = VersionFile(url: versionFileURL) else {
             return SignalProducer(value: nil)
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
         let commitish = version.commitish
+        let sourceHash = self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL).value
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
@@ -622,20 +620,14 @@ extension VersionFile {
     }
 
     private static func hashForFileAtURL(_ frameworkFileURL: URL) -> SignalProducer<String, CarthageError> {
-        guard frameworkFileURL.isExistingFile, let inputStream = InputStream(url: frameworkFileURL) else {
-            return SignalProducer(error: .readFailed(frameworkFileURL, nil))
-        }
-        
         return SignalProducer<String, CarthageError>({ () -> Result<String, CarthageError> in
             let digest = SHA256Digest()
             do {
-                try digest.update(inputStream: inputStream)
+                try digest.update(url: frameworkFileURL)
             } catch {
                 return .failure(CarthageError.readFailed(frameworkFileURL, error as NSError?))
             }
-            return .success(String(data: digest.finalize(), encoding: .ascii)!)
+            return .success(digest.finalize().hexString)
         })
-        //let task = Task("/usr/bin/shasum", arguments: ["-a", "256", frameworkFileURL.path])
-
     }
 }
