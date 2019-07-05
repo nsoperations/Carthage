@@ -21,6 +21,9 @@ struct CachedFramework: Codable {
 }
 
 struct VersionFile: Codable {
+
+    static let sourceHashCache = Cache<URL, String>()
+
     enum CodingKeys: String, CodingKey {
         case commitish = "commitish"
         case sourceHash = "sourceHash"
@@ -536,6 +539,10 @@ extension VersionFile {
                 return .success(nil)
             }
 
+            if let cachedHexString = VersionFile.sourceHashCache[dependencyDir] {
+                return .success(cachedHexString)
+            }
+
             let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
             var enumerationError: (error: Error, url: URL)?
 
@@ -571,7 +578,13 @@ extension VersionFile {
             if let error = enumerationError {
                 return .failure(CarthageError.readFailed(error.url, error.error as NSError))
             }
-            return .success(digest.finalize().hexString)
+
+            let hexString = digest.finalize().hexString
+
+            // Store in cache
+            VersionFile.sourceHashCache[dependencyDir] = hexString
+
+            return .success(hexString)
         }
     }
 }
