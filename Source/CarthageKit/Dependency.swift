@@ -48,7 +48,11 @@ public enum Dependency: Hashable {
     /// The path at which this project will be checked out, relative to the
     /// working directory of the main project.
     public var relativePath: String {
-        return (carthageProjectCheckoutsPath as NSString).appendingPathComponent(name)
+        return Dependency.relativePath(dependencyName: self.name)
+    }
+
+    public static func relativePath(dependencyName: String) -> String {
+        return carthageProjectCheckoutsPath.appendingPathComponent(dependencyName)
     }
 }
 

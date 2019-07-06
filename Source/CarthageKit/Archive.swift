@@ -8,12 +8,13 @@ public final class Archive {
 
     // MARK: - Public
 
-    public static func archiveFrameworks(frameworkNames: [String], directoryURL: URL, customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
+    public static func archiveFrameworks(frameworkNames: [String], dependencyName: String?, directoryURL: URL, customOutputPath: String?, frameworkFoundHandler: ((String) -> Void)? = nil) -> SignalProducer<URL, CarthageError> {
 
         if let definedOutputPath = customOutputPath, definedOutputPath.isEmpty {
             return SignalProducer<URL, CarthageError>(error: CarthageError.invalidArgument(description: "Custom archive output path should not be empty"))
         }
 
+        var effectiveDependencyName: String? = dependencyName
         let configuration = "Release"
         let frameworks: SignalProducer<[String], CarthageError>
         if !frameworkNames.isEmpty {
@@ -21,6 +22,12 @@ public final class Archive {
                 return $0.appendingPathExtension("framework")
             })
         } else {
+
+            if effectiveDependencyName == nil {
+                // try to infer the dependency name from the project at the specified directoryURL. It's not required, so we don't transmit any error.
+                effectiveDependencyName = Dependencies.fetchDependencyNameForRepository(at: directoryURL).first()?.value
+            }
+
             let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
             frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: configuration, schemeMatcher: schemeMatcher)
                 .flatMap(.merge) { scheme, project -> SignalProducer<BuildSettings, CarthageError> in
@@ -51,12 +58,14 @@ public final class Archive {
                 .filter { file in file.url.isExistingFileOrDirectory }
                 .flatMap(.merge) { framework -> SignalProducer<String, CarthageError> in
                     let dSYM = framework.relativePath.appendingPathExtension("dSYM")
+                    let versionFilePath = effectiveDependencyName.map { VersionFile.versionFileRelativePath(dependencyName: $0) }
                     let bcsymbolmapsProducer = Frameworks.BCSymbolMapsForFramework(framework.url)
                         // generate relative paths for the bcsymbolmaps so they print nicely
                         .map { url in framework.relativePath.deletingLastPathComponent.appendingPathComponent(url.lastPathComponent) }
                     let extraFilesProducer = SignalProducer(value: dSYM)
                         .concat(bcsymbolmapsProducer)
-                        .filter { _ in framework.url.isExistingFileOrDirectory }
+                        .concat(versionFilePath.flatMap { path -> SignalProducer<String, CarthageError>? in
+                            return directoryURL.appendingPathComponent(path).isExistingFile ? SignalProducer<String, CarthageError>(value: path) : nil } ?? SignalProducer<String, CarthageError>.empty)
                     return SignalProducer(value: framework.relativePath)
                         .concat(extraFilesProducer)
                 }
@@ -187,42 +196,5 @@ public final class Archive {
                 return untar(archive: fileURL, to: directoryURL)
                     .then(SignalProducer<URL, CarthageError>(value: directoryURL))
         }
-    }
-
-}
-
-extension String {
-    fileprivate func removingPrefix(_ prefix: String) -> String {
-        if self.hasPrefix(prefix) {
-            let startIndex = self.index(self.startIndex, offsetBy: prefix.count)
-            return String(self[startIndex..<self.endIndex])
-        } else {
-            return self
-        }
-    }
-
-    fileprivate func removingSuffix(_ suffix: String) -> String {
-        if self.hasSuffix(suffix) {
-            let endIndex = self.index(self.endIndex, offsetBy: -suffix.count)
-            return String(self[self.startIndex..<endIndex])
-        } else {
-            return self
-        }
-    }
-
-    fileprivate func appendingPathComponent(_ component: String) -> String {
-        return (self as NSString).appendingPathComponent(component)
-    }
-
-    fileprivate func appendingPathExtension(_ pathExtension: String) -> String {
-        return (self as NSString).appendingPathExtension(pathExtension)!
-    }
-
-    fileprivate var deletingLastPathComponent: String {
-        return (self as NSString).deletingLastPathComponent
-    }
-
-    fileprivate var lastPathComponent: String {
-        return (self as NSString).lastPathComponent
     }
 }

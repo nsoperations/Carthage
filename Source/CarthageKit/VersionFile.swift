@@ -3,6 +3,7 @@ import ReactiveSwift
 import ReactiveTask
 import Result
 import XCDBLD
+import CommonCrypto
 
 struct CachedFramework: Codable {
     enum CodingKeys: String, CodingKey {
@@ -20,8 +21,12 @@ struct CachedFramework: Codable {
 }
 
 struct VersionFile: Codable {
+
+    static let sourceHashCache = Cache<URL, String>()
+
     enum CodingKeys: String, CodingKey {
         case commitish = "commitish"
+        case sourceHash = "sourceHash"
         case configuration = "configuration"
         case macOS = "Mac"
         case iOS = "iOS"
@@ -30,6 +35,7 @@ struct VersionFile: Codable {
     }
 
     let commitish: String
+    let sourceHash: String?
     let configuration: String
 
     let macOS: [CachedFramework]?
@@ -58,6 +64,7 @@ struct VersionFile: Codable {
 
     init(
         commitish: String,
+        sourceHash: String?,
         configuration: String,
         macOS: [CachedFramework]?,
         iOS: [CachedFramework]?,
@@ -65,6 +72,7 @@ struct VersionFile: Codable {
         tvOS: [CachedFramework]?
         ) {
         self.commitish = commitish
+        self.sourceHash = sourceHash
         self.configuration = configuration
         self.macOS = macOS
         self.iOS = iOS
@@ -178,6 +186,7 @@ struct VersionFile: Codable {
     func satisfies(
         platforms: Set<Platform>,
         commitish: String,
+        sourceHash: String?,
         configuration: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
@@ -188,6 +197,7 @@ struct VersionFile: Codable {
                 return self.satisfies(
                     platform: platform,
                     commitish: commitish,
+                    sourceHash: sourceHash,
                     configuration: configuration,
                     binariesDirectoryURL: binariesDirectoryURL,
                     localSwiftVersion: localSwiftVersion
@@ -199,6 +209,7 @@ struct VersionFile: Codable {
     func satisfies(
         platform: Platform,
         commitish: String,
+        sourceHash: String?,
         configuration: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
@@ -226,6 +237,7 @@ struct VersionFile: Codable {
                 return self.satisfies(
                     platform: platform,
                     commitish: commitish,
+                    sourceHash: sourceHash,
                     configuration: configuration,
                     hashes: hashes,
                     swiftVersionMatches: swiftVersionMatches
@@ -236,10 +248,16 @@ struct VersionFile: Codable {
     func satisfies(
         platform: Platform,
         commitish: String,
+        sourceHash: String?,
         configuration: String,
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<Bool, CarthageError> {
+
+        if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
+            return SignalProducer(value: false)
+        }
+
         guard let cachedFrameworks = self[platform], commitish == self.commitish, configuration == self.configuration else {
             return SignalProducer(value: false)
         }
@@ -297,67 +315,7 @@ extension VersionFile {
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
 
-        /*
-         List all remotes known for this repository
-         and keep only the "fetch" urls by which the current repository
-         would be known for the purpose of fetching anyways.
-
-         Example of well-formed output:
-
-         $ git remote -v
-         origin   https://github.com/blender/Carthage.git (fetch)
-         origin   https://github.com/blender/Carthage.git (push)
-         upstream https://github.com/Carthage/Carthage.git (fetch)
-         upstream https://github.com/Carthage/Carthage.git (push)
-
-         Example of ill-formed output where upstream does not have a url:
-
-         $ git remote -v
-         origin   https://github.com/blender/Carthage.git (fetch)
-         origin   https://github.com/blender/Carthage.git (push)
-         upstream
-         */
-        let allRemoteURLs = Git.launchGitTask(["remote", "-v"])
-            .flatMap(.concat) { $0.linesProducer }
-            .map { $0.components(separatedBy: .whitespacesAndNewlines) }
-            .filter { $0.count >= 3 && $0.last == "(fetch)" } // Discard ill-formed output as of example
-            .map { ($0[0], $0[1]) }
-            .collect()
-
-        let currentProjectName = allRemoteURLs
-            // Assess the popularity of each remote url
-            .map { $0.reduce([String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]()) { remoteURLPopularityMap, remoteNameAndURL in
-                let (remoteName, remoteUrl) = remoteNameAndURL
-                var remoteURLPopularityMap = remoteURLPopularityMap
-                if let existingEntry = remoteURLPopularityMap[remoteName] {
-                    remoteURLPopularityMap[remoteName] = (existingEntry.popularity + 1, existingEntry.remoteNameAndURL)
-                } else {
-                    remoteURLPopularityMap[remoteName] = (0, (remoteName, remoteUrl))
-                }
-                return remoteURLPopularityMap
-                }
-            }
-            // Pick "origin" if it exists,
-            // otherwise sort remotes by popularity
-            // or alphabetically in case of a draw
-            .map { (remotePopularityMap: [String: (popularity: Int, remoteNameAndURL: (name: String, url: String))]) -> String in
-                guard let origin = remotePopularityMap["origin"] else {
-                    let urlOfMostPopularRemote = remotePopularityMap.sorted { lhs, rhs in
-                        if lhs.value.popularity == rhs.value.popularity {
-                            return lhs.key < rhs.key
-                        }
-                        return lhs.value.popularity > rhs.value.popularity
-                        }
-                        .first?.value.remoteNameAndURL.url
-
-                    // If the reposiroty is not pushed to any remote
-                    // the list of remotes is empty, so call the current project... "_Current"
-                    return urlOfMostPopularRemote.flatMap { Dependency.git(GitURL($0)).name } ?? "_Current"
-                }
-
-                return Dependency.git(GitURL(origin.remoteNameAndURL.url)).name
-        }
-
+        let currentProjectName = Dependencies.fetchDependencyNameForRepository()
         let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap(.merge) { headCommitish in
@@ -508,7 +466,8 @@ extension VersionFile {
         platforms: Set<Platform>,
         configuration: String,
         rootDirectoryURL: URL,
-        toolchain: String?
+        toolchain: String?,
+        checkSourceHash: Bool
         ) -> SignalProducer<Bool?, CarthageError> {
         let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
@@ -519,9 +478,11 @@ extension VersionFile {
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
-            .flatMap(.concat) { localSwiftVersion in
+            .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
+            .flatMap(.concat) { localSwiftVersion, sourceHash in
                 return versionFile.satisfies(platforms: platforms,
                                              commitish: commitish,
+                                             sourceHash: sourceHash,
                                              configuration: configuration,
                                              binariesDirectoryURL: rootBinariesURL,
                                              localSwiftVersion: localSwiftVersion)
@@ -538,38 +499,92 @@ extension VersionFile {
         rootDirectoryURL: URL,
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
-        return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
-            let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
 
-            let versionFile = VersionFile(
-                commitish: commitish,
-                configuration: configuration,
-                macOS: platformCaches[Platform.macOS.rawValue],
-                iOS: platformCaches[Platform.iOS.rawValue],
-                watchOS: platformCaches[Platform.watchOS.rawValue],
-                tvOS: platformCaches[Platform.tvOS.rawValue])
+        return self.sourceHash(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
+            .flatMap(.merge) { sourceHash -> SignalProducer<(), CarthageError> in
+                return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
+                    let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
+                    let versionFile = VersionFile(
+                        commitish: commitish,
+                        sourceHash: sourceHash,
+                        configuration: configuration,
+                        macOS: platformCaches[Platform.macOS.rawValue],
+                        iOS: platformCaches[Platform.iOS.rawValue],
+                        watchOS: platformCaches[Platform.watchOS.rawValue],
+                        tvOS: platformCaches[Platform.tvOS.rawValue])
 
-            return versionFile.write(to: versionFileURL)
+                    return versionFile.write(to: versionFileURL)
+                }
         }
     }
 
     private static func hashForFileAtURL(_ frameworkFileURL: URL) -> SignalProducer<String, CarthageError> {
-        guard FileManager.default.fileExists(atPath: frameworkFileURL.path) else {
-            return SignalProducer(error: .readFailed(frameworkFileURL, nil))
+        return SignalProducer<String, CarthageError> { () -> Result<String, CarthageError> in
+            let digest = SHA256Digest()
+            do {
+                try digest.update(url: frameworkFileURL)
+            } catch {
+                return .failure(CarthageError.readFailed(frameworkFileURL, error as NSError?))
+            }
+            return .success(digest.finalize().hexString)
         }
+    }
 
-        let task = Task("/usr/bin/shasum", arguments: ["-a", "256", frameworkFileURL.path])
+    private static func sourceHash(dependencyName: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
+        return SignalProducer<String?, CarthageError> { () -> Result<String?, CarthageError> in
+            let dependencyDir = rootDirectoryURL.appendingPathComponent(Dependency.relativePath(dependencyName: dependencyName))
 
-        return task.launch()
-            .mapError(CarthageError.taskError)
-            .ignoreTaskData()
-            .attemptMap { data in
-                guard let taskOutput = String(data: data, encoding: .utf8) else {
-                    return .failure(.readFailed(frameworkFileURL, nil))
+            guard dependencyDir.isExistingDirectory else {
+                // No hash can be calculated if there is no source dir, this is ok, binaries don't contain sources.
+                return .success(nil)
+            }
+
+            if let cachedHexString = VersionFile.sourceHashCache[dependencyDir] {
+                return .success(cachedHexString)
+            }
+
+            let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
+            var enumerationError: (error: Error, url: URL)?
+
+            let errorHandler: (URL, Error) -> Bool = { url, error -> Bool in
+                enumerationError = (error, url)
+                return false
+            }
+
+            guard let enumerator = FileManager.default.enumerator(at: dependencyDir, includingPropertiesForKeys: Array(resourceKeys), errorHandler: errorHandler) else {
+                return .failure(CarthageError.readFailed(dependencyDir, nil))
+            }
+
+            let digest = SHA256Digest()
+
+            for case let fileURL as URL in enumerator {
+                let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys)
+                guard let regularFile = resourceValues?.isRegularFile else {
+                    return .failure(CarthageError.readFailed(fileURL, nil))
                 }
+                if regularFile {
+                    guard let inputStream = InputStream(url: fileURL) else {
+                        return .failure(CarthageError.readFailed(fileURL, nil))
+                    }
+                    //calculate hash
+                    do {
+                        try digest.update(inputStream: inputStream)
+                    } catch {
+                        return .failure(CarthageError.readFailed(fileURL, error as NSError?))
+                    }
+                }
+            }
 
-                let hashStr = taskOutput.components(separatedBy: CharacterSet.whitespaces)[0]
-                return .success(hashStr.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let error = enumerationError {
+                return .failure(CarthageError.readFailed(error.url, error.error as NSError))
+            }
+
+            let hexString = digest.finalize().hexString
+
+            // Store in cache
+            VersionFile.sourceHashCache[dependencyDir] = hexString
+
+            return .success(hexString)
         }
     }
 }

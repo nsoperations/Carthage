@@ -60,6 +60,10 @@ see [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.37.0+nsoperations
+
+- Added build option `--track-local-changes` to invalidate caches (in effect with `--cache-builds` and/or `--use-binaries`) when local changes were made to the source code of dependencies. This is handy for debugging the source code of dependencies.
+
 ### 0.36.3+nsoperations
 
 - Fixed bug where local binary caching would not work if CARTHAGE_CACHE_COMMAND environment variable was not present and the dependency was not a GitHub dependency.

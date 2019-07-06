@@ -573,7 +573,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             }
             .flatMap(.latest) { (graph: DependencyGraph) -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                var filteredDependencies: Set<Dependency>? = nil
+                var filteredDependencies: Set<Dependency>?
                 if let dependenciesToInclude = dependenciesToInclude {
                     filteredDependencies = Set(graph
                         .map { dependency, _ in dependency }
@@ -613,7 +613,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
                     self.dependencyRetriever.dependencySet(for: dependency, version: version),
-                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain)
+                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain, checkSourceHash: options.trackLocalChanges)
                 )
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
@@ -671,7 +671,8 @@ public final class Project { // swiftlint:disable:this type_body_length
                             platforms: options.platforms,
                             configuration: options.configuration,
                             rootDirectoryURL: self.directoryURL,
-                            toolchain: options.toolchain
+                            toolchain: options.toolchain,
+                            checkSourceHash: options.trackLocalChanges
                             )
                             .map { matches in return (dependency, version, matches) }
                     }

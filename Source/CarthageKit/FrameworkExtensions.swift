@@ -47,6 +47,22 @@ extension String {
     internal func containsAny(_ characterSet: CharacterSet) -> Bool {
         return self.rangeOfCharacter(from: characterSet) != nil
     }
+
+    internal func appendingPathComponent(_ component: String) -> String {
+        return (self as NSString).appendingPathComponent(component)
+    }
+
+    internal func appendingPathExtension(_ pathExtension: String) -> String {
+        return (self as NSString).appendingPathExtension(pathExtension)!
+    }
+
+    internal var deletingLastPathComponent: String {
+        return (self as NSString).deletingLastPathComponent
+    }
+
+    internal var lastPathComponent: String {
+        return (self as NSString).lastPathComponent
+    }
 }
 
 extension Signal {
