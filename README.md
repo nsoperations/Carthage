@@ -15,8 +15,9 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - Adds a plugable caching mechanism, enabled by the option `--cache-command` for all build-related commands. A custom shell script or executable can be specified to retrieve cached binaries from arbitrary back-ends. The CARTHAGE_CACHE_COMMAND environment variable is used as a default for this command. If not defined, a fall back to the original GitHub API based caching will take place.
 - Ensures the caching mechanism tasks Swift toolchain version and build configuration (Debug/Release) into account. The binaries cache folders (under ~/Library/Caches/org.carthage.CarthageKit/binaries) now have the following directory structure: $SWIFT_VERSION/$DEPENDENCY_NAME/$DEPENDENCY_VERSION/$BUILD_CONFIGURATION.
 - Adds support for a Cartfile.schemes file, which can be added to a project to limit the schemes considered by Carthage for building. Just add the scheme names to consider to this file (one per line).
-- Adds support for automatic discovery of frameworks to copy using the --auto flag for the copy-frameworks command.
-- Adds support for local storage of binary builds in the carthage binaries cache when the build option --use-binaries is enabled (which is the default).
+- Adds support for automatic discovery of frameworks to copy using the `--auto` flag for the `copy-frameworks` command.
+- Adds support for local storage of binary builds in the carthage binaries cache when the build option `--use-binaries` is enabled (which is the default).
+- Adds support for automatic rebuilding of cached dependencies when local changes have been made using the build option `--track-local-changes`
 
 To install:
 
