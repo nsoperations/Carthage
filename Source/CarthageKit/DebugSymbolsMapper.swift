@@ -15,8 +15,9 @@ final class DebugSymbolsMapper {
     /// - Parameter frameworkURL: The url pointing to the root directory of the framework
     /// - Parameter dsymURL: The url pointing to the root of the corresponding expanded dsym archive (unzipped)
     /// - Parameter sourceURL: The url pointing to the root of the local source tree
+    /// - Parameter pathReplacement: Optional replacement to perform to replace a path pefix with a different prefix
     /// - Returns: Empty result if successful or a CarthageError on failure.
-    static func mapSymbolLocations(frameworkURL: URL, dsymURL: URL, sourceURL: URL) -> Result<(), CarthageError> {
+    static func mapSymbolLocations(frameworkURL: URL, dsymURL: URL, sourceURL: URL, pathReplacement: (String, String)? = nil) -> Result<(), CarthageError> {
         do {
             guard frameworkURL.isExistingDirectory else {
                 throw CarthageError.invalidFramework(frameworkURL, description: "No framework found at this location")
@@ -25,11 +26,10 @@ final class DebugSymbolsMapper {
                 throw CarthageError.invalidDebugSymbols(dsymURL, description: "No debug symbols found at this location")
             }
 
-            let buildSourceURL: URL = try findBuildSourceURL(frameworkURL: frameworkURL, sourceURL: sourceURL)
-
+            let buildSourceURL = try findBuildSourceURL(frameworkURL: frameworkURL, sourceURL: sourceURL)
             let binaryUUIDs = try verifyUUIDs(frameworkURL: frameworkURL, dsymURL: dsymURL)
 
-            try generatePlistForDsym(dsymURL: dsymURL, frameworkURL: frameworkURL, sourceURL: sourceURL, buildSourceURL: buildSourceURL, binaryUUIDs: binaryUUIDs)
+            try generatePlistForDsym(dsymURL:dsymURL, frameworkURL: frameworkURL, sourceURL: sourceURL, buildSourceURL: buildSourceURL, binaryUUIDs: binaryUUIDs, pathReplacement: pathReplacement)
             return .success(())
         } catch let error as CarthageError {
             return .failure(error)
@@ -130,14 +130,23 @@ final class DebugSymbolsMapper {
     }
 
     /// Generates the relevant plist files in the dsym bundle at the specified URL using the arguments specified.
-    private static func generatePlistForDsym(dsymURL: URL, frameworkURL: URL, sourceURL: URL, buildSourceURL: URL, binaryUUIDs: [String: String]) throws {
+    private static func generatePlistForDsym(dsymURL: URL, frameworkURL: URL, sourceURL: URL, buildSourceURL: URL, binaryUUIDs: [String: String], pathReplacement: (String, String)?) throws {
         for (arch, uuid) in binaryUUIDs {
+
+            var dsymPath = try normalizedBinaryURL(url: dsymURL).resolvingSymlinksInPath().path
+            var frameworkPath = try normalizedBinaryURL(url: frameworkURL).resolvingSymlinksInPath().path
+
+            if let replacement = pathReplacement {
+                dsymPath = dsymPath.replacingOccurrences(of: replacement.0, with: replacement.1)
+                frameworkPath = frameworkPath.replacingOccurrences(of: replacement.0, with: replacement.1)
+            }
+
             let plistDict: [String: Any] = [
                 "DBGArchitecture": arch,
                 "DBGBuildSourcePath": buildSourceURL.absoluteURL.path,
                 "DBGSourcePath": sourceURL.absoluteURL.path,
-                "DBGDSYMPath": try normalizedBinaryURL(url: dsymURL).path,
-                "DBGSymbolRichExecutable": try normalizedBinaryURL(url: frameworkURL).path,
+                "DBGDSYMPath": dsymPath,
+                "DBGSymbolRichExecutable": frameworkPath,
             ]
             let plistURL = dsymURL.appendingPathComponents(["Contents", "Resources", "\(uuid).plist"])
             try writePlist(at: plistURL, plistObject: plistDict as Any)

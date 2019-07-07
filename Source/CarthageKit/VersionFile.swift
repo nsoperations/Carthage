@@ -551,7 +551,7 @@ extension VersionFile {
                 return false
             }
 
-            guard let enumerator = FileManager.default.enumerator(at: dependencyDir, includingPropertiesForKeys: Array(resourceKeys), errorHandler: errorHandler) else {
+            guard let enumerator = FileManager.default.enumerator(at: dependencyDir, includingPropertiesForKeys: Array(resourceKeys), options: [.skipsHiddenFiles], errorHandler: errorHandler) else {
                 return .failure(CarthageError.readFailed(dependencyDir, nil))
             }
 
