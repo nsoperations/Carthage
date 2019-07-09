@@ -761,7 +761,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                                 Frameworks.dSYMForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
                                     .attemptMap { dsymURL -> Result<URL, CarthageError> in
                                         if dependencySourceURL.isExistingDirectory {
-                                            return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL, pathReplacement: (sourceDirectoryURL.path, destinationDirectoryURL.path))
+                                            return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL, urlPrefixMapping: (sourceDirectoryURL, destinationDirectoryURL))
                                                 .map { _ in dsymURL }
                                         } else {
                                             return .success(dsymURL)
