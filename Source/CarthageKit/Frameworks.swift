@@ -473,10 +473,11 @@ final class Frameworks {
         if let typeIdentifier = typeIdentifier {
             return producer
                 .filter { url in
-                    return url.typeIdentifier
-                        .analysis(ifSuccess: { identifier in
-                            return UTTypeConformsTo(identifier as CFString, typeIdentifier as CFString)
-                        }, ifFailure: { _ in false })
+                    if let urlTypeIdentifier = url.typeIdentifier {
+                        return UTTypeConformsTo(urlTypeIdentifier as CFString, typeIdentifier as CFString)
+                    } else {
+                        return false
+                    }
             }
         } else {
             return producer

@@ -5,8 +5,6 @@ import ReactiveTask
 
 extension String {
 
-    private static let gitSHACharacterSet = CharacterSet(charactersIn: "0123456789abcdef")
-
     /// Returns a producer that will enumerate each line of the receiver, then
     /// complete.
     internal var linesProducer: SignalProducer<String, NoError> {
@@ -21,47 +19,6 @@ extension String {
 
             observer.sendCompleted()
         }
-    }
-
-    /// Strips off a prefix string, if present.
-    internal func stripping(prefix: String) -> String {
-        guard hasPrefix(prefix) else { return self }
-        return String(self.dropFirst(prefix.count))
-    }
-
-    /// Strips off a trailing string, if present.
-    internal func stripping(suffix: String) -> String {
-        if hasSuffix(suffix) {
-            let end = index(endIndex, offsetBy: -suffix.count)
-            return String(self[startIndex..<end])
-        } else {
-            return self
-        }
-    }
-
-    internal var isGitCommitSha: Bool {
-        return self.count == 40 && String.gitSHACharacterSet.isSuperset(of: CharacterSet(charactersIn: self))
-    }
-
-    /// Returns true if self contain any of the characters from the given set
-    internal func containsAny(_ characterSet: CharacterSet) -> Bool {
-        return self.rangeOfCharacter(from: characterSet) != nil
-    }
-
-    internal func appendingPathComponent(_ component: String) -> String {
-        return (self as NSString).appendingPathComponent(component)
-    }
-
-    internal func appendingPathExtension(_ pathExtension: String) -> String {
-        return (self as NSString).appendingPathExtension(pathExtension)!
-    }
-
-    internal var deletingLastPathComponent: String {
-        return (self as NSString).deletingLastPathComponent
-    }
-
-    internal var lastPathComponent: String {
-        return (self as NSString).lastPathComponent
     }
 }
 
@@ -237,36 +194,6 @@ extension SignalProducer where Value: EventProtocol, Value.Error == Error {
     }
 }
 
-extension Scanner {
-    /// Returns the current line being scanned.
-    internal var currentLine: String {
-        // Force Foundation types, so we don't have to use Swift's annoying
-        // string indexing.
-        let nsString = string as NSString
-        let scanRange: NSRange = NSRange(location: scanLocation, length: 0)
-        let lineRange: NSRange = nsString.lineRange(for: scanRange)
-
-        return nsString.substring(with: lineRange)
-    }
-
-    /// The string (as `Substring?`) that is left to scan.
-    ///
-    /// Accessing this variable will not advance the scanner location.
-    ///
-    /// - returns: `nil` in the unlikely event `self.scanLocation` splits an extended grapheme cluster.
-    internal var remainingSubstring: Substring? {
-        return Range(
-            NSRange(
-                location: self.scanLocation /* our UTF-16 offset */,
-                length: (self.string as NSString).length - self.scanLocation
-            ),
-            in: self.string
-            ).map {
-                self.string[$0]
-        }
-    }
-}
-
 extension Result where Error == CarthageError {
     /// Constructs a result from a throwing closure taking a `URL`, failing with `CarthageError` if throw occurs.
     /// - parameter carthageError: Defaults to `CarthageError.writeFailed`.
@@ -284,36 +211,6 @@ extension Result where Error == CarthageError {
 }
 
 extension URL {
-    /// The type identifier of the receiver, or an error if it was unable to be
-    /// determined.
-    internal var typeIdentifier: Result<String, CarthageError> {
-        var error: NSError?
-
-        do {
-            let typeIdentifier = try resourceValues(forKeys: [ .typeIdentifierKey ]).typeIdentifier
-            if let identifier = typeIdentifier {
-                return .success(identifier)
-            }
-        } catch let err as NSError {
-            error = err
-        }
-
-        return .failure(.readFailed(self, error))
-    }
-
-    public func hasSubdirectory(_ possibleSubdirectory: URL) -> Bool {
-        let standardizedSelf = self.standardizedFileURL
-        let standardizedOther = possibleSubdirectory.standardizedFileURL
-
-        let path = standardizedSelf.pathComponents
-        let otherPath = standardizedOther.pathComponents
-        if scheme == standardizedOther.scheme && path.count <= otherPath.count {
-            return Array(otherPath[path.indices]) == path
-        }
-
-        return false
-    }
-
     fileprivate func volumeSupportsFileCloning() throws -> Bool {
         guard #available(macOS 10.12, *) else { return false }
 
@@ -337,96 +234,6 @@ extension URL {
         }
 
         return volumeSupportsFileCloning.boolValue
-    }
-
-    /// Returns the first `URL` to match `<self>/Headers/*-Swift.h`. Otherwise `nil`.
-    internal func swiftHeaderURL() -> URL? {
-        let headersURL = self.appendingPathComponent("Headers", isDirectory: true).resolvingSymlinksInPath()
-        let dirContents = try? FileManager.default.contentsOfDirectory(at: headersURL, includingPropertiesForKeys: [], options: [])
-        return dirContents?.first { $0.lastPathComponent.hasSuffix("-Swift.h") }
-    }
-
-    internal func candidateSwiftHeaderURLs() -> [URL] {
-        let fileManager = FileManager.default
-        let resourceKeys: Set<URLResourceKey> = [URLResourceKey.nameKey, URLResourceKey.isRegularFileKey]
-
-        var candidateURLs = [URL]()
-
-        guard let enumerator = fileManager.enumerator(at: self, includingPropertiesForKeys: Array(resourceKeys), options: []) else {
-            return candidateURLs
-        }
-
-        for case let fileURL as URL in enumerator {
-            guard let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys),
-                resourceValues.isRegularFile == true,
-                let name = resourceValues.name,
-                name.hasSuffix(".h")
-                else {
-                    continue
-            }
-
-            candidateURLs.append(fileURL)
-        }
-
-        let frameworkName = self.deletingPathExtension().lastPathComponent
-
-        return candidateURLs.sorted { $0.swiftHeaderProbability(frameworkName: frameworkName) > $1.swiftHeaderProbability(frameworkName: frameworkName) }
-    }
-
-    /// Returns the first `URL` to match `<self>/Modules/*.swiftmodule`. Otherwise `nil`.
-    internal func swiftmoduleURL() -> URL? {
-        let headersURL = self.appendingPathComponent("Modules", isDirectory: true).resolvingSymlinksInPath()
-        let dirContents = try? FileManager.default.contentsOfDirectory(at: headersURL, includingPropertiesForKeys: [], options: [])
-        return dirContents?.first { $0.absoluteString.contains("swiftmodule") }
-    }
-
-    internal func appendingPathComponents(_ components: [String]) -> URL {
-        var ret = self
-        for component in components {
-            ret = ret.appendingPathComponent(component)
-        }
-        return ret
-    }
-
-    internal func deletingLastPathComponents(count: Int) -> URL {
-        var ret = self
-        for _ in 0..<count {
-            ret = ret.deletingLastPathComponent()
-        }
-        return ret
-    }
-
-    internal var isExistingDirectory: Bool {
-        var isDirectory: ObjCBool = false
-        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
-        return fileExists && isDirectory.boolValue
-    }
-
-    internal var isExistingFile: Bool {
-        var isDirectory: ObjCBool = true
-        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
-        return fileExists && !isDirectory.boolValue
-    }
-
-    internal var isExistingFileOrDirectory: Bool {
-        var isDirectory: ObjCBool = true
-        let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)
-        return fileExists
-    }
-
-    internal var isRoot: Bool {
-        let path = self.path
-        return path.isEmpty || path == "/"
-    }
-
-    internal var modificationDate: Date? {
-        let key: URLResourceKey = .contentModificationDateKey
-        let attributes = try? self.resourceValues(forKeys: [key])
-        return attributes?.contentModificationDate
-    }
-
-    internal func removeIgnoringErrors() {
-        _ = try? FileManager.default.removeItem(at: self)
     }
 }
 
@@ -571,15 +378,6 @@ extension Reactive where Base: URLSession {
     }
 }
 
-extension CharacterSet {
-    func contains(_ character: Character) -> Bool {
-        guard let firstScalar = character.unicodeScalars.first else {
-            return false
-        }
-        return self.contains(firstScalar)
-    }
-}
-
 extension Task {
 
     init(launchCommand: String, shell: String = "/bin/sh", workingDirectoryPath: String? = nil, environment: [String: String]? = nil) {
@@ -615,28 +413,5 @@ extension Task {
     func getStdOutString(encoding: String.Encoding = .utf8) -> Result<String, TaskError> {
         return getStdOutData()
             .map { String(data: $0, encoding: encoding) ?? "" }
-    }
-}
-
-extension URL {
-    fileprivate func swiftHeaderProbability(frameworkName: String) -> Int {
-        var result = 0
-        let fileName = self.lastPathComponent
-        let isDefaultSwiftHeaderName = fileName.hasSuffix("-Swift.h")
-        let includesFrameworkName = fileName.contains(frameworkName)
-        let isInHeaderDirectory = self.deletingLastPathComponent().lastPathComponent == "Headers"
-
-        if isDefaultSwiftHeaderName {
-            result += 10
-        }
-
-        if includesFrameworkName {
-            result += 5
-        }
-
-        if isInHeaderDirectory {
-            result += 2
-        }
-        return result
     }
 }

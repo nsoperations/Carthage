@@ -520,13 +520,7 @@ extension VersionFile {
 
     private static func hashForFileAtURL(_ frameworkFileURL: URL) -> SignalProducer<String, CarthageError> {
         return SignalProducer<String, CarthageError> { () -> Result<String, CarthageError> in
-            let digest = SHA256Digest()
-            do {
-                try digest.update(url: frameworkFileURL)
-            } catch {
-                return .failure(CarthageError.readFailed(frameworkFileURL, error as NSError?))
-            }
-            return .success(digest.finalize().hexString)
+            return SHA256Digest.digestForFileAtURL(frameworkFileURL).map{ $0.hexString }
         }
     }
 
@@ -543,43 +537,10 @@ extension VersionFile {
                 return .success(cachedHexString)
             }
 
-            let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
-            var enumerationError: (error: Error, url: URL)?
-
-            let errorHandler: (URL, Error) -> Bool = { url, error -> Bool in
-                enumerationError = (error, url)
-                return false
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir).map{ $0.hexString as String? }
+            guard let hexString = result.value else {
+                return result
             }
-
-            guard let enumerator = FileManager.default.enumerator(at: dependencyDir, includingPropertiesForKeys: Array(resourceKeys), options: [.skipsHiddenFiles], errorHandler: errorHandler) else {
-                return .failure(CarthageError.readFailed(dependencyDir, nil))
-            }
-
-            let digest = SHA256Digest()
-
-            for case let fileURL as URL in enumerator {
-                let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys)
-                guard let regularFile = resourceValues?.isRegularFile else {
-                    return .failure(CarthageError.readFailed(fileURL, nil))
-                }
-                if regularFile {
-                    guard let inputStream = InputStream(url: fileURL) else {
-                        return .failure(CarthageError.readFailed(fileURL, nil))
-                    }
-                    //calculate hash
-                    do {
-                        try digest.update(inputStream: inputStream)
-                    } catch {
-                        return .failure(CarthageError.readFailed(fileURL, error as NSError?))
-                    }
-                }
-            }
-
-            if let error = enumerationError {
-                return .failure(CarthageError.readFailed(error.url, error.error as NSError))
-            }
-
-            let hexString = digest.finalize().hexString
 
             // Store in cache
             VersionFile.sourceHashCache[dependencyDir] = hexString
