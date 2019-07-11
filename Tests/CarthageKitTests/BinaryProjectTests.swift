@@ -141,18 +141,16 @@ class BinaryProjectTests: XCTestCase {
 
 
         //Non existent pinned version
-        XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("2.0"), configuration: nil, swiftVersion: nil))
+        XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("2.0"), configuration: "Debug", swiftVersion: PinnedVersion("5.0")))
 
         //Non existent configuration
-        XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug1", swiftVersion: nil))
+        XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug1", swiftVersion: PinnedVersion("5.0")))
 
         //Non existent swift version
         XCTAssertNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: PinnedVersion("3.0")))
 
         XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: PinnedVersion("4.2")))
         XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: PinnedVersion("5.0")))
-        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: nil, swiftVersion: PinnedVersion("5.0")))
         XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Release", swiftVersion: PinnedVersion("5.0")))
-        XCTAssertNotNil(binaryProject.binaryURL(for: PinnedVersion("1.0"), configuration: "Debug", swiftVersion: nil))
     }
 }

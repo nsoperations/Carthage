@@ -3,12 +3,12 @@ import Result
 
 public struct BinaryProjectFile: Equatable {
     let url: URL
-    let configuration: String
+    let configuration: String?
     let swiftVersion: PinnedVersion?
 
     init(url: URL, configuration: String?, swiftVersion: PinnedVersion?) {
         self.url = url
-        self.configuration = configuration ?? "Release"
+        self.configuration = configuration
         self.swiftVersion = swiftVersion
     }
 }
@@ -32,13 +32,13 @@ public struct BinaryProject: Equatable {
         return Array(definitions.keys)
     }
 
-    public func binaryURL(for version: PinnedVersion, configuration: String?, swiftVersion: PinnedVersion?) -> URL? {
+    public func binaryURL(for version: PinnedVersion, configuration: String, swiftVersion: PinnedVersion) -> URL? {
         guard let binaryProjectFiles = definitions[version] else {
             return nil
         }
 
         return binaryProjectFiles.first(where: { binaryProjectFile -> Bool in
-            binaryProjectFile.configuration == (configuration ?? "Release") && (binaryProjectFile.swiftVersion.map { swiftVersion == nil || $0 == swiftVersion } ?? true)
+            (binaryProjectFile.configuration.map{ $0 == configuration } ?? true) && (binaryProjectFile.swiftVersion.map { $0 == swiftVersion } ?? true)
         }).map {
             $0.url
         }
