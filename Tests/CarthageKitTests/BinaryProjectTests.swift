@@ -34,8 +34,8 @@ class BinaryProjectTests: XCTestCase {
                     {"url": "https://my.domain.com/release/1.0.0/framework-release-5.0.zip", "configuration": "Release", "swiftVersion": "5.0"}
                 ],
                 "1.0.1": [
-                    {"url": "https://my.domain.com/release/1.0.0/framework-debug.zip", "configuration": "Debug"},
-                    {"url": "https://my.domain.com/release/1.0.0/framework-release.zip"},
+                    {"url": "https://my.domain.com/release/1.0.1/framework-debug.zip", "configuration": "Debug"},
+                    {"url": "https://my.domain.com/release/1.0.1/framework-release.zip"},
                 ]
             }
             """
@@ -52,8 +52,8 @@ class BinaryProjectTests: XCTestCase {
                     BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release-5.0.zip")!, configuration: "Release", swiftVersion: PinnedVersion("5.0"))
                 ],
                 PinnedVersion("1.0.1"): [
-                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-debug.zip")!, configuration: "Debug", swiftVersion: nil),
-                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.0/framework-release.zip")!, configuration: nil, swiftVersion: nil),
+                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.1/framework-debug.zip")!, configuration: "Debug", swiftVersion: nil),
+                    BinaryProjectFile(url: URL(string: "https://my.domain.com/release/1.0.1/framework-release.zip")!, configuration: nil, swiftVersion: nil),
                 ]
                 ])
 

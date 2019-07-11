@@ -83,7 +83,7 @@ public struct BinaryProject: Equatable {
                     }
 
                     let binaryURL = try parseURL(stringValue: urlString)
-                    let configuration = dictValue["configuration"] ?? "Release"
+                    let configuration = dictValue["configuration"]
                     if let versionString = dictValue["swiftVersion"] {
                         swiftVersion = PinnedVersion(versionString)
                     }
