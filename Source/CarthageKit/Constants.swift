@@ -79,8 +79,8 @@ public struct Constants {
         /// The file URL to the directory in which per-dependency derived data
         /// directories will be stored.
         ///
-        /// ~/Library/Caches/org.carthage.CarthageKit/DerivedData/
-        public static var derivedDataURL: URL = Constants.userCachesURL.appendingPathComponent("DerivedData", isDirectory: true)
+        /// ~/Library/Caches/org.carthage.CarthageKit/build/
+        public static var derivedDataURL: URL = Constants.userCachesURL.appendingPathComponent("build", isDirectory: true)
     }
 
     public struct Project {
