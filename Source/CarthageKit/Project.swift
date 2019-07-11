@@ -152,9 +152,6 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     let dependencyRetriever: ProjectDependencyRetriever
 
-    private lazy var xcodeVersionDirectory: String = XcodeVersion.make()
-        .map { "\($0.version)_\($0.buildVersion)" } ?? "Unknown"
-
     // MARK: - Public
 
     public init(directoryURL: URL) {
@@ -604,6 +601,9 @@ public final class Project { // swiftlint:disable:this type_body_length
         dependenciesToBuild: [String]? = nil,
         sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) }
         ) -> BuildSchemeProducer {
+
+        let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
+
         return loadResolvedCartfile()
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild)
@@ -701,8 +701,8 @@ public final class Project { // swiftlint:disable:this type_body_length
 
                 var options = options
                 let baseURL = options.derivedDataPath.flatMap(URL.init(string:)) ?? Constants.Dependency.derivedDataURL
-                let derivedDataPerXcode = baseURL.appendingPathComponent(self.xcodeVersionDirectory, isDirectory: true)
-                let derivedDataPerDependency = derivedDataPerXcode.appendingPathComponent(dependency.name, isDirectory: true)
+                let derivedDataPerSwiftVersion = baseURL.appendingPathComponent(swiftVersion, isDirectory: true)
+                let derivedDataPerDependency = derivedDataPerSwiftVersion.appendingPathComponent(dependency.name, isDirectory: true)
                 let derivedDataVersioned = derivedDataPerDependency.appendingPathComponent(version.commitish, isDirectory: true)
                 let rootDirectoryURL = self.directoryURL
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
