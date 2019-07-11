@@ -217,7 +217,7 @@ final class DebugSymbolsMapper {
 extension String {
     fileprivate mutating func replacePrefix(_ prefix: String, with replacement: String) {
         if self.hasPrefix(prefix) {
-            self = replacement + self[self.index(self.startIndex, offsetBy: prefix.count)...]
+            self = replacement + self.substring(from: prefix.count)
         }
     }
 }
