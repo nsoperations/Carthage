@@ -753,14 +753,15 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     }
                     // If the framework is compatible copy it over to the destination folder in Carthage/Build
                     .flatMap(.merge) { frameworkSourceURL, frameworkDestinationURL -> SignalProducer<URL, CarthageError> in
-                        let destinationDirectoryURL = frameworkDestinationURL.deletingLastPathComponent()
+                        let sourceDirectoryURL = frameworkSourceURL.resolvingSymlinksInPath().deletingLastPathComponent()
+                        let destinationDirectoryURL = frameworkDestinationURL.resolvingSymlinksInPath().deletingLastPathComponent()
                         return Frameworks.BCSymbolMapsForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
                             .moveFileURLsIntoDirectory(destinationDirectoryURL)
                             .then(
                                 Frameworks.dSYMForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
                                     .attemptMap { dsymURL -> Result<URL, CarthageError> in
                                         if dependencySourceURL.isExistingDirectory {
-                                            return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL)
+                                            return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL, urlPrefixMapping: (sourceDirectoryURL, destinationDirectoryURL))
                                                 .map { _ in dsymURL }
                                         } else {
                                             return .success(dsymURL)

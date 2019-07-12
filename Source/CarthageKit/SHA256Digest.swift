@@ -1,5 +1,6 @@
 import Foundation
 import CommonCrypto
+import Result
 
 final class SHA256Digest {
 
@@ -78,40 +79,79 @@ final class SHA256Digest {
         return theResult
     }
 
-    static func sum(_ data: Data) -> Data {
+    /**
+     Calculates a digest for the file at the specified url.
+    */
+    static func digestForFileAtURL(_ frameworkFileURL: URL) -> Result<Data, CarthageError> {
         let digest = SHA256Digest()
-        digest.update(data: data)
-        return digest.finalize()
+        do {
+            try digest.update(url: frameworkFileURL)
+        } catch {
+            return .failure(CarthageError.readFailed(frameworkFileURL, error as NSError?))
+        }
+        return .success(digest.finalize())
     }
-}
 
-extension Data {
+    /**
+     Calculates a digest for the directory at the specified URL, recursing into sub directories.
 
-    private static let hexCharacterLookupTable: [Character] = [
-        "0",
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "a",
-        "b",
-        "c",
-        "d",
-        "e",
-        "f",
-    ]
+     It will consider every regular non-hidden file for the digest, first sorting the relative paths alhpabetically.
+     */
+    static func digestForDirectoryAtURL(_ directoryURL: URL) -> Result<Data, CarthageError> {
+        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
+        var enumerationError: (error: Error, url: URL)?
 
-    var hexString: String {
-        return self.reduce(into: String(), { result, byte in
-            let c1: Character = Data.hexCharacterLookupTable[Int(byte >> 4)]
-            let c2: Character = Data.hexCharacterLookupTable[Int(byte & 0x0F)]
-            result.append(c1)
-            result.append(c2)
+        let errorHandler: (URL, Error) -> Bool = { url, error -> Bool in
+            enumerationError = (error, url)
+            return false
+        }
+
+        let rootURL = directoryURL.resolvingSymlinksInPath()
+        var rootPath = directoryURL.resolvingSymlinksInPath().path
+        if !rootPath.hasSuffix("/") {
+            rootPath += "/"
+        }
+
+        guard let enumerator = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: Array(resourceKeys), options: [.skipsHiddenFiles], errorHandler: errorHandler) else {
+            return .failure(CarthageError.readFailed(directoryURL, nil))
+        }
+
+        var files = [(String, URL)]()
+        for case let fileURL as URL in enumerator {
+            let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys)
+            guard let regularFile = resourceValues?.isRegularFile else {
+                return .failure(CarthageError.readFailed(fileURL, nil))
+            }
+            if regularFile {
+                let filePath = fileURL.resolvingSymlinksInPath().path
+                assert(filePath.hasPrefix(rootPath))
+                let relativePath = String(filePath.substring(from: rootPath.count))
+                files.append((relativePath, fileURL))
+            }
+        }
+
+        if let error = enumerationError {
+            return .failure(CarthageError.readFailed(error.url, error.error as NSError))
+        }
+
+        //Ensure the files are in the same order every time by sorting them
+        files.sort(by: { (tuple1, tuple2) -> Bool in
+            tuple1.0 < tuple2.0
         })
+
+        let digest = SHA256Digest()
+        for (_, fileURL) in files {
+            guard let inputStream = InputStream(url: fileURL) else {
+                return .failure(CarthageError.readFailed(fileURL, nil))
+            }
+            //calculate hash
+            do {
+                try digest.update(inputStream: inputStream)
+            } catch {
+                return .failure(CarthageError.readFailed(fileURL, error as NSError?))
+            }
+        }
+
+        return .success(digest.finalize())
     }
 }
