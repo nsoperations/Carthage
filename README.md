@@ -19,11 +19,13 @@ This is a fork on the official [Carthage](https://github.com/Carthage/Carthage) 
 - Adds support for local storage of binary builds in the carthage binaries cache when the build option `--use-binaries` is enabled (which is the default).
 - Adds support for automatic rebuilding of cached dependencies when local changes have been made using the build option `--track-local-changes`
 
+See [this video](https://youtu.be/21nbRGpy3xM) for an overview and some demos.
+
 To install:
 
 `brew tap nsoperations/formulas && brew install nsoperations/formulas/carthage`
 
-see [Installing Carthage](#installing-carthage)
+See [Installing Carthage](#installing-carthage)
 
 ## Contents
 
@@ -60,6 +62,13 @@ see [Installing Carthage](#installing-carthage)
 - [License](#license)
 
 ## Change Log
+
+### 0.37.1+nsoperations
+
+- Fixed bug in matching build configuration for binary dependencies from JSON file
+- Fixed bug in parsing of command line arguments for the `update` command
+- Fixed bug in debug symbol mapping resulting in the wrong binary/dsym path being stored.
+- Made source hash calculation more reliable by first sorting the files to calculate the hash on
 
 ### 0.37.0+nsoperations
 
