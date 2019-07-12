@@ -175,11 +175,10 @@ public final class Project { // swiftlint:disable:this type_body_length
         shouldCheckout: Bool = true,
         buildOptions: BuildOptions,
         dependenciesToUpdate: [String]? = nil,
-        resolverEventObserver: ((ResolverEvent) -> Void)? = nil
+        resolverEventObserver: ((ResolverEvent) -> Void)? = nil,
+        dependencyRetriever: DependencyRetrieverProtocol? = nil
         ) -> SignalProducer<(), CarthageError> {
-        let resolverClass = BackTrackingResolver.self
-        let resolver = resolverClass.init(projectDependencyRetriever: self.dependencyRetriever)
-
+        let resolver = BackTrackingResolver(projectDependencyRetriever: dependencyRetriever ?? self.dependencyRetriever)
         if let eventObserver = resolverEventObserver {
             resolver.events.observeValues(eventObserver)
         }

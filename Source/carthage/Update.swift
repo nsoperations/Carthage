@@ -12,6 +12,7 @@ public struct UpdateCommand: CommandProtocol {
         public let buildAfterUpdate: Bool
         public let isVerbose: Bool
         public let logPath: String?
+        public let localRepositoryPath: String?
         public let buildOptions: CarthageKit.BuildOptions
         public let checkoutOptions: CheckoutCommand.Options
         public let dependenciesToUpdate: [String]?
@@ -44,10 +45,11 @@ public struct UpdateCommand: CommandProtocol {
             }
         }
 
-        private init(checkoutAfterUpdate: Bool,
+        fileprivate init(checkoutAfterUpdate: Bool,
                      buildAfterUpdate: Bool,
                      isVerbose: Bool,
                      logPath: String?,
+                     localRepositoryPath: String?,
                      buildOptions: BuildOptions,
                      checkoutOptions: CheckoutCommand.Options
             ) {
@@ -58,6 +60,7 @@ public struct UpdateCommand: CommandProtocol {
             self.buildOptions = buildOptions
             self.checkoutOptions = checkoutOptions
             self.dependenciesToUpdate = checkoutOptions.dependenciesToCheckout
+            self.localRepositoryPath = localRepositoryPath
         }
 
         public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
@@ -67,16 +70,16 @@ public struct UpdateCommand: CommandProtocol {
             let option2 = Option(key: "build", defaultValue: true, usage: buildDescription)
             let option3 = Option(key: "verbose", defaultValue: false, usage: "print xcodebuild output inline (ignored if --no-build option is present), also prints resolver actions.")
             let option4 = Option<String?>(key: "log-path", defaultValue: nil, usage: "path to the xcode build output. A temporary file is used by default")
-            let buildOptions = BuildOptions.evaluate(mode, addendum: "\n(ignored if --no-build option is present)")
-            let checkoutOptions = CheckoutCommand.Options.evaluate(mode, dependenciesUsage: dependenciesUsage)
-
+            let option5 = Option<String?>(key: "local-repository-path", defaultValue: nil, usage: "path to local repository containing the dependency information as was stored with a 'diagnose' command before. Implies --no-build and --no-checkout.")
+            
             return curry(self.init)
                 <*> mode <| option1
                 <*> mode <| option2
                 <*> mode <| option3
                 <*> mode <| option4
-                <*> buildOptions
-                <*> checkoutOptions
+                <*> mode <| option5
+                <*> BuildOptions.evaluate(mode, addendum: "\n(ignored if --no-build option is present)")
+                <*> CheckoutCommand.Options.evaluate(mode, dependenciesUsage: dependenciesUsage)
         }
 
         /// Attempts to load the project referenced by the options, and configure it
@@ -92,17 +95,27 @@ public struct UpdateCommand: CommandProtocol {
     public func run(_ options: Options) -> Result<(), CarthageError> {
 
         let resolverEventLogger = ResolverEventLogger(colorOptions: options.checkoutOptions.colorOptions, verbose: options.isVerbose)
+        var dependencyRetriever: DependencyRetrieverProtocol? = nil
+        let effectiveOptions: Options
+        
+        if let localRepositoryURL = options.localRepositoryPath.map({ URL(fileURLWithPath: $0) }) {
+            effectiveOptions = Options(checkoutAfterUpdate: false, buildAfterUpdate: false, isVerbose: options.isVerbose, logPath: options.logPath, localRepositoryPath: options.localRepositoryPath, buildOptions: options.buildOptions, checkoutOptions: options.checkoutOptions)
+            dependencyRetriever = LocalDependencyStore(directoryURL: localRepositoryURL)
+        } else {
+            effectiveOptions = options
+        }
 
         return options.loadProject()
             .flatMap(.merge) { project -> SignalProducer<(), CarthageError> in
                 return project.updateDependencies(
-                    shouldCheckout: options.checkoutAfterUpdate,
-                    buildOptions: options.buildOptions,
-                    dependenciesToUpdate: options.dependenciesToUpdate,
-                    resolverEventObserver: { resolverEventLogger.log(event: $0) }
+                    shouldCheckout: effectiveOptions.checkoutAfterUpdate,
+                    buildOptions: effectiveOptions.buildOptions,
+                    dependenciesToUpdate: effectiveOptions.dependenciesToUpdate,
+                    resolverEventObserver: { resolverEventLogger.log(event: $0) },
+                    dependencyRetriever: dependencyRetriever
                 )
             }
-            .then(options.buildProducer)
+            .then(effectiveOptions.buildProducer)
             .waitOnCommand()
     }
 }
