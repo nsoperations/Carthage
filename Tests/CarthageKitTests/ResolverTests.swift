@@ -482,6 +482,8 @@ class ResolverTests: XCTestCase {
         let repository = LocalDependencyStore(directoryURL: repositoryURL)
         
         do {
+            let cartfile = try Cartfile.from(file: testCartfileURL).get()
+
             guard let resolvedCartfile1 = try project.resolveUpdatedDependencies(from: repository,
                                                                                  resolverType: resolverType.self,
                                                                                  dependenciesToUpdate: nil).first()?.get() else {
@@ -504,7 +506,7 @@ class ResolverTests: XCTestCase {
             expect(pinnedVersionSecurity1.semanticVersion) == SemanticVersion(2, 1, 0)
             
             // Test whether the resolved cartfile is valid (should be the case)
-            try project.validate(resolvedCartfile: resolvedCartfile1, dependencyRetriever: repository).first()?.get()
+            try project.validate(cartfile: cartfile, resolvedCartfile: resolvedCartfile1, dependencyRetriever: repository).first()?.get()
             
             // Now resolve only Security, should yield the same result
             
@@ -530,7 +532,7 @@ class ResolverTests: XCTestCase {
             expect(pinnedVersionSecurity2.semanticVersion) == SemanticVersion(2, 1, 0)
             
             // Test whether the resolved cartfile is valid (should be the case)
-            try project.validate(resolvedCartfile: resolvedCartfile2, dependencyRetriever: repository).first()?.get()
+            try project.validate(cartfile: cartfile, resolvedCartfile: resolvedCartfile2, dependencyRetriever: repository).first()?.get()
             
         } catch {
             fail("Expected no error to be thrown, but got: \(error)")

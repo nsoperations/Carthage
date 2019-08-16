@@ -18,7 +18,8 @@ private extension CarthageError {
 class ValidateTests: XCTestCase {
 
     var validCartfile: String!
-    var invalidCartfile: String!
+    var validResolvedCartfile: String!
+    var invalidResolvedCartfile: String!
 
     var moyaDependency: Dependency!
     var resultDependency: Dependency!
@@ -30,12 +31,22 @@ class ValidateTests: XCTestCase {
 
     // These tuples represent the desired version of a dependency, paired with its parent dependency;
     // moya_3_1_0 indicates that Moya expects a version compatible with 3.1.0 of *another* dependency
-    var moya_3_1_0: (Dependency, VersionSpecifier)!
-    var moya_4_1_0: (Dependency, VersionSpecifier)!
-    var reactiveSwift_3_2_1: (Dependency, VersionSpecifier)!
+    var moya_3_1_0: (Dependency?, VersionSpecifier)!
+    var moya_4_1_0: (Dependency?, VersionSpecifier)!
+    var reactiveSwift_3_2_1: (Dependency?, VersionSpecifier)!
 
     override func setUp() {
         validCartfile = """
+        github "Alamofire/Alamofire" ~> 4.0
+        github "CocoaLumberjack/CocoaLumberjack" ~> 3.0
+        github "Moya/Moya" ~> 10.0
+        github "ReactiveCocoa/ReactiveSwift" ~> 2.0
+        github "ReactiveX/RxSwift" ~> 4.0
+        github "antitypical/Result" ~> 3.0
+        github "yapstudios/YapDatabase" ~> 3.0
+        """
+
+        validResolvedCartfile = """
         github "Alamofire/Alamofire" "4.6.0"
         github "CocoaLumberjack/CocoaLumberjack" "3.4.1"
         github "Moya/Moya" "10.0.2"
@@ -45,7 +56,7 @@ class ValidateTests: XCTestCase {
         github "yapstudios/YapDatabase" "3.0.2"
         """
 
-        invalidCartfile = """
+        invalidResolvedCartfile = """
         github "Alamofire/Alamofire" "5.0.0"
         github "CocoaLumberjack/CocoaLumberjack" "commitish"
         github "Moya/Moya" "10.0.2"
@@ -71,7 +82,7 @@ class ValidateTests: XCTestCase {
     }
 
     func testShouldGroupDependenciesByParentDependency() {
-        let resolvedCartfile = ResolvedCartfile.from(string: validCartfile)
+        let resolvedCartfile = ResolvedCartfile.from(string: validResolvedCartfile)
         let project = Project(directoryURL: URL(string: "file:///var/empty/fake")!)
 
         guard let resolvedCartfileValue = resolvedCartfile.value else {
@@ -83,12 +94,12 @@ class ValidateTests: XCTestCase {
 
         expect(result?.value?.count) == 3
 
-        expect(Set(result?.value?[self.moyaDependency]?.map { $0.0 } ?? [])) ==
+        expect(Set(result?.value?.requirements(from: self.moyaDependency)?.map { $0.0 } ?? [])) ==
             Set([resultDependency, alamofireDependency, reactiveSwiftDependency, rxSwiftDependency])
 
-        expect(Set(result?.value?[self.reactiveSwiftDependency]?.map { $0.0 } ?? [])) == Set([resultDependency])
+        expect(Set(result?.value?.requirements(from: self.reactiveSwiftDependency)?.map { $0.0 } ?? [])) == Set([resultDependency])
 
-        expect(Set(result?.value?[self.yapDatabaseDependency]?.map { $0.0 } ?? [])) == Set([cocoaLumberjackDependency])
+        expect(Set(result?.value?.requirements(from: self.yapDatabaseDependency)?.map { $0.0 } ?? [])) == Set([cocoaLumberjackDependency])
     }
 
     func testShouldCorrectlyInvertARequirementsDictionary() {
@@ -103,7 +114,7 @@ class ValidateTests: XCTestCase {
         let v3 = VersionSpecifier.compatibleWith(SemanticVersion(3, 0, 0))
         let v4 = VersionSpecifier.compatibleWith(SemanticVersion(4, 0, 0))
 
-        let requirements = [a: [b: v1, c: v2], d: [c: v3, e: v4]]
+        let requirements = CompatibilityInfo.Requirements([a: [b: v1, c: v2], d: [c: v3, e: v4]])
         guard let invertedRequirements = CompatibilityInfo.invert(requirements: requirements).value else {
             fail("Could not get invertedRequirements value")
             return
@@ -114,7 +125,7 @@ class ValidateTests: XCTestCase {
     }
 
     func testShouldIdentifyIncompatibleDependencies() {
-        let commitish = VersionSpecifier.gitReference("commitish")
+        let commitish = VersionSpecifier.gitReference("55cf7fe10320103f6da1cb3b13aba99244c0943e")
         let v4_0_0 = VersionSpecifier.compatibleWith(SemanticVersion(4, 0, 0))
         let v2_0_0 = VersionSpecifier.compatibleWith(SemanticVersion(2, 0, 0))
         let v4_1_0 = VersionSpecifier.compatibleWith(SemanticVersion(4, 1, 0))
@@ -126,7 +137,7 @@ class ValidateTests: XCTestCase {
                                                          yapDatabaseDependency: PinnedVersion("3.0.2"),
                                                          alamofireDependency: PinnedVersion("6.0.0"),
                                                          reactiveSwiftDependency: PinnedVersion("2.0.1"),
-                                                         cocoaLumberjackDependency: PinnedVersion("commitish"),
+                                                         cocoaLumberjackDependency: PinnedVersion("55cf7fe10320103f6da1cb3b13aba99244c0943e"),
                                                          resultDependency: PinnedVersion("3.1.7")]
 
         let requirements: [Dependency: [Dependency: VersionSpecifier]] = [moyaDependency: [rxSwiftDependency: v4_0_0,
@@ -136,7 +147,7 @@ class ValidateTests: XCTestCase {
                                                                           reactiveSwiftDependency: [resultDependency: v3_2_1],
                                                                           yapDatabaseDependency: [cocoaLumberjackDependency: commitish]]
 
-        let infos = CompatibilityInfo.incompatibilities(for: dependencies, requirements: requirements, projectDependencyRetriever: MockProjectDependencyRetriever())
+        let infos = CompatibilityInfo.incompatibilities(for: dependencies, requirements: CompatibilityInfo.Requirements(requirements), projectDependencyRetriever: MockProjectDependencyRetriever())
             .value?
             .sorted { $0.dependency.name < $1.dependency.name }
 
@@ -151,19 +162,25 @@ class ValidateTests: XCTestCase {
         expect(infos?[1].incompatibleRequirements.contains(where: { $0 == self.reactiveSwift_3_2_1 })) == true
     }
 
-    func testShouldIdentifyAValidCartfileResolvedAsCompatible() {
-        let resolvedCartfile = ResolvedCartfile.from(string: validCartfile)
+    func testShouldIdentifyAvalidResolvedCartfileResolvedAsCompatible() {
+        let cartfile = Cartfile.from(string: validCartfile)
+        let resolvedCartfile = ResolvedCartfile.from(string: validResolvedCartfile)
         let project = Project(directoryURL: URL(string: "file:///var/empty/fake")!)
+        guard let cartfileValue = cartfile.value else {
+            fail("Could not get cartfile value")
+            return
+        }
         guard let resolvedCartfileValue = resolvedCartfile.value else {
             fail("Could not get resolved cartfile value")
             return
         }
-        let result = project.validate(resolvedCartfile: resolvedCartfileValue).single()
+        let result = project.validate(cartfile: cartfileValue, resolvedCartfile: resolvedCartfileValue).single()
         expect(result?.value).notTo(beNil())
     }
 
-    func testShouldIdentifyIncompatibilitiesInAnInvalidCartfileResolved() {
-        let resolvedCartfile = ResolvedCartfile.from(string: invalidCartfile)
+    func testShouldIdentifyIncompatibilitiesInAnInvalidResolvedCartfileResolved() {
+        let cartfile = Cartfile.from(string: validCartfile)
+        let resolvedCartfile = ResolvedCartfile.from(string: invalidResolvedCartfile)
         let project = Project(directoryURL: URL(string: "file:///var/empty/fake")!)
 
         guard let resolvedCartfileValue = resolvedCartfile.value else {
@@ -171,7 +188,12 @@ class ValidateTests: XCTestCase {
             return
         }
 
-        let error = project.validate(resolvedCartfile: resolvedCartfileValue).single()?.error
+        guard let cartfileValue = cartfile.value else {
+            fail("Could not get cartfile value")
+            return
+        }
+
+        let error = project.validate(cartfile: cartfileValue, resolvedCartfile: resolvedCartfileValue).single()?.error
         let infos = error?.compatibilityInfos.sorted { $0.dependency.name < $1.dependency.name }
 
         expect(infos?[0].dependency) == alamofireDependency
@@ -188,7 +210,9 @@ class ValidateTests: XCTestCase {
         expect(error?.description) ==
         """
         The following incompatibilities were found in Cartfile.resolved:
+        * Alamofire 5.0.0 is incompatible with the version constraint specified by Cartfile/Cartfile.private: ~> 4.0.0
         * Alamofire 5.0.0 is incompatible with the version constraint specified by Moya: ~> 4.1.0
+        * Result 4.0.0 is incompatible with the version constraint specified by Cartfile/Cartfile.private: ~> 3.0.0
         * Result 4.0.0 is incompatible with the version constraint specified by Moya: ~> 3.1.0
         * Result 4.0.0 is incompatible with the version constraint specified by ReactiveSwift: ~> 3.2.1
         """

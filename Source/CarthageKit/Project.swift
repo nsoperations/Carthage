@@ -327,9 +327,12 @@ public final class Project { // swiftlint:disable:this type_body_length
     }
 
     public func validate(dependencyRetriever: DependencyRetrieverProtocol? = nil) -> SignalProducer<(), CarthageError> {
-        return self.loadResolvedCartfile().flatMap(.merge) { resolvedCartfile in
-            return self.validate(resolvedCartfile: resolvedCartfile, dependencyRetriever: dependencyRetriever)
-        }
+
+        return SignalProducer
+            .combineLatest(loadCombinedCartfile(), loadResolvedCartfile())
+            .flatMap(.merge) { cartfile, resolvedCartfile in
+                return self.validate(cartfile: cartfile, resolvedCartfile: resolvedCartfile, dependencyRetriever: dependencyRetriever)
+            }
     }
 
     /// Stores all possible dependencies and versions of those dependencies in the specified local dependency store.
@@ -453,13 +456,13 @@ public final class Project { // swiftlint:disable:this type_body_length
     /// are compatible with the versions specified in the Cartfile for each of those projects.
     ///
     /// Either emits a value to indicate success or an error.
-    func validate(resolvedCartfile: ResolvedCartfile, dependencyRetriever: DependencyRetrieverProtocol? = nil) -> SignalProducer<(), CarthageError> {
+    func validate(cartfile: Cartfile, resolvedCartfile: ResolvedCartfile, dependencyRetriever: DependencyRetrieverProtocol? = nil) -> SignalProducer<(), CarthageError> {
 
         let effectiveDependencyRetriever: DependencyRetrieverProtocol = dependencyRetriever ?? self.dependencyRetriever
 
         return SignalProducer(value: resolvedCartfile)
             .flatMap(.concat) { (resolved: ResolvedCartfile) -> SignalProducer<([Dependency: PinnedVersion], CompatibilityInfo.Requirements), CarthageError> in
-                let requirements = self.requirementsByDependency(resolvedCartfile: resolved, tryCheckoutDirectory: true, dependencyRetriever: effectiveDependencyRetriever)
+                let requirements = self.requirementsByDependency(cartfile: cartfile, resolvedCartfile: resolved, tryCheckoutDirectory: true, dependencyRetriever: effectiveDependencyRetriever)
                 return SignalProducer.zip(SignalProducer(value: resolved.dependencies), requirements)
             }
             .flatMap(.concat) { (info: ([Dependency: PinnedVersion], CompatibilityInfo.Requirements)) -> SignalProducer<[CompatibilityInfo], CarthageError> in
@@ -489,6 +492,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     /// Finds the required dependencies and their corresponding version specifiers for each dependency in Cartfile.resolved.
     func requirementsByDependency(
+        cartfile: Cartfile? = nil,
         resolvedCartfile: ResolvedCartfile,
         tryCheckoutDirectory: Bool,
         dependencyRetriever: DependencyRetrieverProtocol? = nil
@@ -504,19 +508,28 @@ public final class Project { // swiftlint:disable:this type_body_length
             }
             .collect()
             .flatMap(.merge) { dependencyAndRequirements -> SignalProducer<CompatibilityInfo.Requirements, CarthageError> in
-                var dict: CompatibilityInfo.Requirements = [:]
-                for (dependency, requirement) in dependencyAndRequirements {
-                    let (requiredDependency, requiredVersion) = requirement
-                    var requirementsDict = dict[dependency] ?? [:]
+                var requirements = CompatibilityInfo.Requirements()
 
-                    if requirementsDict[requiredDependency] != nil {
+                // Dependencies from Cartfile
+                if let cartfile = cartfile {
+                    for requirement in cartfile.dependencies {
+                        let (requiredDependency, _) = requirement
+                        if requirements.hasRequirement(for: requiredDependency, from: nil) {
+                            return SignalProducer(error: .duplicateDependencies([DuplicateDependency(dependency: requiredDependency, locations: [])]))
+                        }
+                        requirements.setRequirement(requirement, from: nil)
+                    }
+                }
+
+                // Dependencies from Cartfile.resolved
+                for (dependency, requirement) in dependencyAndRequirements {
+                    let (requiredDependency, _) = requirement
+                    if requirements.hasRequirement(for: requiredDependency, from: dependency) {
                         return SignalProducer(error: .duplicateDependencies([DuplicateDependency(dependency: requiredDependency, locations: [])]))
                     }
-
-                    requirementsDict[requiredDependency] = requiredVersion
-                    dict[dependency] = requirementsDict
+                    requirements.setRequirement(requirement, from: dependency)
                 }
-                return SignalProducer(value: dict)
+                return SignalProducer(value: requirements)
         }
     }
 
