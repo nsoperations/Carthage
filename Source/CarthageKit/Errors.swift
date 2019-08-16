@@ -400,9 +400,9 @@ extension CarthageError: CustomStringConvertible {
                 .flatMap { incompatibility -> [String] in
                     let sortedRequirements = incompatibility
                         .incompatibleRequirements
-                        .sorted { $0.0.name < $1.0.name }
+                        .sorted { ($0.0?.name ?? "") < ($1.0?.name ?? "") }
                     return sortedRequirements.map { dependency, versionSpecifier in
-                        return "* \(incompatibility.dependency.name) \(incompatibility.pinnedVersion) is incompatible with the version constraint specified by \(dependency.name): \(versionSpecifier)"
+                        return "* \(incompatibility.dependency.name) \(incompatibility.pinnedVersion) is incompatible with the version constraint specified by \(dependency?.name ?? "\(Constants.Project.cartfilePath)/\(Constants.Project.privateCartfilePath)"): \(versionSpecifier)"
                     }
                 }
                 .joined(separator: "\n")
