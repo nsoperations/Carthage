@@ -63,6 +63,9 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.38.1+nsoperations
+- Fixed bug where `validate` failed for non semantic versions (git references).
+
 ### 0.38.0+nsoperations
 - Ensured the `validate` command also takes Cartfile/Cartfile.private into account in addition to Cartfile.resolved. This will ensure that incompatibilities between the Cartfile and Cartfile.resolved will cause the validation to fail.
 
