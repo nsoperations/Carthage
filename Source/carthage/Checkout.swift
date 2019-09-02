@@ -46,9 +46,9 @@ public struct CheckoutCommand: CommandProtocol {
 
         /// Attempts to load the project referenced by the options, and configure it
         /// accordingly.
-        public func loadProject() -> SignalProducer<Project, CarthageError> {
+        public func loadProject(useNetrc: Bool) -> SignalProducer<Project, CarthageError> {
             let directoryURL = URL(fileURLWithPath: self.directoryPath, isDirectory: true)
-            let project = Project(directoryURL: directoryURL)
+            let project = Project(directoryURL: directoryURL, useNetrc: useNetrc)
             project.preferHTTPS = !self.useSSH
             project.useSubmodules = self.useSubmodules
             project.lockTimeout = self.lockTimeout
@@ -64,13 +64,13 @@ public struct CheckoutCommand: CommandProtocol {
     public let function = "Check out the project's dependencies"
 
     public func run(_ options: Options) -> Result<(), CarthageError> {
-        return self.checkoutWithOptions(options)
+        return self.checkoutWithOptions(options, useNetrc: false)
             .waitOnCommand()
     }
 
     /// Checks out dependencies with the given options.
-    public func checkoutWithOptions(_ options: Options) -> SignalProducer<(), CarthageError> {
-        return options.loadProject()
+    public func checkoutWithOptions(_ options: Options, useNetrc: Bool) -> SignalProducer<(), CarthageError> {
+        return options.loadProject(useNetrc: useNetrc)
             .flatMap(.merge) { $0.checkoutResolvedDependencies(options.dependenciesToCheckout, buildOptions: nil) }
     }
 }

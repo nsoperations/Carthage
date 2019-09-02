@@ -9,7 +9,7 @@ struct NetrcMachine {
 
 struct Netrc {
     
-    enum NetrcError: Error {
+    public enum NetrcError: Error {
         case fileNotFound(URL)
         case unreadableFile(URL)
         case machineNotFound
@@ -24,11 +24,16 @@ struct Netrc {
     }
     
     func authorization(for url: URL) -> String? {
-        guard let index = machines.firstIndex(where: { $0.name == url.host }) else { return nil }
-        let machine = machines[index]
-        let authString = "\(machine.login):\(machine.password)"
-        guard let authData = authString.data(using: .utf8) else { return nil }
-        return "Basic \(authData.base64EncodedString())"
+        guard let machine = machines.first(where: { $0.name.lowercased() == url.host?.lowercased() }) else {
+            return nil
+        }
+        if machine.login == "oauth2" {
+            return "Bearer \(machine.password)"
+        } else {
+            let authString = "\(machine.login):\(machine.password)"
+            guard let authData = authString.data(using: .utf8) else { return nil }
+            return "Basic \(authData.base64EncodedString())"
+        }
     }
     
     static func load(from fileURL: URL = URL(fileURLWithPath: "\(NSHomeDirectory())/.netrc")) -> Result<Netrc, NetrcError> {
@@ -64,7 +69,9 @@ struct Netrc {
     }
     
     private static func trimComments(from text: String) -> String {
-        let regex = try! NSRegularExpression(pattern: "\\#[\\s\\S]*?.*$", options: .anchorsMatchLines)
+        guard let regex = try? NSRegularExpression(pattern: "\\#[\\s\\S]*?.*$", options: .anchorsMatchLines) else {
+            fatalError("Could not parse regular expression which is unexpected")
+        }
         let nsString = text as NSString
         let range = NSRange(location: 0, length: nsString.length)
         let matches = regex.matches(in: text, range: range)
@@ -74,6 +81,27 @@ struct Netrc {
                 .replacingOccurrences(of: nsString.substring(with: $0.range), with: "")
         }
         return trimmedCommentsText
+    }
+}
+
+extension URLRequest {
+    init(url: URL, netrc: Netrc?) {
+        self.init(url: url)
+        if let netrc = netrc {
+            self.configure(with: netrc)
+        }
+    }
+
+    mutating func configure(with netrc: Netrc) {
+        guard let url = self.url else {
+            return
+        }
+
+        guard let authorization = netrc.authorization(for: url) else {
+            return
+        }
+
+        self.setValue(authorization, forHTTPHeaderField: "Authorization")
     }
 }
 

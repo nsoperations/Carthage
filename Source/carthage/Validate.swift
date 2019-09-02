@@ -10,7 +10,7 @@ public struct ValidateCommand: CommandProtocol {
     public let function = "Validate that the versions in Cartfile.resolved are compatible with the Cartfile requirements"
 
     public func run(_ options: CheckoutCommand.Options) -> Result<(), CarthageError> {
-        return options.loadProject().flatMap(.merge) { (project: Project) in
+        return options.loadProject(useNetrc: false).flatMap(.merge) { (project: Project) in
             return project.validate()
             }
             .on(value: { _ in

@@ -33,6 +33,7 @@ extension BuildOptions: OptionsProtocol {
             <*> mode <| option5
             <*> mode <| option6
             <*> mode <| option7
+            <*> mode <| SharedOptions.netrcOption
     }
 }
 
@@ -102,11 +103,22 @@ public struct BuildCommand: CommandProtocol {
 
     /// Builds a project with the given options.
     public func buildWithOptions(_ options: Options) -> SignalProducer<(), CarthageError> {
+        let directoryURL = URL(fileURLWithPath: options.directoryPath, isDirectory: true)
+        let project = Project(directoryURL: directoryURL, useNetrc: options.buildOptions.useNetrc)
+        return self.build(project: project, options: options)
+    }
+
+    public func build(project: Project, options: Options) -> SignalProducer<(), CarthageError> {
         return self.openLoggingHandle(options)
             .flatMap(.merge) { stdoutHandle, temporaryURL -> SignalProducer<(), CarthageError> in
-                let directoryURL = URL(fileURLWithPath: options.directoryPath, isDirectory: true)
 
-                let buildProgress = self.buildProjectInDirectoryURL(directoryURL, options: options)
+                let shouldBuildCurrentProject =  !options.skipCurrent || options.archive
+
+                project.lockTimeout = options.lockTimeout
+                let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
+                project.projectEvents.observeValues { eventSink.log(event: $0) }
+
+                let buildProgress = project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions)
 
                 let stderrHandle = options.isVerbose ? FileHandle.standardError : stdoutHandle
 
@@ -144,20 +156,6 @@ public struct BuildCommand: CommandProtocol {
                     )
                     .then(SignalProducer<(), CarthageError>.empty)
         }
-    }
-
-    /// Builds the project in the given directory, using the given options.
-    ///
-    /// Returns a producer of producers, representing each scheme being built.
-    private func buildProjectInDirectoryURL(_ directoryURL: URL, options: Options) -> BuildSchemeProducer {
-        let shouldBuildCurrentProject =  !options.skipCurrent || options.archive
-
-        let project = Project(directoryURL: directoryURL)
-        project.lockTimeout = options.lockTimeout
-        let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
-        project.projectEvents.observeValues { eventSink.log(event: $0) }
-
-        return project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions)
     }
 
     /// Opens an existing file, if provided, or creates a temporary file if not, returning a handle and the URL to the

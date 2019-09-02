@@ -14,9 +14,12 @@ public struct DiagnoseCommand: CommandProtocol {
         public let mappingsFilePath: String?
         public let isVerbose: Bool
         public let ignoreErrors: Bool
+        public let useNetrc: Bool
         public let colorOptions: ColorOptions
 
         public static func evaluate(_ mode: CommandMode) -> Result<Options, CommandantError<CarthageError>> {
+            let verboseOption = Option(key: "verbose", defaultValue: false, usage: "show verbose dependency info as it is resolved")
+            let ignoreErrorsOption = Option(key: "ignore-errors", defaultValue: false, usage: "whether errors should be ignored while retrieving dependency information")
             return curry(self.init)
                 <*> mode <| Option(
                     key: "output-path",
@@ -33,15 +36,16 @@ public struct DiagnoseCommand: CommandProtocol {
                     defaultValue: nil,
                     usage: "an optional file containing mappings for dependencies to anonymize during the storage" +
                     " with format: <dependency string>=<mapped dependency string> (one mapping per line)")
-                <*> mode <| Option(key: "verbose", defaultValue: false, usage: "show verbose dependency info as it is resolved")
-                <*> mode <| Option(key: "ignore-errors", defaultValue: false, usage: "whether errors should be ignored while retrieving dependency information")
+                <*> mode <| verboseOption
+                <*> mode <| ignoreErrorsOption
+                <*> mode <| SharedOptions.netrcOption
                 <*> ColorOptions.evaluate(mode)
         }
 
         /// Attempts to load the project referenced by the options
         public func loadProject() -> SignalProducer<Project, CarthageError> {
             let directoryURL = URL(fileURLWithPath: self.directoryPath, isDirectory: true)
-            let project: Project = Project(directoryURL: directoryURL)
+            let project: Project = Project(directoryURL: directoryURL, useNetrc: self.useNetrc)
 
             let eventSink = ProjectEventLogger(colorOptions: self.colorOptions)
             project.projectEvents.observeValues { eventSink.log(event: $0) }

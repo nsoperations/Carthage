@@ -354,7 +354,7 @@ extension URL {
             return "."
         }
         return relativePathComponents.reduce("", { (relativePath, component) -> String in
-            return (relativePath as NSString).appendingPathComponent(component)
+            return relativePath.appendingPathComponent(component)
         })
     }
 }

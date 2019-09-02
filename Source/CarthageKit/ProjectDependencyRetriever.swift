@@ -59,6 +59,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     var preferHTTPS = true
     var lockTimeout: Int?
     var useSubmodules = false
+    var netrc: Netrc? = nil
     let directoryURL: URL
 
     /// Limits the number of concurrent clones/fetches to the number of active
@@ -251,8 +252,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     return SignalProducer(value: binaryProject)
                 } else {
                     self.projectEventsObserver?.send(value: .downloadingBinaryFrameworkDefinition(.binary(binary), binary.url))
-
-                    return URLSession.shared.reactive.data(with: URLRequest(url: binary.url))
+                    return URLSession.shared.reactive.data(with: URLRequest(url: binary.url, netrc: self.netrc))
                         .mapError { CarthageError.readFailed(binary.url, $0 as NSError) }
                         .attemptMap { data, _ in
                             return BinaryProject.from(jsonData: data).mapError { error in
@@ -363,28 +363,30 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         platforms: platforms,
                         swiftVersion: localSwiftVersion,
                         eventObserver: self.projectEventsObserver,
-                        lockTimeout: self.lockTimeout
+                        lockTimeout: self.lockTimeout,
+                        netrc: self.netrc
                         )
-                        .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
+                        .flatMap(.concat) { urlLock -> SignalProducer<Bool, CarthageError> in
                             lock = urlLock
                             if let url = urlLock?.url {
                                 self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
                                 return self.unarchiveAndCopyBinaryFrameworks(zipFile: url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                                    .then(SignalProducer<Bool, CarthageError>(value: true))
                             } else {
-                                self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: nil))
-                                return SignalProducer<(), CarthageError>.empty
+                                return SignalProducer<Bool, CarthageError>(value: false)
                             }
                         }
-                        .map { lock != nil }
-                        .flatMapError { error in
-                            if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
+                        .flatMapError { error -> SignalProducer<Bool, CarthageError> in
+                            if let url = lock?.url {
                                 _ = try? FileManager.default.removeItem(at: url)
                             }
-                            self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
-                            return SignalProducer(value: false)
+                            return SignalProducer<Bool, CarthageError>(value: false)
                         }
-                        .concat(value: false)
-                        .take(first: 1)
+                        .on(value: { didInstall in
+                            if !didInstall {
+                                self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: nil))
+                            }
+                        })
                         .on(terminated: { lock?.unlock() })
             }
         } else {
@@ -586,7 +588,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     /// less temporary location.
     private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
+        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout, netrc: self.netrc)
             .attemptMap({ urlLock -> Result<URLLock, CarthageError> in
                 if let lock = urlLock {
                     return .success(lock)
@@ -691,7 +693,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         return SignalProducer<URL, CarthageError>(value: zipFile)
             .flatMap(.concat, Archive.unarchive(archive:))
             .flatMap(.concat) { tempDirectoryURL -> SignalProducer<(), CarthageError> in
-                return self.installBinaries(sourceDirectoryURL: tempDirectoryURL,
+                return self.moveBinaries(sourceDirectoryURL: tempDirectoryURL,
                                                   dependency: dependency,
                                                   pinnedVersion: pinnedVersion,
                                                   configuration: configuration,
@@ -700,7 +702,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         }
     }
 
-    private func installBinaries(
+    private func moveBinaries(
         sourceDirectoryURL: URL,
         dependency: Dependency,
         pinnedVersion: PinnedVersion,
@@ -794,7 +796,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             }
             .collect()
             // Collect .bundle folders as well, for pure binaries or non-framework dependencies
-            .flatMap(.merge) { frameworkURLs -> SignalProducer<[URL], CarthageError> in
+            .flatMap(.merge) { frameworkURLs -> SignalProducer<([URL], [URL]), CarthageError> in
                 return Frameworks.bundlesInDirectory(sourceDirectoryURL)
                     .attemptMap { sourceURL -> Result<SourceURLAndDestinationURL, CarthageError> in
                         let platform: Platform? = Frameworks.platformForBundle(sourceURL, relativeTo: sourceDirectoryURL)
@@ -808,13 +810,21 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                             .flatMap(.merge) { SignalProducer($0) }
                     }
                     .flatMap(.merge) { sourceURL, destinationURL -> SignalProducer<URL, CarthageError> in
+                        let destinationDirectoryURL = destinationURL.resolvingSymlinksInPath().deletingLastPathComponent()
                         return SignalProducer<URL, CarthageError>(value: sourceURL)
-                            .moveFileURLsIntoDirectory(destinationURL)
+                            .moveFileURLsIntoDirectory(destinationDirectoryURL)
+                            .then(SignalProducer(value: destinationURL))
                     }
-                    .then(SignalProducer.init(value: frameworkURLs))
+                    .collect()
+                    .flatMap(.merge) { bundleURLs -> SignalProducer<([URL], [URL]), CarthageError> in
+                        return SignalProducer.init(value: (bundleURLs, frameworkURLs))
+                    }
             }
             // Write the .version file
-            .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
+            .flatMap(.concat) { bundleURLs, frameworkURLs -> SignalProducer<(), CarthageError> in
+                guard !bundleURLs.isEmpty || !frameworkURLs.isEmpty else {
+                    return SignalProducer<(), CarthageError>(error: CarthageError.noInstallableBinariesFoundInArchive(dependency: dependency))
+                }
 
                 let versionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: sourceDirectoryURL)
                 if versionFileURL.isExistingFile {
@@ -829,7 +839,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         configuration: configuration
                     )
                 }
-        }
+            }
     }
 
     /// Constructs the file:// URL at which a given .framework

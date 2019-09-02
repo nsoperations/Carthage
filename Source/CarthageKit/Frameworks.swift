@@ -223,7 +223,7 @@ final class Frameworks {
         guard let pathComponents = bundleURL.pathComponentsRelativeTo(baseURL) else {
             return nil
         }
-        for component in pathComponents {
+        for component in pathComponents.reversed() {
             if let platform = Platform(rawValue: component) {
                 return platform
             }

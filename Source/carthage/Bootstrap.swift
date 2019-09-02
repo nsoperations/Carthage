@@ -29,9 +29,8 @@ public struct BootstrapCommand: CommandProtocol {
                     checkoutDependencies = .empty
                 }
 
-                return checkoutDependencies
+                return checkoutDependencies.then(options.buildProducer(project: project))
             }
-            .then(options.buildProducer)
             .waitOnCommand()
     }
 }

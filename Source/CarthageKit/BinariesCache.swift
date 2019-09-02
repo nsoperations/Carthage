@@ -8,7 +8,7 @@ import XCDBLD
 /// Cache for binary builds
 protocol BinariesCache {
 
-    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock?, CarthageError>
+    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?, netrc: Netrc?) -> SignalProducer<URLLock?, CarthageError>
 
 }
 
@@ -81,7 +81,7 @@ class AbstractBinariesCache: BinariesCache {
             .first()!.value ?? false
     }
 
-    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?) -> SignalProducer<URLLock?, CarthageError> {
+    func matchingBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion, eventObserver: Signal<ProjectEvent, NoError>.Observer?, lockTimeout: Int?, netrc: Netrc?) -> SignalProducer<URLLock?, CarthageError> {
 
         let fileURL = AbstractBinariesCache.fileURL(for: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion)
 
@@ -95,6 +95,7 @@ class AbstractBinariesCache: BinariesCache {
                                                configuration: configuration,
                                                swiftVersion: swiftVersion,
                                                destinationURL: fileURL,
+                                               netrc: netrc,
                                                eventObserver: eventObserver)
                         .then(SignalProducer<URLLock?, CarthageError> { () -> Result<URLLock?, CarthageError> in
                             if urlLock.url.isExistingFile {
@@ -108,7 +109,7 @@ class AbstractBinariesCache: BinariesCache {
         }
     }
 
-    func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
+    func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, netrc: Netrc?, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
         preconditionFailure("Should be implemented by concrete sub class")
     }
 }
@@ -121,7 +122,7 @@ final class BinaryProjectCache: AbstractBinariesCache {
         self.binaryProjectDefinitions = binaryProjectDefinitions
     }
 
-    override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
+    override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, netrc: Netrc?, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
 
         guard let binaryProject = self.binaryProjectDefinitions[dependency], let sourceURL = binaryProject.binaryURL(for: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion) else {
 
@@ -135,8 +136,7 @@ final class BinaryProjectCache: AbstractBinariesCache {
             return SignalProducer<(), CarthageError>(error: error)
         }
 
-        let urlRequest = URLRequest(url: sourceURL)
-        return URLSession.shared.reactive.download(with: urlRequest)
+        return URLSession.shared.reactive.download(with: URLRequest(url: sourceURL, netrc: netrc))
             .on(started: {
                 eventObserver?.send(value: .downloadingBinaries(dependency, pinnedVersion.description))
             })
@@ -159,7 +159,7 @@ final class GitHubBinariesCache: AbstractBinariesCache {
         self.client = client
     }
 
-    override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
+    override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, netrc: Netrc?, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
 
         return GitHubBinariesCache.downloadMatchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, destinationURL: destinationURL, fromRepository: self.repository, client: self.client, eventObserver: eventObserver)
             .flatMapError { [client, repository] error -> SignalProducer<URL, CarthageError> in
@@ -239,7 +239,7 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
         self.taskCommand = taskCommand
     }
 
-    override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
+    override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, destinationURL: URL, netrc: Netrc?, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
         guard let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, swiftVersion: swiftVersion.description, targetFilePath: destinationURL.path) else {
             return SignalProducer<(), CarthageError>.empty
         }
