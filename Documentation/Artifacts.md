@@ -132,7 +132,7 @@ Unless you are [using submodules](#with-submodules), the contents of **this dire
 
 If the `--use-submodules` flag was given when a project’s dependencies were bootstrapped, updated, or checked out, the dependencies inside `Carthage/Checkouts` will be available as Git submodules. This allows you to make changes in the dependencies, and commit and push those changes upstream.
 
-## ~/Library/Caches/org.carthage.CarthageKit
+## $HOME/Library/Caches/org.carthage.CarthageKit
 
 This folder is created automatically by Carthage, and contains the “bare” Git repositories used for fetching and checking out dependencies, as well as prebuilt binaries that have been downloaded. Keeping all repositories in this centralized location avoids polluting individual projects with Git metadata, and allows Carthage to share one copy of each repository across all projects.
 
@@ -147,7 +147,14 @@ For dependencies that do not have source code available, a binary project specif
 * The version **must** be a semantic version.  Git branches, tags and commits are not valid.
 * The location **must** be an `https` url.
 
+#### Authorization
+
+Supply the `--use-netrc` to use the locally stored $HOME/.netrc file for authorization configuration for binary resources.
+Specify `oauth2` as login and the OAuth2 token as password in this file to enable OAuth2 Bearer authorization.
+
 #### Example binary project specification
+
+Simple example (no Swift version and/or build configuration):
 
 ```
 {
@@ -155,4 +162,20 @@ For dependencies that do not have source code available, a binary project specif
 	"1.0.1": "https://my.domain.com/release/1.0.1/framework.zip"
 }
 
+```
+
+Extended example (Swift version and build configuration present):
+```
+{
+    "1.0": [
+        {"url": "https://my.domain.com/release/1.0.0/framework-debug-4.2.zip", "configuration": "Debug", "swiftVersion": "4.2"},
+        {"url": "https://my.domain.com/release/1.0.0/framework-release-4.2.zip", "configuration": "Release", "swiftVersion": "4.2"},
+        {"url": "https://my.domain.com/release/1.0.0/framework-debug-5.0.zip", "configuration": "Debug", "swiftVersion": "5.0"},
+        {"url": "https://my.domain.com/release/1.0.0/framework-release-5.0.zip", "configuration": "Release", "swiftVersion": "5.0"}
+    ],
+    "1.0.1": [
+        {"url": "https://my.domain.com/release/1.0.1/framework-debug.zip", "configuration": "Debug"},
+        {"url": "https://my.domain.com/release/1.0.1/framework-release.zip"},
+    ]
+}
 ```

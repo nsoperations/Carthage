@@ -105,6 +105,9 @@ public struct BuildCommand: CommandProtocol {
     public func buildWithOptions(_ options: Options) -> SignalProducer<(), CarthageError> {
         let directoryURL = URL(fileURLWithPath: options.directoryPath, isDirectory: true)
         let project = Project(directoryURL: directoryURL, useNetrc: options.buildOptions.useNetrc)
+        let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
+        project.projectEvents.observeValues { eventSink.log(event: $0) }
+        
         return self.build(project: project, options: options)
     }
 
@@ -115,9 +118,6 @@ public struct BuildCommand: CommandProtocol {
                 let shouldBuildCurrentProject =  !options.skipCurrent || options.archive
 
                 project.lockTimeout = options.lockTimeout
-                let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
-                project.projectEvents.observeValues { eventSink.log(event: $0) }
-
                 let buildProgress = project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions)
 
                 let stderrHandle = options.isVerbose ? FileHandle.standardError : stdoutHandle

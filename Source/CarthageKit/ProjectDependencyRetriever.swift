@@ -435,6 +435,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     }
                     .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
                         lock = urlLock
+                        self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
                         return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                     }
                     .on(failed: { error in
@@ -788,7 +789,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                             .moveFileURLsIntoDirectory(destinationDirectoryURL)
                     )
                     .then(
-                        SignalProducer<URL, CarthageError>(value: frameworkSourceURL).moveFileURLsIntoDirectory(destinationDirectoryURL)
+                        SignalProducer<URL, CarthageError>(value: frameworkSourceURL)
+                            .moveFileURLsIntoDirectory(destinationDirectoryURL)
                     )
                     .then(
                         SignalProducer(value: frameworkDestinationURL)

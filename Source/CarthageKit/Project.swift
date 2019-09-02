@@ -26,7 +26,7 @@ public enum ProjectEvent {
     /// there weren't any viable binaries after all.
     case downloadingBinaries(Dependency, String)
 
-    /// Installing binaries from local cache
+    /// Storig binaries to local cache
     case storingBinaries(Dependency, String)
 
     /// Installing binaries from local cache
