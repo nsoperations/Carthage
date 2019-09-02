@@ -253,7 +253,9 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 } else {
                     self.projectEventsObserver?.send(value: .downloadingBinaryFrameworkDefinition(.binary(binary), binary.url))
                     return URLSession.shared.reactive.data(with: URLRequest(url: binary.url, netrc: self.netrc))
-                        .mapError { CarthageError.readFailed(binary.url, $0 as NSError) }
+                        .mapError {
+                            CarthageError.readFailed(binary.url, $0 as NSError)
+                        }
                         .attemptMap { data, _ in
                             return BinaryProject.from(jsonData: data).mapError { error in
                                 return CarthageError.invalidBinaryJSON(binary.url, error)
@@ -800,6 +802,12 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             // Collect .bundle folders as well, for pure binaries or non-framework dependencies
             .flatMap(.merge) { frameworkURLs -> SignalProducer<([URL], [URL]), CarthageError> in
                 return Frameworks.bundlesInDirectory(sourceDirectoryURL)
+                    .filter { url in
+                        let parent = frameworkURLs.first(where: { frameworkURL -> Bool in
+                            frameworkURL.isAncestor(of: url)
+                        })
+                        return parent == nil
+                    }
                     .attemptMap { sourceURL -> Result<SourceURLAndDestinationURL, CarthageError> in
                         let platform: Platform? = Frameworks.platformForBundle(sourceURL, relativeTo: sourceDirectoryURL)
                         return self.bundleURLInCarthageBuildFolder(platform: platform, sourceURL: sourceURL)

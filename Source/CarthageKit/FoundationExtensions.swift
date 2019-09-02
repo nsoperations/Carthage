@@ -357,6 +357,18 @@ extension URL {
             return relativePath.appendingPathComponent(component)
         })
     }
+
+    internal func isAncestor(of url: URL) -> Bool {
+        let path = self.resolvingSymlinksInPath().path
+        var normalizedUrl = url.resolvingSymlinksInPath()
+        while !normalizedUrl.path.isEmpty && normalizedUrl.path != "/" {
+            if normalizedUrl.path == path {
+                return true
+            }
+            normalizedUrl = normalizedUrl.deletingLastPathComponent()
+        }
+        return false
+    }
 }
 
 extension CharacterSet {
