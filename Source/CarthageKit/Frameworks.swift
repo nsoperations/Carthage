@@ -175,11 +175,12 @@ final class Frameworks {
         return filesInDirectory(directoryURL, kUTTypeFramework as String)
             .filter { !$0.pathComponents.contains("__MACOSX") }
             .filter { url in
+                let frameworkExtension = "framework"
                 // Skip nested frameworks
                 let frameworksInURL = url.pathComponents.filter { pathComponent in
-                    return (pathComponent as NSString).pathExtension == "framework"
+                    return (pathComponent as NSString).pathExtension == frameworkExtension
                 }
-                return frameworksInURL.count == 1
+                return frameworksInURL.count == 1 && url.pathExtension == frameworkExtension
             }.filter { url in
                 // For reasons of speed and the fact that CLI-output structures can change,
                 // first try the safer method of reading the ‘Info.plist’ from the Framework’s bundle.
@@ -203,6 +204,31 @@ final class Frameworks {
                         .value ?? false
                 }
         }
+    }
+
+    static func bundlesInDirectory(_ directoryURL: URL) -> SignalProducer<URL, CarthageError> {
+        return filesInDirectory(directoryURL, kUTTypeBundle as String)
+            .filter { !$0.pathComponents.contains("__MACOSX") }
+            .filter { url in
+                let bundleExtension = "bundle"
+                // Skip nested bundles
+                let bundlesInURL = url.pathComponents.filter { pathComponent in
+                    return (pathComponent as NSString).pathExtension == bundleExtension
+                }
+                return bundlesInURL.count == 1 && url.pathExtension == bundleExtension
+            }
+    }
+
+    static func platformForBundle(_ bundleURL: URL, relativeTo baseURL: URL) -> Platform? {
+        guard let pathComponents = bundleURL.pathComponentsRelativeTo(baseURL) else {
+            return nil
+        }
+        for component in pathComponents {
+            if let platform = Platform(rawValue: component) {
+                return platform
+            }
+        }
+        return nil
     }
 
     /// Sends the platform specified in the given Info.plist.
