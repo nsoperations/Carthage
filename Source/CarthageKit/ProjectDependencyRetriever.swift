@@ -256,7 +256,10 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         .mapError {
                             CarthageError.readFailed(binary.url, $0 as NSError)
                         }
-                        .attemptMap { data, _ in
+                        .attemptMap { data, response in
+                            if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+                                return .failure(CarthageError.httpError(statusCode: httpResponse.statusCode))
+                            }
                             return BinaryProject.from(jsonData: data).mapError { error in
                                 return CarthageError.invalidBinaryJSON(binary.url, error)
                             }

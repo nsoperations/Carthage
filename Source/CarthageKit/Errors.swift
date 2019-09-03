@@ -124,6 +124,9 @@ public enum CarthageError: Error {
 
     /// No binary could be found to install in the binary archive
     case noInstallableBinariesFoundInArchive(dependency: Dependency)
+
+    /// HTTP error occured, non-successful status code
+    case httpError(statusCode: Int)
 }
 
 extension CarthageError {
@@ -231,6 +234,9 @@ extension CarthageError: Equatable {
 
         case let (.noInstallableBinariesFoundInArchive(leftDependency), .noInstallableBinariesFoundInArchive(rightDependency)):
             return leftDependency == rightDependency
+
+        case let (.httpError(leftStatusCode), .httpError(rightStatusCode)):
+            return leftStatusCode == rightStatusCode
 
         default:
             return false
@@ -434,6 +440,9 @@ extension CarthageError: CustomStringConvertible {
             
         case let .noInstallableBinariesFoundInArchive(dependency):
             return "Could not find any valid .framework or .bundle in the archive for dependency: \(dependency)"
+
+        case let .httpError(statusCode):
+            return "Server returned a non-successful HTTP status: \(statusCode)"
         }
     }
 }

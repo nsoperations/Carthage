@@ -143,7 +143,12 @@ final class BinaryProjectCache: AbstractBinariesCache {
             .mapError { CarthageError.readFailed(sourceURL, $0 as NSError) }
             .flatMap(.concat) { result -> SignalProducer<URL, CarthageError> in
                 let downloadURL = result.0
-                return Files.moveFile(from: downloadURL, to: destinationURL)
+                let response = result.1
+                if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+                    return SignalProducer(error: CarthageError.httpError(statusCode: httpResponse.statusCode))
+                } else {
+                    return Files.moveFile(from: downloadURL, to: destinationURL)
+                }
             }
             .then(SignalProducer<(), CarthageError>.empty)
     }
