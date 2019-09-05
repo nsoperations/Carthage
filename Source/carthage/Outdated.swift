@@ -51,6 +51,7 @@ public struct OutdatedCommand: CommandProtocol {
         public let useSSH: Bool
         public let isVerbose: Bool
         public let outputXcodeWarnings: Bool
+        public let useNetrc: Bool
         public let colorOptions: ColorOptions
         public let directoryPath: String
 
@@ -65,6 +66,7 @@ public struct OutdatedCommand: CommandProtocol {
                 <*> mode <| Option(key: "use-ssh", defaultValue: false, usage: "use SSH for downloading GitHub repositories")
                 <*> mode <| Option(key: "verbose", defaultValue: false, usage: "include nested dependencies")
                 <*> mode <| Option(key: "xcode-warnings", defaultValue: false, usage: "output Xcode compatible warning messages")
+                <*> mode <| SharedOptions.netrcOption
                 <*> ColorOptions.evaluate(mode, additionalUsage: UpdateType.legend)
                 <*> mode <| projectDirectoryOption
         }
@@ -73,7 +75,7 @@ public struct OutdatedCommand: CommandProtocol {
         /// accordingly.
         public func loadProject() -> SignalProducer<Project, CarthageError> {
             let directoryURL = URL(fileURLWithPath: self.directoryPath, isDirectory: true)
-            let project = Project(directoryURL: directoryURL)
+            let project = Project(directoryURL: directoryURL, useNetrc: self.useNetrc)
             project.preferHTTPS = !self.useSSH
 
             let eventSink = ProjectEventLogger(colorOptions: colorOptions)

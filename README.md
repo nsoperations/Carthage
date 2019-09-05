@@ -63,6 +63,11 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.39.0+nsoperations
+
+- Added support .bundle resources inside binary dependencies. The binary zip is scanned for .bundle resources which are installed also as part of the binary installation process.
+- Added support .netrc for authenticated http resources for binary dependencies. Works for the `update`, `bootstrap`, `build`, `diagnose` and `outdated` commands.
+
 ### 0.38.1+nsoperations
 - Fixed bug where `validate` failed for non semantic versions (git references).
 
@@ -345,6 +350,12 @@ By default Carthage will use remote binary caching based on releases published i
 The executable will receive five environment variables from Carthage: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]
 
 The executable should resolve a binary zip file as produced via the carthage archive command (or carthage build --archive) compatible with the specified dependency options (name, version, build config, swift toolchain version) and should move the file to the file path denoted by the CARTHAGE_CACHE_TARGET_FILE_PATH environment variable.
+
+### HTTP authentication for binaries
+
+Specify the `--use-netrc` flag to `build`, `update`, `bootstrap`, `diagnose` or `outdated` commands to enable HTTP authentication based on the locally stored $HOME/.netrc file for binary dependency retrieval.
+
+For OAuth2 bearer token authentication: specify `oauth2` as login and the token as password in the .netrc file.
 
 ### Bash/Zsh/Fish completion
 

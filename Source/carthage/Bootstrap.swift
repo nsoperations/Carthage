@@ -19,7 +19,7 @@ public struct BootstrapCommand: CommandProtocol {
                     carthage.println(formatting.bullets + "No Cartfile.resolved found, updating dependencies")
                     return project.updateDependencies(
                         shouldCheckout: options.checkoutAfterUpdate,
-                        buildOptions: options.buildOptions)
+                        buildOptions: options.buildOptions).then(options.buildProducer(project: project))
                 }
 
                 let checkoutDependencies: SignalProducer<(), CarthageError>
@@ -29,9 +29,8 @@ public struct BootstrapCommand: CommandProtocol {
                     checkoutDependencies = .empty
                 }
 
-                return checkoutDependencies
+                return checkoutDependencies.then(options.buildProducer(project: project))
             }
-            .then(options.buildProducer)
             .waitOnCommand()
     }
 }

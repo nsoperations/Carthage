@@ -59,6 +59,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     var preferHTTPS = true
     var lockTimeout: Int?
     var useSubmodules = false
+    var netrc: Netrc? = nil
     let directoryURL: URL
 
     /// Limits the number of concurrent clones/fetches to the number of active
@@ -251,10 +252,14 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     return SignalProducer(value: binaryProject)
                 } else {
                     self.projectEventsObserver?.send(value: .downloadingBinaryFrameworkDefinition(.binary(binary), binary.url))
-
-                    return URLSession.shared.reactive.data(with: URLRequest(url: binary.url))
-                        .mapError { CarthageError.readFailed(binary.url, $0 as NSError) }
-                        .attemptMap { data, _ in
+                    return URLSession.shared.reactive.data(with: URLRequest(url: binary.url, netrc: self.netrc))
+                        .mapError {
+                            CarthageError.readFailed(binary.url, $0 as NSError)
+                        }
+                        .attemptMap { data, response in
+                            if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+                                return .failure(CarthageError.httpError(statusCode: httpResponse.statusCode))
+                            }
                             return BinaryProject.from(jsonData: data).mapError { error in
                                 return CarthageError.invalidBinaryJSON(binary.url, error)
                             }
@@ -363,28 +368,30 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         platforms: platforms,
                         swiftVersion: localSwiftVersion,
                         eventObserver: self.projectEventsObserver,
-                        lockTimeout: self.lockTimeout
+                        lockTimeout: self.lockTimeout,
+                        netrc: self.netrc
                         )
-                        .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
+                        .flatMap(.concat) { urlLock -> SignalProducer<Bool, CarthageError> in
                             lock = urlLock
                             if let url = urlLock?.url {
                                 self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
                                 return self.unarchiveAndCopyBinaryFrameworks(zipFile: url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                                    .then(SignalProducer<Bool, CarthageError>(value: true))
                             } else {
-                                self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: nil))
-                                return SignalProducer<(), CarthageError>.empty
+                                return SignalProducer<Bool, CarthageError>(value: false)
                             }
                         }
-                        .map { lock != nil }
-                        .flatMapError { error in
-                            if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
+                        .flatMapError { error -> SignalProducer<Bool, CarthageError> in
+                            if let url = lock?.url {
                                 _ = try? FileManager.default.removeItem(at: url)
                             }
-                            self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: error))
-                            return SignalProducer(value: false)
+                            return SignalProducer<Bool, CarthageError>(value: false)
                         }
-                        .concat(value: false)
-                        .take(first: 1)
+                        .on(value: { didInstall in
+                            if !didInstall {
+                                self.projectEventsObserver?.send(value: .skippedInstallingBinaries(dependency: dependency, error: nil))
+                            }
+                        })
                         .on(terminated: { lock?.unlock() })
             }
         } else {
@@ -433,6 +440,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     }
                     .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
                         lock = urlLock
+                        self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
                         return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
                     }
                     .on(failed: { error in
@@ -586,7 +594,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     /// less temporary location.
     private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout)
+        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout, netrc: self.netrc)
             .attemptMap({ urlLock -> Result<URLLock, CarthageError> in
                 if let lock = urlLock {
                     return .success(lock)
@@ -688,6 +696,25 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         swiftVersion: PinnedVersion
         ) -> SignalProducer<(), CarthageError> {
 
+        return SignalProducer<URL, CarthageError>(value: zipFile)
+            .flatMap(.concat, Archive.unarchive(archive:))
+            .flatMap(.concat) { tempDirectoryURL -> SignalProducer<(), CarthageError> in
+                return self.moveBinaries(sourceDirectoryURL: tempDirectoryURL,
+                                                  dependency: dependency,
+                                                  pinnedVersion: pinnedVersion,
+                                                  configuration: configuration,
+                                                  swiftVersion: swiftVersion)
+                .on(terminated: { tempDirectoryURL.removeIgnoringErrors() })
+        }
+    }
+
+    private func moveBinaries(
+        sourceDirectoryURL: URL,
+        dependency: Dependency,
+        pinnedVersion: PinnedVersion,
+        configuration: String,
+        swiftVersion: PinnedVersion
+        ) -> SignalProducer<(), CarthageError> {
         // Helper type
         typealias SourceURLAndDestinationURL = (frameworkSourceURL: URL, frameworkDestinationURL: URL)
 
@@ -718,95 +745,125 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
         let dependencySourceURL = self.directoryURL.appendingPathComponent(dependency.relativePath)
 
-        return SignalProducer<URL, CarthageError>(value: zipFile)
-            .flatMap(.concat, Archive.unarchive(archive:))
-            .flatMap(.concat) { tempDirectoryURL -> SignalProducer<(), CarthageError> in
-                // For all frameworks in the directory where the archive has been expanded
-                return Frameworks.frameworksInDirectory(tempDirectoryURL)
+        // For all frameworks in the directory where the archive has been expanded
+        return Frameworks.frameworksInDirectory(sourceDirectoryURL)
+            .collect()
+            // Check if multiple frameworks resolve to the same unique destination URL in the Carthage/Build/ folder.
+            // This is needed because frameworks might overwrite each others.
+            .flatMap(.merge) { frameworksUrls -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
+                return SignalProducer<URL, CarthageError>(frameworksUrls)
+                    .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
+                        return Frameworks.platformForFramework(url)
+                            .attemptMap { self.frameworkURLInCarthageBuildFolder(platform: $0,
+                                                                                 sourceURL: url) }
+                    }
                     .collect()
-                    // Check if multiple frameworks resolve to the same unique destination URL in the Carthage/Build/ folder.
-                    // This is needed because frameworks might overwrite each others.
-                    .flatMap(.merge) { frameworksUrls -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
-                        return SignalProducer<URL, CarthageError>(frameworksUrls)
-                            .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
-                                return Frameworks.platformForFramework(url)
-                                    .attemptMap { self.frameworkURLInCarthageBuildFolder(forPlatform: $0,
-                                                                                         frameworkNameAndExtension: url.lastPathComponent) }
+                    .flatMap(.merge) { destinationUrls -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
+                        let frameworkUrlAndDestinationUrlPairs = zip(frameworksUrls.map { $0.standardizedFileURL },
+                                                                     destinationUrls.map { $0.standardizedFileURL })
+                            .map { SourceURLAndDestinationURL(frameworkSourceURL: $0,
+                                                              frameworkDestinationURL: $1) }
+
+                        return uniqueSourceDestinationPairs(frameworkUrlAndDestinationUrlPairs)
+                            .producer
+                            .flatMap(.merge) { SignalProducer($0) }
+                }
+            }
+            // Check if the framework are compatible with the current Swift version
+            .flatMap(.merge) { pair -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
+                return Frameworks.checkFrameworkCompatibility(pair.frameworkSourceURL, swiftVersion: swiftVersion)
+                    .mapError { error in CarthageError.incompatibleFrameworkSwiftVersion(error.description) }
+                    .then(SignalProducer<SourceURLAndDestinationURL, CarthageError>(value: pair))
+            }
+            // If the framework is compatible copy it over to the destination folder in Carthage/Build
+            .flatMap(.merge) { frameworkSourceURL, frameworkDestinationURL -> SignalProducer<URL, CarthageError> in
+                let sourceDirectoryURL = frameworkSourceURL.resolvingSymlinksInPath().deletingLastPathComponent()
+                let destinationDirectoryURL = frameworkDestinationURL.resolvingSymlinksInPath().deletingLastPathComponent()
+                return Frameworks.BCSymbolMapsForFramework(frameworkSourceURL, inDirectoryURL: sourceDirectoryURL)
+                    .moveFileURLsIntoDirectory(destinationDirectoryURL)
+                    .then(
+                        Frameworks.dSYMForFramework(frameworkSourceURL, inDirectoryURL: sourceDirectoryURL)
+                            .attemptMap { dsymURL -> Result<URL, CarthageError> in
+                                if dependencySourceURL.isExistingDirectory {
+                                    return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL, urlPrefixMapping: (sourceDirectoryURL, destinationDirectoryURL))
+                                        .map { _ in dsymURL }
+                                } else {
+                                    return .success(dsymURL)
+                                }
                             }
-                            .collect()
-                            .flatMap(.merge) { destinationUrls -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
-                                let frameworkUrlAndDestinationUrlPairs = zip(frameworksUrls.map { $0.standardizedFileURL },
-                                                                             destinationUrls.map { $0.standardizedFileURL })
-                                    .map { SourceURLAndDestinationURL(frameworkSourceURL: $0,
-                                                                      frameworkDestinationURL: $1) }
-
-                                return uniqueSourceDestinationPairs(frameworkUrlAndDestinationUrlPairs)
-                                    .producer
-                                    .flatMap(.merge) { SignalProducer($0) }
-                        }
-                    }
-                    // Check if the framework are compatible with the current Swift version
-                    .flatMap(.merge) { pair -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
-                        return Frameworks.checkFrameworkCompatibility(pair.frameworkSourceURL, swiftVersion: swiftVersion)
-                            .mapError { error in CarthageError.incompatibleFrameworkSwiftVersion(error.description) }
-                            .then(SignalProducer<SourceURLAndDestinationURL, CarthageError>(value: pair))
-                    }
-                    // If the framework is compatible copy it over to the destination folder in Carthage/Build
-                    .flatMap(.merge) { frameworkSourceURL, frameworkDestinationURL -> SignalProducer<URL, CarthageError> in
-                        let sourceDirectoryURL = frameworkSourceURL.resolvingSymlinksInPath().deletingLastPathComponent()
-                        let destinationDirectoryURL = frameworkDestinationURL.resolvingSymlinksInPath().deletingLastPathComponent()
-                        return Frameworks.BCSymbolMapsForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
                             .moveFileURLsIntoDirectory(destinationDirectoryURL)
-                            .then(
-                                Frameworks.dSYMForFramework(frameworkSourceURL, inDirectoryURL: tempDirectoryURL)
-                                    .attemptMap { dsymURL -> Result<URL, CarthageError> in
-                                        if dependencySourceURL.isExistingDirectory {
-                                            return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL, urlPrefixMapping: (sourceDirectoryURL, destinationDirectoryURL))
-                                                .map { _ in dsymURL }
-                                        } else {
-                                            return .success(dsymURL)
-                                        }
-                                    }
-                                    .moveFileURLsIntoDirectory(destinationDirectoryURL)
-                            )
-                            .then(
-                                SignalProducer<URL, CarthageError>(value: frameworkSourceURL).moveFileURLsIntoDirectory(destinationDirectoryURL)
-                            )
-                            .then(
-                                SignalProducer(value: frameworkDestinationURL)
-                        )
+                    )
+                    .then(
+                        SignalProducer<URL, CarthageError>(value: frameworkSourceURL)
+                            .moveFileURLsIntoDirectory(destinationDirectoryURL)
+                    )
+                    .then(
+                        SignalProducer(value: frameworkDestinationURL)
+                )
+            }
+            .collect()
+            // Collect .bundle folders as well, for pure binaries or non-framework dependencies
+            .flatMap(.merge) { frameworkURLs -> SignalProducer<([URL], [URL]), CarthageError> in
+                return Frameworks.bundlesInDirectory(sourceDirectoryURL)
+                    .filter { url in
+                        let parent = frameworkURLs.first(where: { frameworkURL -> Bool in
+                            frameworkURL.isAncestor(of: url)
+                        })
+                        return parent == nil
+                    }
+                    .attemptMap { sourceURL -> Result<SourceURLAndDestinationURL, CarthageError> in
+                        let platform: Platform? = Frameworks.platformForBundle(sourceURL, relativeTo: sourceDirectoryURL)
+                        return self.bundleURLInCarthageBuildFolder(platform: platform, sourceURL: sourceURL)
+                            .map { SourceURLAndDestinationURL(frameworkSourceURL: sourceURL.standardizedFileURL, frameworkDestinationURL: $0.standardizedFileURL) }
                     }
                     .collect()
-                    // Write the .version file
-                    .flatMap(.concat) { frameworkURLs -> SignalProducer<(), CarthageError> in
-
-                        let versionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: tempDirectoryURL)
-                        if versionFileURL.isExistingFile {
-                            let targetVersionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: self.directoryURL)
-                            return Files.moveFile(from: versionFileURL, to: targetVersionFileURL)
-                                .map { _ in return () }
-                        } else {
-                            return self.createVersionFilesForFrameworks(
-                                frameworkURLs,
-                                projectName: dependency.name,
-                                commitish: pinnedVersion.commitish,
-                                configuration: configuration
-                            )
-                        }
+                    .flatMap(.merge) { frameworkUrlAndDestinationUrlPairs -> SignalProducer<SourceURLAndDestinationURL, CarthageError> in
+                        return uniqueSourceDestinationPairs(frameworkUrlAndDestinationUrlPairs)
+                            .producer
+                            .flatMap(.merge) { SignalProducer($0) }
                     }
-                    .on(terminated: { tempDirectoryURL.removeIgnoringErrors() })
-        }
+                    .flatMap(.merge) { sourceURL, destinationURL -> SignalProducer<URL, CarthageError> in
+                        let destinationDirectoryURL = destinationURL.resolvingSymlinksInPath().deletingLastPathComponent()
+                        return SignalProducer<URL, CarthageError>(value: sourceURL)
+                            .moveFileURLsIntoDirectory(destinationDirectoryURL)
+                            .then(SignalProducer(value: destinationURL))
+                    }
+                    .collect()
+                    .flatMap(.merge) { bundleURLs -> SignalProducer<([URL], [URL]), CarthageError> in
+                        return SignalProducer.init(value: (bundleURLs, frameworkURLs))
+                    }
+            }
+            // Write the .version file
+            .flatMap(.concat) { bundleURLs, frameworkURLs -> SignalProducer<(), CarthageError> in
+                guard !bundleURLs.isEmpty || !frameworkURLs.isEmpty else {
+                    return SignalProducer<(), CarthageError>(error: CarthageError.noInstallableBinariesFoundInArchive(dependency: dependency))
+                }
+
+                let versionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: sourceDirectoryURL)
+                if versionFileURL.isExistingFile {
+                    let targetVersionFileURL = VersionFile.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: self.directoryURL)
+                    return Files.moveFile(from: versionFileURL, to: targetVersionFileURL)
+                        .map { _ in return () }
+                } else {
+                    return self.createVersionFilesForFrameworks(
+                        frameworkURLs,
+                        projectName: dependency.name,
+                        commitish: pinnedVersion.commitish,
+                        configuration: configuration
+                    )
+                }
+            }
     }
 
     /// Constructs the file:// URL at which a given .framework
     /// will be found. Depends on the location of the current project.
     private func frameworkURLInCarthageBuildFolder(
-        forPlatform platform: Platform,
-        frameworkNameAndExtension: String
+        platform: Platform,
+        sourceURL: URL
         ) -> Result<URL, CarthageError> {
-        guard let lastComponent = URL(string: frameworkNameAndExtension)?.pathExtension,
-            lastComponent == "framework" else {
-                return .failure(.internalError(description: "\(frameworkNameAndExtension) is not a valid framework identifier"))
+        let frameworkNameAndExtension = sourceURL.lastPathComponent
+        guard sourceURL.pathExtension == "framework" else {
+            return .failure(.internalError(description: "\(frameworkNameAndExtension) is not a valid framework identifier"))
         }
 
         guard let destinationURLInWorkingDir = platform
@@ -818,6 +875,19 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         return .success(self
             .directoryURL
             .appendingPathComponent(destinationURLInWorkingDir.path, isDirectory: true)
+            .standardizedFileURL)
+    }
+
+    private func bundleURLInCarthageBuildFolder(platform: Platform?, sourceURL: URL) -> Result<URL, CarthageError> {
+        let bundleName = sourceURL.lastPathComponent
+        guard sourceURL.pathExtension == "bundle" else {
+                return .failure(.internalError(description: "\(bundleName) is not a valid bundle identifier"))
+        }
+
+        let destinationInWorkingDir = platform?.relativePath.appendingPathComponent(bundleName) ?? Constants.binariesFolderPath.appendingPathComponent(bundleName)
+        return .success(self
+            .directoryURL
+            .appendingPathComponent(destinationInWorkingDir, isDirectory: true)
             .standardizedFileURL)
     }
 

@@ -26,7 +26,7 @@ public enum ProjectEvent {
     /// there weren't any viable binaries after all.
     case downloadingBinaries(Dependency, String)
 
-    /// Installing binaries from local cache
+    /// Storig binaries to local cache
     case storingBinaries(Dependency, String)
 
     /// Installing binaries from local cache
@@ -154,7 +154,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     // MARK: - Public
 
-    public init(directoryURL: URL) {
+    public init(directoryURL: URL, useNetrc: Bool = false) {
         precondition(directoryURL.isFileURL)
 
         let (signal, observer) = Signal<ProjectEvent, NoError>.pipe()
@@ -162,7 +162,13 @@ public final class Project { // swiftlint:disable:this type_body_length
         projectEventsObserver = observer
 
         self.directoryURL = directoryURL
+
         self.dependencyRetriever = ProjectDependencyRetriever(directoryURL: directoryURL, projectEventsObserver: projectEventsObserver)
+
+        if useNetrc {
+            self.dependencyRetriever.netrc = try? Netrc.load().get()
+        }
+
         URLLock.globalWaitHandler = { urlLock in
             observer.send(value: .waiting(urlLock.url))
         }

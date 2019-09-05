@@ -121,6 +121,12 @@ public enum CarthageError: Error {
     /// An archive (.zip, .gz, .bz2 ...) contains binaries that would
     /// be copied to the same destination path
     case duplicatesInArchive(duplicates: DuplicatesInArchive)
+
+    /// No binary could be found to install in the binary archive
+    case noInstallableBinariesFoundInArchive(dependency: Dependency)
+
+    /// HTTP error occured, non-successful status code
+    case httpError(statusCode: Int)
 }
 
 extension CarthageError {
@@ -225,6 +231,12 @@ extension CarthageError: Equatable {
 
         case let (.invalidDebugSymbols(leftUrl, leftMessage), .invalidDebugSymbols(rightUrl, rightMessage)):
             return leftUrl == rightUrl && leftMessage == rightMessage
+
+        case let (.noInstallableBinariesFoundInArchive(leftDependency), .noInstallableBinariesFoundInArchive(rightDependency)):
+            return leftDependency == rightDependency
+
+        case let (.httpError(leftStatusCode), .httpError(rightStatusCode)):
+            return leftStatusCode == rightStatusCode
 
         default:
             return false
@@ -425,6 +437,12 @@ extension CarthageError: CustomStringConvertible {
                 .map { "* \t\($0.value.map { url in return url.absoluteString }.joined(separator: "\n\t")) \n\t\tto:\n\t\($0.key)" }
                 .joined(separator: "\n")
             return "Invalid archive - Found multiple frameworks with the same unarchiving destination:\n\(prettyDupeList)"
+            
+        case let .noInstallableBinariesFoundInArchive(dependency):
+            return "Could not find any valid .framework or .bundle in the archive for dependency: \(dependency)"
+
+        case let .httpError(statusCode):
+            return "Server returned a non-successful HTTP status: \(statusCode)"
         }
     }
 }

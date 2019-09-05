@@ -18,6 +18,8 @@ public struct BuildOptions {
     public var customCacheCommand: String?
     /// Whether to track and compare local changes made to the dependency's source code (will cause a rebuild if so)
     public var trackLocalChanges: Bool
+    /// Whether to take ~/.netrc into account for credentials when downloading binaries
+    public var useNetrc: Bool
 
     public init(
         configuration: String,
@@ -27,7 +29,8 @@ public struct BuildOptions {
         cacheBuilds: Bool = true,
         useBinaries: Bool = true,
         customCacheCommand: String? = nil,
-        trackLocalChanges: Bool = false
+        trackLocalChanges: Bool = false,
+        useNetrc: Bool = false
         ) {
         self.configuration = configuration
         self.platforms = platforms
@@ -37,5 +40,6 @@ public struct BuildOptions {
         self.useBinaries = useBinaries
         self.customCacheCommand = customCacheCommand
         self.trackLocalChanges = trackLocalChanges
+        self.useNetrc = useNetrc
     }
 }

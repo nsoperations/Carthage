@@ -37,9 +37,9 @@ public struct UpdateCommand: CommandProtocol {
         /// be a producer representing the work necessary to build the project.
         ///
         /// Otherwise, this producer will be empty.
-        public var buildProducer: SignalProducer<(), CarthageError> {
+        public func buildProducer(project: Project) -> SignalProducer<(), CarthageError> {
             if checkoutAfterUpdate && buildAfterUpdate {
-                return BuildCommand().buildWithOptions(buildCommandOptions)
+                return BuildCommand().build(project: project, options: buildCommandOptions)
             } else {
                 return .empty
             }
@@ -85,7 +85,7 @@ public struct UpdateCommand: CommandProtocol {
         /// Attempts to load the project referenced by the options, and configure it
         /// accordingly.
         public func loadProject() -> SignalProducer<Project, CarthageError> {
-            return checkoutOptions.loadProject()
+            return checkoutOptions.loadProject(useNetrc: self.buildOptions.useNetrc)
         }
     }
 
@@ -113,9 +113,8 @@ public struct UpdateCommand: CommandProtocol {
                     dependenciesToUpdate: effectiveOptions.dependenciesToUpdate,
                     resolverEventObserver: { resolverEventLogger.log(event: $0) },
                     dependencyRetriever: dependencyRetriever
-                )
+                ).then(effectiveOptions.buildProducer(project: project))
             }
-            .then(effectiveOptions.buildProducer)
             .waitOnCommand()
     }
 }

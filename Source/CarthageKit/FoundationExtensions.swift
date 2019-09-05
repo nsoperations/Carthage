@@ -332,6 +332,43 @@ extension URL {
         }
         return result
     }
+
+    internal func pathComponentsRelativeTo(_ baseURL: URL) -> [String]? {
+        var url = self
+        var relativeComponents = [String]()
+        while !url.path.isEmpty && url.path != "/" {
+            if baseURL.resolvingSymlinksInPath().path == url.resolvingSymlinksInPath().path {
+                return relativeComponents.reversed()
+            }
+            relativeComponents.append(url.lastPathComponent)
+            url = url.deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    internal func pathRelativeTo(_ baseURL: URL) -> String? {
+        guard let relativePathComponents = self.pathComponentsRelativeTo(baseURL) else {
+            return nil
+        }
+        guard !relativePathComponents.isEmpty else {
+            return "."
+        }
+        return relativePathComponents.reduce("", { (relativePath, component) -> String in
+            return relativePath.appendingPathComponent(component)
+        })
+    }
+
+    internal func isAncestor(of url: URL) -> Bool {
+        let path = self.resolvingSymlinksInPath().path
+        var normalizedUrl = url.resolvingSymlinksInPath()
+        while !normalizedUrl.path.isEmpty && normalizedUrl.path != "/" {
+            if normalizedUrl.path == path {
+                return true
+            }
+            normalizedUrl = normalizedUrl.deletingLastPathComponent()
+        }
+        return false
+    }
 }
 
 extension CharacterSet {

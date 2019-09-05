@@ -27,24 +27,24 @@ final class ProjectEventLogger {
             carthage.println(formatting.bullets + "Checking out " + formatting.projectName(dependency.name) + " at " + formatting.quote(revision))
 
         case let .downloadingBinaryFrameworkDefinition(dependency, url):
-            carthage.println(formatting.bullets + "Downloading binary-only framework " + formatting.projectName(dependency.name)
+            carthage.println(formatting.bullets + "Downloading binary-only dependency " + formatting.projectName(dependency.name)
                 + " at " + formatting.quote(url.absoluteString))
 
         case let .downloadingBinaries(dependency, release):
             carthage.println(formatting.bullets + "Downloading " + formatting.projectName(dependency.name)
-                + ".framework binary at " + formatting.quote(release))
+                + " binary at " + formatting.quote(release))
 
         case let .skippedDownloadingBinaries(dependency, message):
             carthage.println(formatting.bullets + "Skipped downloading " + formatting.projectName(dependency.name)
-                + ".framework binary due to the error:\n\t" + formatting.quote(message))
+                + " binary due to the error:\n\t" + formatting.quote(message))
 
         case let .installingBinaries(dependency, release):
             carthage.println(formatting.bullets + "Installing " + formatting.projectName(dependency.name)
-                + ".framework binary at " + formatting.quote(release))
+                + " binary at " + formatting.quote(release))
 
         case let .storingBinaries(dependency, release):
             carthage.println(formatting.bullets + "Storing " + formatting.projectName(dependency.name)
-                + ".framework binary at " + formatting.quote(release))
+                + " binary at " + formatting.quote(release))
 
         case let .skippedInstallingBinaries(dependency, error):
             let output = """
