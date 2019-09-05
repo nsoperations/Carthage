@@ -147,9 +147,9 @@ For dependencies that do not have source code available, a binary project specif
 * The version **must** be a semantic version.  Git branches, tags and commits are not valid.
 * The location **must** be an `https` url.
 
-#### Authorization
+#### Authentication
 
-Supply the `--use-netrc` to use the locally stored $HOME/.netrc file for authorization configuration for binary resources.
+Supply the `--use-netrc` to use the locally stored $HOME/.netrc file for HTTP authentication configuration for binary resources.
 Specify `oauth2` as login and the OAuth2 token as password in this file to enable OAuth2 Bearer authorization.
 
 #### Example binary project specification
