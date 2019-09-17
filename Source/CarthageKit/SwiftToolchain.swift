@@ -33,7 +33,7 @@ final class SwiftToolchain {
     private static func parseSwiftVersionCommand(output: String?) -> String? {
         guard
             let output = output,
-            let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: []),
+            let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\([^\\)]*swiftlang\\-([^\\s]+)[^\\)]*\\)", options: []),
             let match = regex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..., in: output))
             else
         {
@@ -44,7 +44,7 @@ final class SwiftToolchain {
 
         let first = output[Range(match.range(at: 1), in: output)!]
         let second = output[Range(match.range(at: 2), in: output)!]
-        return "\(first) (\(second))"
+        return "\(first)+\(second)"
     }
 
     /// Attempts to determine the local version of swift
