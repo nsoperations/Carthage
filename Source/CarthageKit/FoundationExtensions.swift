@@ -336,7 +336,7 @@ extension URL {
     internal func pathComponentsRelativeTo(_ baseURL: URL) -> [String]? {
         var url = self
         var relativeComponents = [String]()
-        while !url.path.isEmpty && url.path != "/" {
+        while !url.isRoot && url.lastPathComponent != ".." {
             if baseURL.resolvingSymlinksInPath().path == url.resolvingSymlinksInPath().path {
                 return relativeComponents.reversed()
             }
@@ -361,7 +361,7 @@ extension URL {
     internal func isAncestor(of url: URL) -> Bool {
         let path = self.resolvingSymlinksInPath().path
         var normalizedUrl = url.resolvingSymlinksInPath()
-        while !normalizedUrl.path.isEmpty && normalizedUrl.path != "/" {
+        while !normalizedUrl.isRoot && normalizedUrl.lastPathComponent != ".." {
             if normalizedUrl.path == path {
                 return true
             }
