@@ -75,6 +75,9 @@ final class DebugSymbolsMapper {
 
         while !matchURL.isRoot {
             let lastPathComponent = matchURL.lastPathComponent
+            if lastPathComponent == ".." {
+                return nil
+            }
             trailingPathComponents.append(lastPathComponent)
             matchURL = matchURL.deletingLastPathComponent()
             let candidateURL = sourceURL.appendingPathComponents(trailingPathComponents.reversed())
