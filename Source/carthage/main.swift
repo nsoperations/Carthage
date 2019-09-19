@@ -32,6 +32,7 @@ registry.register(UpdateCommand())
 registry.register(ValidateCommand())
 registry.register(VersionCommand())
 registry.register(DiagnoseCommand())
+registry.register(SwiftVersionCommand())
 
 let helpCommand = HelpCommand(registry: registry)
 registry.register(helpCommand)
