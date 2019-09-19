@@ -73,9 +73,8 @@ final class DebugSymbolsMapper {
         var trailingPathComponents = [String]()
         var matchURL = buildSourceURL
 
-        while !matchURL.isRoot {
-            let lastPathComponent = matchURL.lastPathComponent
-            trailingPathComponents.append(lastPathComponent)
+        while !matchURL.isRoot && matchURL.lastPathComponent != ".." {
+            trailingPathComponents.append(matchURL.lastPathComponent)
             matchURL = matchURL.deletingLastPathComponent()
             let candidateURL = sourceURL.appendingPathComponents(trailingPathComponents.reversed())
             if candidateURL.isExistingFile {
