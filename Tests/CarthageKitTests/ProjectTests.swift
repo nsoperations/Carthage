@@ -133,7 +133,7 @@ class ProjectBuildTests: XCTestCase {
         _ frameworkName: String,
         forPlatformName platformName: String,
         inDirectory buildDirectoryURL: URL,
-        withVersion version: String) throws
+        withVersion version: (String, String)) throws
     {
         let platformURL = buildDirectoryURL.appendingPathComponent(platformName, isDirectory: true)
         let frameworkURL = platformURL.appendingPathComponent("\(frameworkName).framework", isDirectory: false)
@@ -141,27 +141,22 @@ class ProjectBuildTests: XCTestCase {
             throw ProjectTestsError.assertion(message: "Could not get Swift header URL")
         }
 
-        guard let swiftVersionResult = SwiftToolchain.rawSwiftVersion().first() else {
-            throw ProjectTestsError.assertion(message: "Expected at least one swift version to be present")
-        }
-        expect(swiftVersionResult.error).to(beNil())
-
         var header = try String(contentsOf: swiftHeaderURL)
-
-        // Sanitize “effective-3.2 ” value.
-        if
-            let effectiveVersionRegex = try? NSRegularExpression(pattern: "effective-[0-9.]+ "),
-            let match = effectiveVersionRegex.firstMatch(in: header, range: NSRange(header.startIndex..., in: header)),
-            let effectiveVersionRange = Range(match.range(at: 0), in: header)
+        
+        guard
+            let match = SwiftToolchain.swiftVersionRegex.firstMatch(in: header, options: [], range: NSRange(header.startIndex..., in: header)),
+            match.numberOfRanges == 3
+            else
         {
-            header.replaceSubrange(effectiveVersionRange, with: "")
+            throw ProjectTestsError.assertion(message: "Could not parse swift version from header")
         }
-
-        guard let value = swiftVersionResult.value, let versionRange = header.range(of: value) else {
-            throw ProjectTestsError.assertion(message: "Could not get version range")
-        }
-
-        header.replaceSubrange(versionRange, with: version)
+        
+        let first = Range(match.range(at: 1), in: header)!
+        let second = Range(match.range(at: 2), in: header)!
+        
+        header.replaceSubrange(first, with: version.0)
+        header.replaceSubrange(second, with: version.1)
+        
         try header.write(to: swiftHeaderURL, atomically: true, encoding: header.fastestEncoding)
     }
 
@@ -258,7 +253,7 @@ class ProjectBuildTests: XCTestCase {
             try overwriteSwiftVersion("TestFramework3",
                                       forPlatformName: "Mac",
                                       inDirectory: buildDirectoryURL,
-                                      withVersion: "1.0 (swiftlang-000.0.1 clang-000.0.0.1)")
+                                      withVersion: ("1.0", "swiftlang-000.0.1 clang-000.0.0.1"))
         } catch {
             fail("Could not overwrite swift version: \(error)")
             return
@@ -301,7 +296,7 @@ class ProjectBuildTests: XCTestCase {
             try overwriteSwiftVersion("TestFramework3",
                                       forPlatformName: "Mac",
                                       inDirectory: buildDirectoryURL,
-                                      withVersion: "1.0 (swiftlang-000.0.1 clang-000.0.0.1)")
+                                      withVersion: ("1.0", "swiftlang-000.0.1 clang-000.0.0.1"))
         } catch {
             fail("Could not overwrite swift version: \(error)")
             return

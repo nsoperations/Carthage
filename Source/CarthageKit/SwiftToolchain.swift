@@ -8,6 +8,8 @@ import struct Foundation.URL
 /// Swift compiler helper methods
 public final class SwiftToolchain {
     
+    internal static var swiftVersionRegex: NSRegularExpression = try! NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: [])
+    
     /// Emits the currect Swift version
     public static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<PinnedVersion, SwiftVersionError> {
         return rawSwiftVersion(usingToolchain: toolchain)
@@ -19,7 +21,7 @@ public final class SwiftToolchain {
     }
 
     /// Emits the currect Swift version
-    static func rawSwiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
+    private static func rawSwiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
         return determineSwiftVersion(usingToolchain: toolchain).replayLazily(upTo: 1)
     }
 
@@ -33,8 +35,7 @@ public final class SwiftToolchain {
     private static func parseSwiftVersionCommand(output: String?) -> String? {
         guard
             let output = output,
-            let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: []),
-            let match = regex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..., in: output))
+            let match = SwiftToolchain.swiftVersionRegex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..., in: output))
             else
         {
             return nil
