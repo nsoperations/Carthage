@@ -33,7 +33,7 @@ final class SwiftToolchain {
     private static func parseSwiftVersionCommand(output: String?) -> String? {
         guard
             let output = output,
-            let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\([^\\)]*swiftlang\\-([^\\s]+)[^\\)]*\\)", options: []),
+            let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: []),
             let match = regex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..., in: output))
             else
         {
@@ -44,7 +44,8 @@ final class SwiftToolchain {
 
         let first = output[Range(match.range(at: 1), in: output)!]
         let second = output[Range(match.range(at: 2), in: output)!]
-        return "\(first)+\(second)"
+        
+        return "\(first)+\(String(second).md5 ?? "invalid")"
     }
 
     /// Attempts to determine the local version of swift
@@ -66,5 +67,16 @@ final class SwiftToolchain {
         } else {
             return ["xcrun", "swift", "--version"]
         }
+    }
+}
+
+extension String {
+    fileprivate var md5: String? {
+        guard let data = self.data(using: .utf8) else {
+            return nil
+        }
+        let digest = MD5Digest()
+        digest.update(data: data)
+        return digest.finalize().hexString
     }
 }
