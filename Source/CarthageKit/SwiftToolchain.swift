@@ -41,11 +41,13 @@ public final class SwiftToolchain {
         }
 
         guard match.numberOfRanges == 3 else { return nil }
-
+        
         let first = output[Range(match.range(at: 1), in: output)!]
         let second = output[Range(match.range(at: 2), in: output)!]
         
-        return "\(first)+\(String(second).md5 ?? "invalid")"
+        guard let md5 = String(second).md5 else { return nil }
+        
+        return "\(first)+\(md5)"
     }
 
     /// Attempts to determine the local version of swift
