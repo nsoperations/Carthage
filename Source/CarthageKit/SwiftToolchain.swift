@@ -6,10 +6,10 @@ import ReactiveTask
 import struct Foundation.URL
 
 /// Swift compiler helper methods
-final class SwiftToolchain {
-
+public final class SwiftToolchain {
+    
     /// Emits the currect Swift version
-    static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<PinnedVersion, SwiftVersionError> {
+    public static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<PinnedVersion, SwiftVersionError> {
         return rawSwiftVersion(usingToolchain: toolchain)
             .map { pinnedVersion(from: $0) }
     }

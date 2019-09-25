@@ -67,6 +67,8 @@ See [Installing Carthage](#installing-carthage)
 
 - Added support .bundle resources inside binary dependencies. The binary zip is scanned for .bundle resources which are installed also as part of the binary installation process.
 - Added support .netrc for authenticated http resources for binary dependencies. Works for the `update`, `bootstrap`, `build`, `diagnose` and `outdated` commands.
+- Fixed bug where carthage would go into an infinite loop while trying to resolve the original build path in the DebugSymbolMapper
+- Added the `swift-version` command to show the current Swift version as in use and parsed by carthage (to cross match against dependency's Swift versions)
 
 ### 0.38.1+nsoperations
 - Fixed bug where `validate` failed for non semantic versions (git references).
