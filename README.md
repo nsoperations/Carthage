@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.39.1+nsoperations
+
+- Ensured the swift language version is also taken into account when checking version compatibility between binary frameworks and the current swift version
+
 ### 0.39.0+nsoperations
 
 - Added support .bundle resources inside binary dependencies. The binary zip is scanned for .bundle resources which are installed also as part of the binary installation process.
