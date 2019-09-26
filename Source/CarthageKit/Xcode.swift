@@ -127,12 +127,17 @@ public final class Xcode {
                                     rootDirectoryURL: rootDirectoryURL
                                     ).then(builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty)
                             } else {
-                                return VersionFile.createVersionFileForCurrentProject(
-                                    platforms: options.platforms,
-                                    configuration: options.configuration,
-                                    buildProducts: urls,
-                                    rootDirectoryURL: rootDirectoryURL
-                                    ).then(builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty)
+                                // Is only possible if the current project is a git repository, because the version file is tied to commit hash
+                                if rootDirectoryURL.isGitDirectory {
+                                    return VersionFile.createVersionFileForCurrentProject(
+                                        platforms: options.platforms,
+                                        configuration: options.configuration,
+                                        buildProducts: urls,
+                                        rootDirectoryURL: rootDirectoryURL
+                                        ).then(builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty)
+                                } else {
+                                    return builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty
+                                }
                             }
                         }
                         // Discard any Success values, since we want to
