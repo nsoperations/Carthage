@@ -15,21 +15,13 @@ class XcodeTests: XCTestCase {
 	var projectURL: URL!
 	var buildFolderURL: URL!
 	var targetFolderURL: URL!
-    var currentSwiftVersion: PinnedVersion!
-	
+
 	override func setUp() {
-		
 		guard let nonNilURL = Bundle(for: type(of: self)).url(forResource: "carthage-fixtures-ReactiveCocoaLayout-master", withExtension: nil) else {
 			fail("Expected carthage-fixtures-ReactiveCocoaLayout-master to be loadable from resources")
 			return
 		}
-
-        guard let swiftVersion = SwiftToolchain.swiftVersion().single()?.value else {
-            fail("Expected swift version to not be nil")
-            return
-        }
-        currentSwiftVersion = swiftVersion
-		directoryURL = nonNilURL
+        directoryURL = nonNilURL
 		projectURL = directoryURL.appendingPathComponent("ReactiveCocoaLayout.xcodeproj")
 		buildFolderURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
 		targetFolderURL = URL(
@@ -42,83 +34,6 @@ class XcodeTests: XCTestCase {
 	
 	override func tearDown() {
 		_ = try? FileManager.default.removeItem(at: targetFolderURL)
-	}
-
-	#if !SWIFT_PACKAGE
-	let testSwiftFramework = "Quick.framework"
-	let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-	let testSwiftFrameworkURL = currentDirectory.appendingPathComponent(testSwiftFramework)
-	#endif
-	
-	#if !SWIFT_PACKAGE
-	func testShouldDetermineThatASwiftFrameworkIsASwiftFramework() {
-		expect(isSwiftFramework(testSwiftFrameworkURL)) == true
-	}
-	#endif
-	
-	func testShouldDetermineThatAnObjcFrameworkIsNotASwiftFramework() {
-		guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeOldObjc.framework", withExtension: nil) else {
-			fail("Could not load FakeOldObjc.framework from resources")
-			return
-		}
-		expect(Frameworks.isSwiftFramework(frameworkURL)) == false
-	}
-	
-	#if !SWIFT_PACKAGE
-	func testShouldDetermineAFrameworksSwiftVersion() {
-		let result = frameworkSwiftVersion(testSwiftFrameworkURL).single()
-		
-		expect(FileManager.default.fileExists(atPath: testSwiftFrameworkURL.path)) == true
-		expect(result?.value) == currentSwiftVersion
-	}
-	
-	func testShouldDetermineADsymsSwiftVersion() {
-		
-		let dSYMURL = testSwiftFrameworkURL.appendingPathExtension("dSYM")
-		expect(FileManager.default.fileExists(atPath: dSYMURL.path)) == true
-		
-		let result = dSYMSwiftVersion(dSYMURL).single()
-		expect(result?.value) == currentSwiftVersion
-	}
-	#endif
-	
-	func testShouldDetermineAFrameworksSwiftVersionExcludingAnEffectiveVersion() {
-		guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeSwift.framework", withExtension: nil) else {
-			fail("Could not load FakeSwift.framework from resources")
-			return
-		}
-		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
-		
-		expect(result?.value) == PinnedVersion("4.0")
-	}
-	
-	#if !SWIFT_PACKAGE
-	func testShouldDetermineWhenASwiftFrameworkIsCompatible() {
-		let result = checkSwiftFrameworkCompatibility(testSwiftFrameworkURL, usingToolchain: nil).single()
-		
-		expect(result?.value) == testSwiftFrameworkURL
-	}
-	#endif
-	
-	func testShouldDetermineWhenASwiftFrameworkIsIncompatible() {
-		guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeOldSwift.framework", withExtension: nil) else {
-			fail("Could not load FakeOldSwift.framework from resources")
-			return
-		}
-		let result = Frameworks.checkSwiftFrameworkCompatibility(frameworkURL, usingToolchain: nil).single()
-		
-		expect(result?.value).to(beNil())
-		expect(result?.error) == .incompatibleFrameworkSwiftVersions(local: currentSwiftVersion, framework: PinnedVersion("0.0.0"))
-	}
-	
-	func testShouldDetermineAFrameworksSwiftVersionForOssToolchainsFromSwiftOrg() {
-		guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeOSSSwift.framework", withExtension: nil) else {
-			fail("Could not load FakeOSSSwift.framework from resources")
-			return
-		}
-		let result = Frameworks.frameworkSwiftVersion(frameworkURL).single()
-		
-		expect(result?.value) == PinnedVersion("4.1-dev")
 	}
 	
 	func relativePathsForProjectsInDirectory(_ directoryURL: URL) -> [String] {

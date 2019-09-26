@@ -26,7 +26,7 @@ final class Dependencies {
         return baseURL.appendingPathComponent(dependency.name, isDirectory: true)
     }
 
-    static func fetchDependencyNameForRepository(at repositoryFileURL: URL? = nil) -> SignalProducer<String, CarthageError> {
+    static func fetchDependencyNameForRepository(at repositoryFileURL: URL?) -> SignalProducer<String, CarthageError> {
         /*
          List all remotes known for this repository
          and keep only the "fetch" urls by which the current repository

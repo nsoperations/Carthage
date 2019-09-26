@@ -315,8 +315,8 @@ extension VersionFile {
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
 
-        let currentProjectName = Dependencies.fetchDependencyNameForRepository()
-        let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"])
+        let currentProjectName = Dependencies.fetchDependencyNameForRepository(at: rootDirectoryURL)
+        let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"], repositoryFileURL: rootDirectoryURL)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap(.merge) { headCommitish in
                 Git.launchGitTask(["describe", "--tags", "--exact-match", headCommitish])

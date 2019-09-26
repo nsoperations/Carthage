@@ -279,6 +279,10 @@ extension URL {
         return ret
     }
 
+    internal var isGitDirectory: Bool {
+        return self.appendingPathComponent(".git").isExistingDirectory
+    }
+
     internal var isExistingDirectory: Bool {
         var isDirectory: ObjCBool = false
         let fileExists = FileManager.default.fileExists(atPath: self.path, isDirectory: &isDirectory)

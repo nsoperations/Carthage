@@ -8,6 +8,8 @@ import struct Foundation.URL
 /// Swift compiler helper methods
 public final class SwiftToolchain {
     
+    internal static var swiftVersionRegex: NSRegularExpression = try! NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: [])
+    
     /// Emits the currect Swift version
     public static func swiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<PinnedVersion, SwiftVersionError> {
         return rawSwiftVersion(usingToolchain: toolchain)
@@ -19,7 +21,7 @@ public final class SwiftToolchain {
     }
 
     /// Emits the currect Swift version
-    static func rawSwiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
+    private static func rawSwiftVersion(usingToolchain toolchain: String? = nil) -> SignalProducer<String, SwiftVersionError> {
         return determineSwiftVersion(usingToolchain: toolchain).replayLazily(upTo: 1)
     }
 
@@ -33,18 +35,20 @@ public final class SwiftToolchain {
     private static func parseSwiftVersionCommand(output: String?) -> String? {
         guard
             let output = output,
-            let regex = try? NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: []),
-            let match = regex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..., in: output))
+            let match = SwiftToolchain.swiftVersionRegex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..., in: output))
             else
         {
             return nil
         }
 
         guard match.numberOfRanges == 3 else { return nil }
-
+        
         let first = output[Range(match.range(at: 1), in: output)!]
         let second = output[Range(match.range(at: 2), in: output)!]
-        return "\(first) (\(second))"
+        
+        guard let md5 = String(second).md5 else { return nil }
+        
+        return "\(first)+\(md5)"
     }
 
     /// Attempts to determine the local version of swift
@@ -66,5 +70,16 @@ public final class SwiftToolchain {
         } else {
             return ["xcrun", "swift", "--version"]
         }
+    }
+}
+
+extension String {
+    fileprivate var md5: String? {
+        guard let data = self.data(using: .utf8) else {
+            return nil
+        }
+        let digest = MD5Digest()
+        digest.update(data: data)
+        return digest.finalize().hexString
     }
 }
