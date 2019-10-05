@@ -31,7 +31,7 @@ let package = Package(
         ),
         .target(
             name: "CarthageKit",
-            dependencies: ["XCDBLD", "Tentacle", "Curry", "BTree"]
+            dependencies: ["XCDBLD", "Tentacle", "Curry", "BTree", "wildmatch"]
         ),
         .testTarget(
             name: "CarthageKitTests",

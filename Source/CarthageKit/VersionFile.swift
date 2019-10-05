@@ -540,10 +540,10 @@ extension VersionFile {
                 return .success(cachedHexString)
             }
             
-            let gitIgnore = GitIgnore(ignoreFileURL: dependencyDir.appendingPathComponent(".gitignore"))
+            let gitIgnore: GitIgnore? = GitIgnore(ignoreFileURL: dependencyDir.appendingPathComponent(".gitignore"))
             
             let isIgnored: (String) -> Bool = { relativePath in
-                return gitIgnore.isIgnored(relativePath: relativePath)
+                return (gitIgnore?.isIgnored(relativePath: relativePath) ?? false)
             }
 
             let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, shouldIgnore: isIgnored).map{ $0.hexString as String? }
