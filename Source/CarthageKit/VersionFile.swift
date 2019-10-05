@@ -253,6 +253,9 @@ struct VersionFile: Codable {
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<Bool, CarthageError> {
+        
+        print("Version file source hash: \(String(describing: self.sourceHash))")
+        print("Supplied source hash: \(String(describing: sourceHash))")
 
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
             return SignalProducer(value: false)
@@ -536,8 +539,14 @@ extension VersionFile {
             if let cachedHexString = VersionFile.sourceHashCache[dependencyDir] {
                 return .success(cachedHexString)
             }
+            
+            let gitIgnore = GitIgnore(ignoreFileURL: dependencyDir.appendingPathComponent(".gitignore"))
+            
+            let isIgnored: (String) -> Bool = { relativePath in
+                return gitIgnore.isIgnored(relativePath: relativePath)
+            }
 
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir).map{ $0.hexString as String? }
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, shouldIgnore: isIgnored).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }

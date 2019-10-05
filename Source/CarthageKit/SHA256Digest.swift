@@ -97,7 +97,10 @@ class Digest {
      
      It will consider every regular non-hidden file for the digest, first sorting the relative paths alhpabetically.
      */
-    class func digestForDirectoryAtURL(_ directoryURL: URL) -> Result<Data, CarthageError> {
+    class func digestForDirectoryAtURL(_ directoryURL: URL, shouldIgnore: ((String) -> Bool)? = nil) -> Result<Data, CarthageError> {
+        
+        print("Calculating digest for directory at URL: \(directoryURL)")
+        
         let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
         var enumerationError: (error: Error, url: URL)?
         
@@ -126,7 +129,9 @@ class Digest {
                 let filePath = fileURL.resolvingSymlinksInPath().path
                 assert(filePath.hasPrefix(rootPath))
                 let relativePath = String(filePath.substring(from: rootPath.count))
-                files.append((relativePath, fileURL))
+                if !(shouldIgnore?(relativePath) ?? false) {
+                    files.append((relativePath, fileURL))
+                }
             }
         }
         
@@ -140,7 +145,11 @@ class Digest {
         })
         
         let digest = self.init()
+        
+        print("Digest instance: \(digest)")
+        
         for (_, fileURL) in files {
+            print("Including file: \(fileURL)")
             guard let inputStream = InputStream(url: fileURL) else {
                 return .failure(CarthageError.readFailed(fileURL, nil))
             }
@@ -152,7 +161,11 @@ class Digest {
             }
         }
         
-        return .success(digest.finalize())
+        let result = digest.finalize()
+        
+        print("Calculated result: \(result)")
+        
+        return .success(result)
     }
 }
 
