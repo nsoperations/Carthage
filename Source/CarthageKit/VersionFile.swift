@@ -540,12 +540,20 @@ extension VersionFile {
                 return .success(cachedHexString)
             }
             
-            let gitIgnore: GitIgnore? = GitIgnore(ignoreFileURL: dependencyDir.appendingPathComponent(".gitignore"))
+            var gitIgnore = GitIgnore()
+            let ignoreFileURL = dependencyDir.appendingPathComponent(".gitignore")
             
-            let isIgnored: (String) -> Bool = { relativePath in
-                return (gitIgnore?.isIgnored(relativePath: relativePath) ?? false)
+            if ignoreFileURL.isExistingFile {
+                do {
+                    try gitIgnore.addPatterns(from: ignoreFileURL)
+                } catch {
+                    return .failure(CarthageError.readFailed(ignoreFileURL, error as NSError))
+                }
             }
-
+            
+            //gitIgnore.addPatterns(from: defaultIgnorePatterns)
+            
+            let isIgnored: (String) -> Bool = { gitIgnore.matches(relativePath: $0) }
             let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, shouldIgnore: isIgnored).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result

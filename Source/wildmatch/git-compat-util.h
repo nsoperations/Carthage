@@ -451,9 +451,7 @@ static inline char *git_find_last_dir_sep(const char *path)
 
 #define MAYBE_UNUSED __attribute__((__unused__))
 
-// #include "compat/bswap.h"
-
-// #include "wildmatch.h"
+#include "bswap.h"
 
 struct strbuf;
 
@@ -1309,7 +1307,7 @@ void unleak_memory(const void *ptr, size_t len);
  * This include must come after system headers, since it introduces macros that
  * replace system names.
  */
-// #include "banned.h"
+#include "banned.h"
 #include "hex.h"
 
 #endif

@@ -43,6 +43,9 @@ let package = Package(
             dependencies: ["XCDBLD", "CarthageKit", "Commandant", "Curry", "PrettyColors"],
             exclude: ["swift-is-crashy.c"]
         ),
+	.target(
+            name: "wildmatch"
+        ),
     ],
     swiftLanguageVersions: [.v4_2]
 )
