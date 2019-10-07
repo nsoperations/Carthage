@@ -83,6 +83,24 @@ class DigestTests: XCTestCase {
         let actualHash = try SHA256Digest.digestForDirectoryAtURL(tempDir).map { $0.hexString }.get()
 
         XCTAssertEqual(expectedHash, actualHash)
+
+        // Add files which should be ignored by default
+
+        let gitIgnore = GitIgnore()
+
+        gitIgnore.addPattern("*.tmp")
+        gitIgnore.addPattern("*.swp")
+
+        try Data.makeRandom(length: 256).write(to: tempDir.appendingPathComponent("\(UUID()).tmp"))
+        try Data.makeRandom(length: 256).write(to: tempDir.appendingPathComponent("\(UUID()).swp"))
+
+        let actualHash2 = try SHA256Digest.digestForDirectoryAtURL(tempDir, parentGitIgnore: gitIgnore).map { $0.hexString }.get()
+
+        XCTAssertEqual(expectedHash, actualHash2)
+
+        let actualHash3 = try SHA256Digest.digestForDirectoryAtURL(tempDir, parentGitIgnore: nil).map { $0.hexString }.get()
+
+        XCTAssertNotEqual(expectedHash, actualHash3)
     }
 
     private func makeTempDirectory() throws -> URL {

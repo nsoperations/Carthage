@@ -98,11 +98,8 @@ class Digest {
      It will consider every regular non-hidden file for the digest, which is not git ignored, first sorting the relative paths alhpabetically.
      */
     class func digestForDirectoryAtURL(_ directoryURL: URL, parentGitIgnore: GitIgnore? = nil) -> Result<Data, CarthageError> {
-        print("Calculating digest for directory at URL: \(directoryURL)")
-
         do {
             let digest = self.init()
-            print("Digest instance: \(digest)")
             try crawl(directoryURL, relativePath: nil, parentGitIgnore: parentGitIgnore) { fileURL, relativePath in
 
                 guard let inputStream = InputStream(url: fileURL) else {
@@ -116,7 +113,6 @@ class Digest {
                 }
             }
             let result = digest.finalize()
-            print("Calculated result: \(result)")
             return .success(result)
         } catch let error as CarthageError {
             return .failure(error)

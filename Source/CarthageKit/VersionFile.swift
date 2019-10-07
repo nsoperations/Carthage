@@ -254,9 +254,6 @@ struct VersionFile: Codable {
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<Bool, CarthageError> {
         
-        print("Version file source hash: \(String(describing: self.sourceHash))")
-        print("Supplied source hash: \(String(describing: sourceHash))")
-
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
             return SignalProducer(value: false)
         }
