@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.39.2+nsoperations
+
+- Fixed calculation of sourceHash for the purpose of `--track-local-changes` so files which match patterns in .gitignore are not included. This ensures that temporary files written by the build process won't cause the sourceHash to change.
+
 ### 0.39.1+nsoperations
 
 - Ensured the swift language version is also taken into account when checking version compatibility between binary frameworks and the current swift version
