@@ -43,7 +43,7 @@ let package = Package(
             dependencies: ["XCDBLD", "CarthageKit", "Commandant", "Curry", "PrettyColors"],
             exclude: ["swift-is-crashy.c"]
         ),
-	.target(
+        .target(
             name: "wildmatch"
         ),
     ],

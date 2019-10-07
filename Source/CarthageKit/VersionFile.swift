@@ -527,6 +527,41 @@ extension VersionFile {
         }
     }
 
+    private static var defaultGitIgnore: GitIgnore = {
+        let defaultIgnoreList =
+        """
+        # Finder droppings
+        .DS_Store
+
+        # User-specific Xcode files
+        **/xcuserdata/**
+        **/*.xccheckout
+        *.xcscmblueprint
+
+        # Temporary files
+        *.swp
+        *.orig
+        *.tmp
+
+        # AppCode
+        .idea
+
+        # Hidden files and directories
+        .*
+
+        # Code coverage
+        *.gcn?
+        *.gcda
+
+        # Carthage
+        Carthage
+
+        # CocoaPods
+        Pods
+        """
+        return GitIgnore(string: defaultIgnoreList)
+    }()
+
     private static func sourceHash(dependencyName: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
         return SignalProducer<String?, CarthageError> { () -> Result<String?, CarthageError> in
             let dependencyDir = rootDirectoryURL.appendingPathComponent(Dependency.relativePath(dependencyName: dependencyName))
@@ -540,21 +575,7 @@ extension VersionFile {
                 return .success(cachedHexString)
             }
             
-            var gitIgnore = GitIgnore()
-            let ignoreFileURL = dependencyDir.appendingPathComponent(".gitignore")
-            
-            if ignoreFileURL.isExistingFile {
-                do {
-                    try gitIgnore.addPatterns(from: ignoreFileURL)
-                } catch {
-                    return .failure(CarthageError.readFailed(ignoreFileURL, error as NSError))
-                }
-            }
-            
-            //gitIgnore.addPatterns(from: defaultIgnorePatterns)
-            
-            let isIgnored: (String) -> Bool = { gitIgnore.matches(relativePath: $0) }
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, shouldIgnore: isIgnored).map{ $0.hexString as String? }
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }
