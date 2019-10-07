@@ -253,7 +253,7 @@ struct VersionFile: Codable {
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<Bool, CarthageError> {
-
+        
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
             return SignalProducer(value: false)
         }
@@ -524,6 +524,41 @@ extension VersionFile {
         }
     }
 
+    private static var defaultGitIgnore: GitIgnore = {
+        let defaultIgnoreList =
+        """
+        # Finder droppings
+        .DS_Store
+
+        # User-specific Xcode files
+        **/xcuserdata/**
+        **/*.xccheckout
+        *.xcscmblueprint
+
+        # Temporary files
+        *.swp
+        *.orig
+        *.tmp
+
+        # AppCode
+        .idea
+
+        # Hidden files and directories
+        .*
+
+        # Code coverage
+        *.gcn?
+        *.gcda
+
+        # Carthage
+        Carthage
+
+        # CocoaPods
+        Pods
+        """
+        return GitIgnore(string: defaultIgnoreList)
+    }()
+
     private static func sourceHash(dependencyName: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
         return SignalProducer<String?, CarthageError> { () -> Result<String?, CarthageError> in
             let dependencyDir = rootDirectoryURL.appendingPathComponent(Dependency.relativePath(dependencyName: dependencyName))
@@ -536,8 +571,8 @@ extension VersionFile {
             if let cachedHexString = VersionFile.sourceHashCache[dependencyDir] {
                 return .success(cachedHexString)
             }
-
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir).map{ $0.hexString as String? }
+            
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }

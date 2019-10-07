@@ -109,6 +109,10 @@ extension String {
     func substring(with range: Range<Int>) -> Substring {
         return substring(from: range.startIndex, length: range.endIndex - range.startIndex)
     }
+    
+    func character(at: Int) -> Character {
+        return self[index(startIndex, offsetBy: at)]
+    }
 }
 
 extension Data {

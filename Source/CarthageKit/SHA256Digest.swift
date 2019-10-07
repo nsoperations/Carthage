@@ -94,65 +94,85 @@ class Digest {
     
     /**
      Calculates a digest for the directory at the specified URL, recursing into sub directories.
-     
-     It will consider every regular non-hidden file for the digest, first sorting the relative paths alhpabetically.
+
+     It will consider every regular non-hidden file for the digest, which is not git ignored, first sorting the relative paths alhpabetically.
      */
-    class func digestForDirectoryAtURL(_ directoryURL: URL) -> Result<Data, CarthageError> {
-        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
-        var enumerationError: (error: Error, url: URL)?
-        
-        let errorHandler: (URL, Error) -> Bool = { url, error -> Bool in
-            enumerationError = (error, url)
-            return false
-        }
-        
-        let rootURL = directoryURL.resolvingSymlinksInPath()
-        var rootPath = directoryURL.resolvingSymlinksInPath().path
-        if !rootPath.hasSuffix("/") {
-            rootPath += "/"
-        }
-        
-        guard let enumerator = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: Array(resourceKeys), options: [.skipsHiddenFiles], errorHandler: errorHandler) else {
-            return .failure(CarthageError.readFailed(directoryURL, nil))
-        }
-        
-        var files = [(String, URL)]()
-        for case let fileURL as URL in enumerator {
-            let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys)
-            guard let regularFile = resourceValues?.isRegularFile else {
-                return .failure(CarthageError.readFailed(fileURL, nil))
+    class func digestForDirectoryAtURL(_ directoryURL: URL, parentGitIgnore: GitIgnore? = nil) -> Result<Data, CarthageError> {
+        do {
+            let digest = self.init()
+            try crawl(directoryURL, relativePath: nil, parentGitIgnore: parentGitIgnore) { fileURL, relativePath in
+
+                guard let inputStream = InputStream(url: fileURL) else {
+                    throw CarthageError.readFailed(fileURL, nil)
+                }
+                //calculate hash
+                do {
+                    try digest.update(inputStream: inputStream)
+                } catch {
+                    throw CarthageError.readFailed(fileURL, error as NSError?)
+                }
             }
-            if regularFile {
-                let filePath = fileURL.resolvingSymlinksInPath().path
-                assert(filePath.hasPrefix(rootPath))
-                let relativePath = String(filePath.substring(from: rootPath.count))
-                files.append((relativePath, fileURL))
-            }
+            let result = digest.finalize()
+            return .success(result)
+        } catch let error as CarthageError {
+            return .failure(error)
+        } catch {
+            return .failure(CarthageError.internalError(description: error.localizedDescription))
         }
-        
-        if let error = enumerationError {
-            return .failure(CarthageError.readFailed(error.url, error.error as NSError))
+    }
+
+    private class func crawl(_ directoryURL: URL, relativePath: String?, parentGitIgnore: GitIgnore?, update: (URL, String) throws -> ()) throws {
+        let fileManager = FileManager.default
+        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey]
+
+        var urls: [URL]
+        do {
+            urls = try fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: Array(resourceKeys), options: [.skipsHiddenFiles])
+        } catch {
+            throw CarthageError.readFailed(directoryURL, error as NSError?)
         }
-        
-        //Ensure the files are in the same order every time by sorting them
-        files.sort(by: { (tuple1, tuple2) -> Bool in
-            tuple1.0 < tuple2.0
-        })
-        
-        let digest = self.init()
-        for (_, fileURL) in files {
-            guard let inputStream = InputStream(url: fileURL) else {
-                return .failure(CarthageError.readFailed(fileURL, nil))
-            }
-            //calculate hash
+
+        urls.sort { url1, url2 -> Bool in
+            url1.lastPathComponent < url2.lastPathComponent
+        }
+
+        let gitIgnoreURL = directoryURL.appendingPathComponent(".gitignore")
+        let gitIgnore: GitIgnore?
+
+        if gitIgnoreURL.isExistingFile {
+            gitIgnore = GitIgnore(parent: parentGitIgnore)
             do {
-                try digest.update(inputStream: inputStream)
+                try gitIgnore?.addPatterns(from: gitIgnoreURL)
             } catch {
-                return .failure(CarthageError.readFailed(fileURL, error as NSError?))
+                throw CarthageError.readFailed(gitIgnoreURL, error as NSError?)
+            }
+        } else {
+            gitIgnore = parentGitIgnore
+        }
+
+        for url in urls {
+            let resourceValues: URLResourceValues
+            do {
+                resourceValues = try url.resourceValues(forKeys: resourceKeys)
+            } catch {
+                throw CarthageError.readFailed(url, error as NSError?)
+            }
+
+            let subRelativePath = relativePath?.appendingPathComponent(url.lastPathComponent) ?? url.lastPathComponent
+            let isDirectory = resourceValues.isDirectory ?? false
+            let isIgnored = gitIgnore?.matches(relativePath: subRelativePath, isDirectory: isDirectory) ?? false
+
+            guard !isIgnored else {
+                continue
+            }
+
+            if isDirectory {
+                // Directory
+                try crawl(url, relativePath: subRelativePath, parentGitIgnore: gitIgnore, update: update)
+            } else if (resourceValues.isRegularFile ?? false) {
+                try update(url, subRelativePath)
             }
         }
-        
-        return .success(digest.finalize())
     }
 }
 

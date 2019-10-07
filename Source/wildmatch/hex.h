@@ -1,0 +1,1 @@
+extern const signed char hexval_table[256];

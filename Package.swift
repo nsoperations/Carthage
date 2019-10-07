@@ -31,7 +31,7 @@ let package = Package(
         ),
         .target(
             name: "CarthageKit",
-            dependencies: ["XCDBLD", "Tentacle", "Curry", "BTree"]
+            dependencies: ["XCDBLD", "Tentacle", "Curry", "BTree", "wildmatch"]
         ),
         .testTarget(
             name: "CarthageKitTests",
@@ -42,6 +42,9 @@ let package = Package(
             name: "carthage",
             dependencies: ["XCDBLD", "CarthageKit", "Commandant", "Curry", "PrettyColors"],
             exclude: ["swift-is-crashy.c"]
+        ),
+        .target(
+            name: "wildmatch"
         ),
     ],
     swiftLanguageVersions: [.v4_2]
