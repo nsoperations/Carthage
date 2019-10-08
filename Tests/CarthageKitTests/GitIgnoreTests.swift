@@ -35,23 +35,36 @@ class GitIgnoreTests: XCTestCase {
         testGitIgnorePattern(pattern: "\\!foo", relativePath: "!foo", expectedOutcome: true)
         testGitIgnorePattern(pattern: "\\!foo!", relativePath: "!foo!", expectedOutcome: true)
         testGitIgnorePattern(pattern: "\\#foo", relativePath: "#foo", expectedOutcome: true)
+        testGitIgnorePattern(pattern: "#foo", relativePath: "#foo", expectedOutcome: false)
         testGitIgnorePattern(pattern: "\\#foo#", relativePath: "#foo#", expectedOutcome: true)
         testGitIgnorePattern(pattern: "\\ foo", relativePath: " foo", expectedOutcome: true)
         testGitIgnorePattern(pattern: "\\ foo ", relativePath: " foo ", expectedOutcome: false)
         testGitIgnorePattern(pattern: "\\\\foo", relativePath: "\\foo", expectedOutcome: true)
 
-        testGitIgnorePattern(pattern: "  foo  ", relativePath: "foo", expectedOutcome: true)
+        testGitIgnorePattern(pattern: "  foo  ", relativePath: "foo", expectedOutcome: false)
         testGitIgnorePattern(pattern: "  foo\\  ", relativePath: "foo", expectedOutcome: false)
-        testGitIgnorePattern(pattern: "  foo\\  ", relativePath: "foo ", expectedOutcome: true)
+        testGitIgnorePattern(pattern: "  foo\\  ", relativePath: "foo ", expectedOutcome: false)
 
-        testGitIgnorePattern(pattern: " \\ foo ", relativePath: " foo", expectedOutcome: true)
-        testGitIgnorePattern(pattern: " \\ foo \\   ", relativePath: " foo  ", expectedOutcome: true)
+        testGitIgnorePattern(pattern: " foo  ", relativePath: " foo", expectedOutcome: true)
+        testGitIgnorePattern(pattern: " foo\\  ", relativePath: " foo", expectedOutcome: false)
+        testGitIgnorePattern(pattern: " foo\\  ", relativePath: " foo ", expectedOutcome: true)
+
+        testGitIgnorePattern(pattern: "\\ foo ", relativePath: " foo", expectedOutcome: true)
+        testGitIgnorePattern(pattern: "\\ foo \\   ", relativePath: " foo  ", expectedOutcome: true)
 
         testGitIgnorePattern(pattern: "foo/", relativePath: "bba/arr/foo", isDirectory: true, expectedOutcome: true)
         testGitIgnorePattern(pattern: "foo/", relativePath: "bba/arr/foo", isDirectory: false, expectedOutcome: false)
 
         testGitIgnorePattern(pattern: "bba/foo/arr/", relativePath: "bba/foo/arr", isDirectory: true, expectedOutcome: true)
         testGitIgnorePattern(pattern: "bba/foo/arr/", relativePath: "bba/foo/arr", isDirectory: false, expectedOutcome: false)
+
+        testGitIgnorePattern(pattern: "/", relativePath: "foo", isDirectory: false, expectedOutcome: false)
+        testGitIgnorePattern(pattern: "/", relativePath: "foo", isDirectory: true, expectedOutcome: false)
+        testGitIgnorePattern(pattern: "!", relativePath: "foo", isDirectory: false, expectedOutcome: false)
+
+        testGitIgnorePattern(pattern: "!/foo", relativePath: "foo", isDirectory: true, expectedOutcome: false)
+
+        testGitIgnorePattern(pattern: "   ", relativePath: " ", isDirectory: false, expectedOutcome: false)
     }
     
 }
