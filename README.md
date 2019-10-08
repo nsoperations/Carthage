@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.39.3+nsoperations
+
+- Fixed minor bug in .gitignore interpretation, specifically regarding leading spaces
+
 ### 0.39.2+nsoperations
 
 - Fixed calculation of sourceHash for the purpose of `--track-local-changes` so files which match patterns in .gitignore are not included. This ensures that temporary files written by the build process won't cause the sourceHash to change.
