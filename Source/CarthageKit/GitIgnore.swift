@@ -41,7 +41,7 @@ final class GitIgnore {
             addPattern(component)
         }
     }
-    
+
     func addPattern(_ pattern: String) {
         guard let (patternString, isNegated, onlyDirectories) = GitIgnore.normalizedPattern(pattern) else {
             return
@@ -74,55 +74,78 @@ final class GitIgnore {
         }
     }
 
-    private static let whiteSpaceSet = CharacterSet.whitespaces
-
     private static func normalizedPattern(_ pattern: String) -> (pattern: String, negated: Bool, onlyDirectories: Bool)? {
+
+        guard !pattern.isEmpty else {
+            return nil
+        }
 
         var isNegated = false
         var onlyDirectories = false
-        var patternString = pattern.trimmingCharacters(in: whiteSpaceSet)
 
-        if patternString.hasSuffix("\\") {
-            // Ends with escape, check if a whitespace came after it. If so, append it back
-            if let index1 = pattern.lastIndex(of: "\\"), index1 < pattern.index(before: pattern.endIndex) {
-                let c = pattern[pattern.index(after: index1)]
-                if whiteSpaceSet.contains(c) {
-                    patternString.append(c)
+        var startIndex = pattern.startIndex
+        var endIndex = pattern.endIndex
+        var lastSpace = false
+
+        // Chop trailing spaces
+        for c in pattern.reversed() {
+            if c == " " {
+                lastSpace = true
+                endIndex = pattern.index(before: endIndex)
+                continue
+            } else if c == "\\" && lastSpace {
+                // escaped space, add it back
+                endIndex = pattern.index(after: endIndex)
+            } else if c == "/" {
+                onlyDirectories = true
+                endIndex = pattern.index(before: endIndex)
+            }
+            break
+        }
+
+        let firstCharacter = pattern[startIndex]
+        var escaped = false
+        if firstCharacter == "\\" {
+            escaped = true
+            // Check whether this is an escape for the next character
+            let nextIndex = pattern.index(after: startIndex)
+            if nextIndex < endIndex {
+                let nextCharacter = pattern[pattern.index(after: startIndex)]
+                switch nextCharacter {
+                case "!", "#":
+                    startIndex = nextIndex
+                default:
+                    break
                 }
             }
-        } else if patternString.hasSuffix("/") {
-            onlyDirectories = true
-            patternString = String(patternString.dropLast(1))
-        }
-
-        // Normalize the patternString such that it can be used for a wild card match
-        if patternString.hasPrefix("#") || patternString.isEmpty {
+        } else if firstCharacter == "#" {
+            // Comment
             return nil
-        } else if patternString.hasPrefix("!") {
+        } else if firstCharacter == "!" {
             // Negated pattern
             isNegated = true
-            patternString = String(patternString.substring(from: 1))
-        } else if patternString.hasPrefix("\\") && patternString.count > 1 {
-            // Possible escape
-            let secondChar = patternString.character(at: 1)
-            switch secondChar {
-            case "!", "#", " ":
-                // Escaped first character
-                patternString = String(patternString.substring(from: 1))
-            default:
-                break
-            }
+            startIndex = pattern.index(after: startIndex)
+        }
+        if !escaped && startIndex < endIndex && pattern[startIndex] == "/" {
+            // Chop leading slash
+            startIndex = pattern.index(after: startIndex)
         }
 
-        if patternString.hasPrefix("/") {
-            // Chop the leading slash
-            patternString = String(patternString.substring(from: 1))
-        } else if !patternString.contains("/") {
+        guard startIndex < endIndex else {
+            return nil
+        }
+
+        let patternString = pattern[startIndex..<endIndex]
+        let normalizedString: String
+
+        if !patternString.contains("/") {
             // No slash is considered to be a match in all directories
-            patternString = "**/" + patternString
+            normalizedString = "**/" + patternString
+        } else {
+            normalizedString = String(patternString)
         }
 
-        return (patternString, isNegated, onlyDirectories)
+        return (normalizedString, isNegated, onlyDirectories)
     }
 }
 
