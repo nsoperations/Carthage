@@ -124,6 +124,52 @@ final class GitIgnore {
 
         return (patternString, isNegated, onlyDirectories)
     }
+    
+    enum SpecialCharacters: CChar {
+        case tab = 9
+        case space = 32
+        case exclam = 33
+        case hash = 35
+        case asterisk = 42
+        case slash = 47
+        case backslash = 92
+    }
+    
+    private class func bla(pattern: String) -> String? {
+        guard let rawPattern = pattern.cString(using: .utf8), !rawPattern.isEmpty else {
+            return nil
+        }
+        
+        var negated = false
+        var directoryOnly = false
+        var startIndex = 0
+        
+        // Check whether the first character is escaped
+        switch rawPattern[0] {
+        case SpecialCharacters.backslash.rawValue:
+            if rawPattern.count > 1 {
+                if rawPattern[1] == SpecialCharacters.exclam.rawValue ||
+                    rawPattern[1] == SpecialCharacters.hash.rawValue {
+                    startIndex = 1
+                }
+            }
+        case SpecialCharacters.exclam.rawValue:
+            negated = true
+            startIndex = 1
+        case SpecialCharacters.slash.rawValue:
+            // Chop leading slash
+            startIndex = 1
+        case SpecialCharacters.hash.rawValue:
+            // Comment
+            return nil
+        default:
+            break
+        }
+        
+        
+        
+        return nil
+    }
 }
 
 private struct Pattern {
