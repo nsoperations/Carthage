@@ -29,6 +29,7 @@ public struct UpdateCommand: CommandProtocol {
                 archive: false,
                 archiveOutputPath: nil,
                 lockTimeout: checkoutOptions.lockTimeout,
+                customCommitish: nil,
                 dependenciesToBuild: dependenciesToUpdate
             )
         }

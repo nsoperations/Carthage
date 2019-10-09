@@ -255,10 +255,12 @@ struct VersionFile: Codable {
         ) -> SignalProducer<Bool, CarthageError> {
         
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
+            print("Source hash does not match")
             return SignalProducer(value: false)
         }
 
         guard let cachedFrameworks = self[platform], commitish == self.commitish, configuration == self.configuration else {
+            print("Commit hash or configuration do not match")
             return SignalProducer(value: false)
         }
 
@@ -270,8 +272,14 @@ struct VersionFile: Codable {
             )
             .map { hash, cachedFramework, swiftVersionMatches -> Bool in
                 if let hash = hash {
+                    if !swiftVersionMatches {
+                        print("Swift version does not match")
+                    } else if hash != cachedFramework.hash {
+                        print("Binary hash does not match")
+                    }
                     return hash == cachedFramework.hash && swiftVersionMatches
                 } else {
+                    print("Binary hash does not exist")
                     return false
                 }
             }
@@ -309,6 +317,7 @@ extension VersionFile {
     ///
     /// Returns a signal that succeeds once the file has been created.
     static func createVersionFileForCurrentProject(
+        commitish: String?,
         platforms: Set<Platform>,
         configuration: String,
         buildProducts: [URL],
@@ -316,12 +325,18 @@ extension VersionFile {
         ) -> SignalProducer<(), CarthageError> {
 
         let currentProjectName = Dependencies.fetchDependencyNameForRepository(at: rootDirectoryURL)
-        let currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"], repositoryFileURL: rootDirectoryURL)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap(.merge) { headCommitish in
-                Git.launchGitTask(["describe", "--tags", "--exact-match", headCommitish])
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .flatMapError { _  in SignalProducer(value: headCommitish) }
+        let currentGitTagOrCommitish: SignalProducer<String, CarthageError>
+        
+        if let customCommitish = commitish {
+            currentGitTagOrCommitish = SignalProducer<String, CarthageError>(value: customCommitish)
+        } else {
+            currentGitTagOrCommitish = Git.launchGitTask(["rev-parse", "HEAD"], repositoryFileURL: rootDirectoryURL)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .flatMap(.merge) { headCommitish in
+                    Git.launchGitTask(["describe", "--tags", "--exact-match", headCommitish])
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .flatMapError { _  in SignalProducer(value: headCommitish) }
+            }
         }
 
         return SignalProducer.zip(currentProjectName, currentGitTagOrCommitish)
