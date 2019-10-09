@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.40.0+nsoperations
+
+- Added option `--commitish` and `--project-name` to the build command which can override the auto-detected git ref and project name to use when `--no-skip-current` is present for the project to build.
+
 ### 0.39.3+nsoperations
 
 - Fixed minor bug in .gitignore interpretation, specifically regarding leading spaces

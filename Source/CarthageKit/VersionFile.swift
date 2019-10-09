@@ -317,6 +317,7 @@ extension VersionFile {
     ///
     /// Returns a signal that succeeds once the file has been created.
     static func createVersionFileForCurrentProject(
+        projectName: String?,
         commitish: String?,
         platforms: Set<Platform>,
         configuration: String,
@@ -324,7 +325,7 @@ extension VersionFile {
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
 
-        let currentProjectName = Dependencies.fetchDependencyNameForRepository(at: rootDirectoryURL)
+        let currentProjectName: SignalProducer<String, CarthageError>
         let currentGitTagOrCommitish: SignalProducer<String, CarthageError>
         
         if let customCommitish = commitish {
@@ -337,6 +338,12 @@ extension VersionFile {
                         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                         .flatMapError { _  in SignalProducer(value: headCommitish) }
             }
+        }
+        
+        if let customProjectName = projectName {
+            currentProjectName = SignalProducer<String, CarthageError>(value: customProjectName)
+        } else {
+            currentProjectName = Dependencies.fetchDependencyNameForRepository(at: rootDirectoryURL)
         }
 
         return SignalProducer.zip(currentProjectName, currentGitTagOrCommitish)

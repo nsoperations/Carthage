@@ -243,7 +243,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
-    public func build(includingSelf: Bool, dependenciesToBuild: [String]?, buildOptions: BuildOptions, customCommitish: String?) -> BuildSchemeProducer {
+    public func build(includingSelf: Bool, dependenciesToBuild: [String]?, buildOptions: BuildOptions, customProjectName: String?, customCommitish: String?) -> BuildSchemeProducer {
         let buildProducer = self.loadResolvedCartfile()
             .map { _ in self }
             .flatMapError { error -> SignalProducer<Project, CarthageError> in
@@ -262,7 +262,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         if !includingSelf {
             return buildProducer
         } else {
-            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: buildOptions, rootDirectoryURL: directoryURL, lockTimeout: self.lockTimeout, customCommitish: customCommitish)
+            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: buildOptions, rootDirectoryURL: directoryURL, lockTimeout: self.lockTimeout, customProjectName: customProjectName, customCommitish: customCommitish)
                 .flatMapError { error -> BuildSchemeProducer in
                     switch error {
                     case let .noSharedFrameworkSchemes(project, _):
