@@ -20,6 +20,26 @@ struct CachedFramework: Codable {
     }
 }
 
+public enum VersionStatus {
+    case matching
+    case versionFileNotFound
+    case sourceHashNotEqual
+    case configurationNotEqual
+    case commitishNotEqual
+    case platformNotFound
+    case swiftVersionNotEqual
+    case binaryHashNotEqual
+    case binaryHashCalculationFailed
+}
+
+func &&(lhs: VersionStatus, rhs: VersionStatus) -> VersionStatus {
+    if lhs == .matching {
+        return rhs
+    } else {
+        return lhs
+    }
+}
+
 struct VersionFile: Codable {
 
     static let sourceHashCache = Cache<URL, String>()
@@ -190,10 +210,10 @@ struct VersionFile: Codable {
         configuration: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
-        ) -> SignalProducer<Bool, CarthageError> {
+        ) -> SignalProducer<VersionStatus, CarthageError> {
         let platformsToCheck = platforms.isEmpty ? Set<Platform>(Platform.supportedPlatforms) : platforms
         return SignalProducer<Platform, CarthageError>(platformsToCheck)
-            .flatMap(.merge) { platform -> SignalProducer<Bool, CarthageError> in
+            .flatMap(.merge) { platform -> SignalProducer<VersionStatus, CarthageError> in
                 return self.satisfies(
                     platform: platform,
                     commitish: commitish,
@@ -203,7 +223,7 @@ struct VersionFile: Codable {
                     localSwiftVersion: localSwiftVersion
                 )
             }
-            .reduce(true) { $0 && $1 }
+            .reduce(VersionStatus.matching) { $0 && $1 }
     }
 
     func satisfies(
@@ -213,9 +233,9 @@ struct VersionFile: Codable {
         configuration: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
-        ) -> SignalProducer<Bool, CarthageError> {
+        ) -> SignalProducer<VersionStatus, CarthageError> {
         guard let cachedFrameworks = self[platform] else {
-            return SignalProducer(value: false)
+            return SignalProducer(value: .platformNotFound)
         }
 
         let hashes = self.hashes(
@@ -233,7 +253,7 @@ struct VersionFile: Codable {
             .collect()
 
         return SignalProducer.zip(hashes, swiftVersionMatches)
-            .flatMap(.concat) { hashes, swiftVersionMatches -> SignalProducer<Bool, CarthageError> in
+            .flatMap(.concat) { hashes, swiftVersionMatches -> SignalProducer<VersionStatus, CarthageError> in
                 return self.satisfies(
                     platform: platform,
                     commitish: commitish,
@@ -252,16 +272,22 @@ struct VersionFile: Codable {
         configuration: String,
         hashes: [String?],
         swiftVersionMatches: [Bool]
-        ) -> SignalProducer<Bool, CarthageError> {
+        ) -> SignalProducer<VersionStatus, CarthageError> {
         
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
-            print("Source hash does not match")
-            return SignalProducer(value: false)
+            return SignalProducer(value: .sourceHashNotEqual)
+        }
+        
+        guard let cachedFrameworks = self[platform] else {
+            return SignalProducer(value: .platformNotFound)
         }
 
-        guard let cachedFrameworks = self[platform], commitish == self.commitish, configuration == self.configuration else {
-            print("Commit hash or configuration do not match")
-            return SignalProducer(value: false)
+        guard commitish == self.commitish else {
+            return SignalProducer(value: .commitishNotEqual)
+        }
+        
+        guard configuration == self.configuration else {
+            return SignalProducer(value: .configurationNotEqual)
         }
 
         return SignalProducer
@@ -270,22 +296,19 @@ struct VersionFile: Codable {
                 SignalProducer(cachedFrameworks),
                 SignalProducer(swiftVersionMatches)
             )
-            .map { hash, cachedFramework, swiftVersionMatches -> Bool in
+            .map { hash, cachedFramework, swiftVersionMatches -> VersionStatus in
                 if let hash = hash {
                     if !swiftVersionMatches {
-                        print("Swift version does not match")
+                        return .swiftVersionNotEqual
                     } else if hash != cachedFramework.hash {
-                        print("Binary hash does not match")
+                        return .binaryHashNotEqual
                     }
-                    return hash == cachedFramework.hash && swiftVersionMatches
+                    return .matching
                 } else {
-                    print("Binary hash does not exist")
-                    return false
+                    return .binaryHashCalculationFailed
                 }
             }
-            .reduce(true) { result, current -> Bool in
-                return result && current
-        }
+            .reduce(VersionStatus.matching) { $0 && $1 }
     }
 
     func write(to url: URL) -> Result<(), CarthageError> {
@@ -490,10 +513,10 @@ extension VersionFile {
         rootDirectoryURL: URL,
         toolchain: String?,
         checkSourceHash: Bool
-        ) -> SignalProducer<Bool?, CarthageError> {
+        ) -> SignalProducer<VersionStatus, CarthageError> {
         let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
-            return SignalProducer(value: nil)
+            return SignalProducer(value: .versionFileNotFound)
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
         let commitish = version.commitish
@@ -501,14 +524,13 @@ extension VersionFile {
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
             .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
-            .flatMap(.concat) { localSwiftVersion, sourceHash in
+            .flatMap(.concat) { localSwiftVersion, sourceHash -> SignalProducer<VersionStatus, CarthageError> in
                 return versionFile.satisfies(platforms: platforms,
                                              commitish: commitish,
                                              sourceHash: sourceHash,
                                              configuration: configuration,
                                              binariesDirectoryURL: rootBinariesURL,
                                              localSwiftVersion: localSwiftVersion)
-                    .map { .some($0) }
         }
     }
 
