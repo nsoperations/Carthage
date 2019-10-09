@@ -140,8 +140,12 @@ class VersionFileTests: XCTestCase {
     func validate(file: VersionFile, matches: Bool, platform: Platform, commitish: String, configuration: String = "Debug", hashes: [String?],
 				  swiftVersionMatches: [Bool], fileName: FileString = #file, line: UInt = #line) {
         _ = file.satisfies(platform: platform, commitish: commitish, sourceHash: nil, configuration: configuration, hashes: hashes, swiftVersionMatches: swiftVersionMatches)
-			.on(value: { didMatch in
-				expect(didMatch, file: fileName, line: line) == matches
+			.on(value: { versionStatus in
+                if matches {
+                    expect(versionStatus, file: fileName, line: line) == .matching
+                } else {
+                    expect(versionStatus, file: fileName, line: line) != .matching
+                }
 			})
 			.wait()
 	}
