@@ -49,13 +49,13 @@ public enum ProjectEvent {
     case skippedBuildingCached(Dependency)
 
     /// Rebuilding a cached project because of a version file/framework mismatch.
-    case rebuildingCached(Dependency)
+    case rebuildingCached(Dependency, VersionStatus)
 
     /// Building an uncached project.
     case buildingUncached(Dependency)
 
     /// Rebuilding because the installed binary is not valid
-    case rebuildingBinary(Dependency)
+    case rebuildingBinary(Dependency, VersionStatus)
 
     /// Waiting for a lock on the specified URL.
     case waiting(URL)
@@ -243,7 +243,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
-    public func build(includingSelf: Bool, dependenciesToBuild: [String]?, buildOptions: BuildOptions) -> BuildSchemeProducer {
+    public func build(includingSelf: Bool, dependenciesToBuild: [String]?, buildOptions: BuildOptions, customProjectName: String?, customCommitish: String?) -> BuildSchemeProducer {
         let buildProducer = self.loadResolvedCartfile()
             .map { _ in self }
             .flatMapError { error -> SignalProducer<Project, CarthageError> in
@@ -262,7 +262,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         if !includingSelf {
             return buildProducer
         } else {
-            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: buildOptions, rootDirectoryURL: directoryURL, lockTimeout: self.lockTimeout)
+            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: buildOptions, rootDirectoryURL: directoryURL, lockTimeout: self.lockTimeout, customProjectName: customProjectName, customCommitish: customCommitish)
                 .flatMapError { error -> BuildSchemeProducer in
                     switch error {
                     case let .noSharedFrameworkSchemes(project, _):
@@ -626,7 +626,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild)
             }
-            .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, Bool?), CarthageError> in
+            .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, VersionStatus), CarthageError> in
                 let (dependency, version) = arg
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
@@ -635,7 +635,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 )
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
-                let (nextDependency, projects, matches) = nextGroup
+                let (nextDependency, projects, versionStatus) = nextGroup
 
                 var dependenciesIncludingNext = includedDependencies
                 dependenciesIncludingNext.append(nextDependency)
@@ -646,16 +646,14 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return dependenciesIncludingNext
                 }
 
-                guard let versionFileMatches = matches else {
+                if versionStatus == .versionFileNotFound {
                     self.projectEventsObserver.send(value: .buildingUncached(nextDependency.0))
                     return dependenciesIncludingNext
-                }
-
-                if versionFileMatches {
+                } else if versionStatus == .matching {
                     self.projectEventsObserver.send(value: .skippedBuildingCached(nextDependency.0))
                     return includedDependencies
                 } else {
-                    self.projectEventsObserver.send(value: .rebuildingCached(nextDependency.0))
+                    self.projectEventsObserver.send(value: .rebuildingCached(nextDependency.0, versionStatus))
                     return dependenciesIncludingNext
                 }
             }
@@ -682,7 +680,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
                             .then(.init(value: (dependency, version)))
                     }
-                    .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Bool?), CarthageError> in
+                    .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
                         return VersionFile.versionFileMatches(
                             dependency,
                             version: version,
@@ -694,9 +692,9 @@ public final class Project { // swiftlint:disable:this type_body_length
                             )
                             .map { matches in return (dependency, version, matches) }
                     }
-                    .filterMap { dependency, version, matches -> (Dependency, PinnedVersion)? in
-                        guard let versionFileMatches = matches, versionFileMatches else {
-                            self.projectEventsObserver.send(value: .rebuildingBinary(dependency))
+                    .filterMap { dependency, version, versionStatus -> (Dependency, PinnedVersion)? in
+                        guard versionStatus == .matching else {
+                            self.projectEventsObserver.send(value: .rebuildingBinary(dependency, versionStatus))
                             return nil
                         }
                         return (dependency, version)

@@ -63,6 +63,8 @@ public final class Xcode {
         dependency: (dependency: Dependency, version: PinnedVersion)? = nil,
         rootDirectoryURL: URL,
         lockTimeout: Int? = nil,
+        customProjectName: String? = nil,
+        customCommitish: String? = nil,
         sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) },
         builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = nil
         ) -> BuildSchemeProducer {
@@ -130,6 +132,8 @@ public final class Xcode {
                                 // Is only possible if the current project is a git repository, because the version file is tied to commit hash
                                 if rootDirectoryURL.isGitDirectory {
                                     return VersionFile.createVersionFileForCurrentProject(
+                                        projectName: customProjectName, 
+                                        commitish: customCommitish,
                                         platforms: options.platforms,
                                         configuration: options.configuration,
                                         buildProducts: urls,

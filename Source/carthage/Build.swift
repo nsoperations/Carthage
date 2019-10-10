@@ -49,6 +49,8 @@ public struct BuildCommand: CommandProtocol {
         public let archive: Bool
         public let archiveOutputPath: String?
         public let lockTimeout: Int?
+        public let customProjectName: String?
+        public let customCommitish: String?
         public let dependenciesToBuild: [String]?
 
         /// If `archive` is true, this will be a producer that will archive
@@ -77,6 +79,8 @@ public struct BuildCommand: CommandProtocol {
                 usage: "the path at which to create the archive zip file (or blank to infer it from the first one of the framework names)"
             )
             let option7 = Option<Int?>(key: "lock-timeout", defaultValue: nil, usage: "timeout in seconds to wait for an exclusive lock on shared files, defaults to no timeout")
+            let option8 = Option<String?>(key: "project-name", defaultValue: nil, usage: "the optional project name to use when writing the version file if --no-skip-current is present. If not supplied the current git state of the working tree is inspected to auto-detect the project name to use from the list of remotes.")
+            let option9 = Option<String?>(key: "commitish", defaultValue: nil, usage: "the optional custom commitish to use when writing the version file if --no-skip-current is present. If not supplied the current git state of the working tree is inspected to auto-detect the commitish to use which is either a tag or commit hash.")
 
             return curry(self.init)
                 <*> BuildOptions.evaluate(mode)
@@ -88,6 +92,8 @@ public struct BuildCommand: CommandProtocol {
                 <*> mode <| option5
                 <*> mode <| option6
                 <*> mode <| option7
+                <*> mode <| option8
+                <*> mode <| option9
                 <*> (mode <| Argument(defaultValue: [], usage: "the dependency names to build", usageParameter: "dependency names")).map { $0.isEmpty ? nil : $0 }
         }
     }
@@ -118,7 +124,7 @@ public struct BuildCommand: CommandProtocol {
                 let shouldBuildCurrentProject =  !options.skipCurrent || options.archive
 
                 project.lockTimeout = options.lockTimeout
-                let buildProgress = project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions)
+                let buildProgress = project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions, customProjectName: options.customProjectName, customCommitish: options.customCommitish)
 
                 let stderrHandle = options.isVerbose ? FileHandle.standardError : stdoutHandle
 

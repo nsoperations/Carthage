@@ -60,17 +60,17 @@ final class ProjectEventLogger {
         case let .skippedBuildingCached(dependency):
             carthage.println(formatting.bullets + "Valid cache found for " + formatting.projectName(dependency.name) + ", skipping build")
 
-        case let .rebuildingCached(dependency):
+        case let .rebuildingCached(dependency, versionStatus):
             carthage.println(formatting.bullets + "Invalid cache found for " + formatting.projectName(dependency.name)
-                + ", rebuilding with all downstream dependencies")
+                + " because \(versionStatus.humanReadableDescription), rebuilding with all downstream dependencies")
 
         case let .buildingUncached(dependency):
             carthage.println(formatting.bullets + "No cache found for " + formatting.projectName(dependency.name)
                 + ", building with all downstream dependencies")
 
-        case let .rebuildingBinary(dependency):
+        case let .rebuildingBinary(dependency, versionStatus):
             carthage.println(formatting.bullets + "Invalid binary found for " + formatting.projectName(dependency.name)
-                + ", rebuilding with all downstream dependencies")
+                + " because \(versionStatus.humanReadableDescription), rebuilding with all downstream dependencies")
 
         case let .waiting(url):
             carthage.println(formatting.bullets + "Waiting for lock on " + url.path)
@@ -105,6 +105,31 @@ final class ResolverEventLogger {
             if isVerbose {
                 carthage.println("Rejected dependency set:\n\(dependencySet)\n\nReason: \(error)\n")
             }
+        }
+    }
+}
+
+extension VersionStatus {
+    var humanReadableDescription: String {
+        switch self {
+        case .matching:
+            return ""
+        case .binaryHashCalculationFailed:
+            return "the binary checksum calculation failed"
+        case .binaryHashNotEqual:
+            return "the binary checksum did not match"
+        case .commitishNotEqual:
+            return "the commit hash or tag did not match"
+        case .configurationNotEqual:
+            return "the build configuration did not match"
+        case .platformNotFound:
+            return "one of the requested platforms was not found"
+        case .sourceHashNotEqual:
+            return "the source hash did not match"
+        case .swiftVersionNotEqual:
+            return "the swift version did not match the current toolchain"
+        case .versionFileNotFound:
+            return "the version file was not found"
         }
     }
 }
