@@ -99,12 +99,24 @@ class Digest {
      */
     class func digestForDirectoryAtURL(_ directoryURL: URL, parentGitIgnore: GitIgnore? = nil) -> Result<Data, CarthageError> {
         do {
+            let lastPathComponent = directoryURL.lastPathComponent
+            let timeStamp = Int64(Date().timeIntervalSince1970)
+            let logFileURL = URL(fileURLWithPath: "/tmp/carthage/\(lastPathComponent)-\(timeStamp)-digest.log")
+            print("Writing digest log to: \(logFileURL.path)")
+            var output = try FileOutputStream(fileURL: logFileURL)
+            print("Calculating digest for directory: \(directoryURL.path)", to: &output)
+            
             let digest = self.init()
             try crawl(directoryURL, relativePath: nil, parentGitIgnore: parentGitIgnore) { fileURL, relativePath in
 
                 guard let inputStream = InputStream(url: fileURL) else {
                     throw CarthageError.readFailed(fileURL, nil)
                 }
+                
+                let fileDigest = type(of: digest).digestForFileAtURL(fileURL)
+                
+                print("\(relativePath): \(fileDigest.value?.hexString ?? fileDigest.error!.description)", to: &output)
+                
                 //calculate hash
                 do {
                     try digest.update(inputStream: inputStream)
@@ -113,6 +125,7 @@ class Digest {
                 }
             }
             let result = digest.finalize()
+            print("Final computed digest: \(result)", to: &output)
             return .success(result)
         } catch let error as CarthageError {
             return .failure(error)
@@ -211,5 +224,35 @@ final class MD5Digest: Digest {
         var resultBuffer = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
         CC_MD5_Final(&resultBuffer, &self.context)
         return Data(bytes: resultBuffer)
+    }
+}
+
+fileprivate class FileOutputStream: TextOutputStream {
+    private let fileHandle: FileHandle
+    private let encoding: String.Encoding
+    
+    convenience init(fileURL: URL, encoding: String.Encoding = .utf8) throws {
+        
+        let mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH
+        let fileDescriptor = open(fileURL.path, O_CREAT | O_WRONLY | O_TRUNC, mode)
+        
+        if fileDescriptor < 0 {
+            let posixErrorCode = POSIXErrorCode(rawValue: errno)!
+            throw POSIXError(posixErrorCode)
+        }
+        
+        let fileHandle = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: true)
+        self.init(fileHandle: fileHandle, encoding: encoding)
+    }
+    
+    init(fileHandle: FileHandle, encoding: String.Encoding = .utf8) {
+        self.fileHandle = fileHandle
+        self.encoding = encoding
+    }
+    
+    func write(_ string: String) {
+        if let data = string.data(using: encoding) {
+            fileHandle.write(data)
+        }
     }
 }
