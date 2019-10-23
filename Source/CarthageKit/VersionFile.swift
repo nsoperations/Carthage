@@ -578,6 +578,7 @@ extension VersionFile {
         **/xcuserdata/**
         **/*.xccheckout
         *.xcscmblueprint
+        IDEWorkspaceChecks.plist
 
         # Temporary files
         *.swp
@@ -616,7 +617,26 @@ extension VersionFile {
                 return .success(cachedHexString)
             }
             
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
+            var parentGitIgnore = defaultGitIgnore
+            let schemesCartfile = dependencyDir.appendingPathComponent(Constants.Project.schemesCartfilePath)
+            
+            if schemesCartfile.isExistingFile {
+                parentGitIgnore = parentGitIgnore.copy
+                parentGitIgnore.addPattern("*.xcscheme")
+                // For each scheme in the Cartfile.schemes: add an exclusion
+                
+                do {
+                    let contentsOfFile = try String(contentsOf: schemesCartfile, encoding: .utf8)
+                    let includedSchemes = contentsOfFile.components(separatedBy: .newlines)
+                    for scheme in includedSchemes {
+                        parentGitIgnore.addPattern("!\(scheme).xcscheme")
+                    }
+                } catch {
+                    return .failure(CarthageError.readFailed(schemesCartfile, error as NSError))
+                }
+            }
+            
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: parentGitIgnore).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }

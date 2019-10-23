@@ -15,6 +15,13 @@ final class GitIgnore {
     private var negatedPatterns = [Pattern]()
     private var patterns = [Pattern]()
     
+    var copy: GitIgnore {
+        let copy = GitIgnore(parent: self.parent)
+        copy.negatedPatterns = self.negatedPatterns
+        copy.patterns = self.patterns
+        return copy
+    }
+    
     init(parent: GitIgnore? = nil) {
         self.parent = parent
     }
