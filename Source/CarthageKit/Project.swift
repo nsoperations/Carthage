@@ -595,8 +595,17 @@ public final class Project { // swiftlint:disable:this type_body_length
                         .filter { dependency in dependenciesToInclude.contains(dependency.name) })
                 }
 
-                guard let sortedDependencies = Algorithms.topologicalSort(graph, nodes: filteredDependencies) else { // swiftlint:disable:this single_line_guard
-                    return SignalProducer(error: .dependencyCycle(graph))
+                let sortedDependencies: [Dependency]
+                switch Algorithms.topologicalSort(graph, nodes: filteredDependencies) {
+                case let .failure(error):
+                    switch error {
+                    case let .cycle(nodes):
+                        return SignalProducer(error: .dependencyCycle(nodes))
+                    case let .missing(node):
+                        return SignalProducer(error: .unknownDependencies([node.name]))
+                    }
+                case let .success(deps):
+                    sortedDependencies = deps
                 }
 
                 let sortedPinnedDependencies = cartfile.dependencies.keys

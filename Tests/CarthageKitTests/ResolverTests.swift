@@ -858,8 +858,9 @@ class ResolverTests: XCTestCase {
 		expect(resolved.error).notTo(beNil())
 		if let error = resolved.error {
 			switch error {
-			case .dependencyCycle:
-				print("Dependency cycle error: \(error)")
+			case let .dependencyCycle(nodes):
+                XCTAssertEqual(nodes.count, 4)
+                XCTAssertEqual(nodes.last, nodes.first)
 			default:
 				fail("Expected error to be of type .dependencyCycle")
 			}

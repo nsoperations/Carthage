@@ -29,8 +29,8 @@ class AlgorithmTests: XCTestCase {
 		malformedGraph["A"] = Set(["B"])
 	}
 	
-	func testShouldSortFirstByDependencyAndSecondByComparability() {
-		let sorted = Algorithms.topologicalSort(validGraph)
+	func testShouldSortFirstByDependencyAndSecondByComparability() throws {
+        let sorted = try Algorithms.topologicalSort(validGraph).get()
 		
 		expect(sorted) == [
 			"Argo",
@@ -43,8 +43,8 @@ class AlgorithmTests: XCTestCase {
 		]
 	}
 	
-	func testShouldOnlyIncludeTheProvidedNodeAndItsTransitiveDependencies1() {
-		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set(["ReactiveTask"]))
+	func testShouldOnlyIncludeTheProvidedNodeAndItsTransitiveDependencies1() throws {
+        let sorted = try Algorithms.topologicalSort(validGraph, nodes: Set(["ReactiveTask"])).get()
 		
 		expect(sorted) == [
 			"Result",
@@ -53,8 +53,8 @@ class AlgorithmTests: XCTestCase {
 		]
 	}
 	
-	func testShouldOnlyIncludeProvidedNodesAndTheirTransitiveDependencies2() {
-		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set(["ReactiveTask", "Commandant"]))
+	func testShouldOnlyIncludeProvidedNodesAndTheirTransitiveDependencies2() throws {
+        let sorted = try Algorithms.topologicalSort(validGraph, nodes: Set(["ReactiveTask", "Commandant"])).get()
 		
 		expect(sorted) == [
 			"Result",
@@ -64,8 +64,8 @@ class AlgorithmTests: XCTestCase {
 		]
 	}
 	
-	func testShouldOnlyIncludeProvidedNodesAndTheirTransitiveDependencies3() {
-		let sorted = Algorithms.topologicalSort(validGraph, nodes: Set(["Carthage"]))
+	func testShouldOnlyIncludeProvidedNodesAndTheirTransitiveDependencies3() throws {
+        let sorted = try Algorithms.topologicalSort(validGraph, nodes: Set(["Carthage"])).get()
 		
 		expect(sorted) == [
 			"Argo",
@@ -78,8 +78,8 @@ class AlgorithmTests: XCTestCase {
 		]
 	}
 	
-	func testShouldPerformATopologicalSortOnTheProvidedGraphWhenTheSetIsEmpty() {
-		let sorted = Algorithms.topologicalSort(validGraph, nodes: nil)
+	func testShouldPerformATopologicalSortOnTheProvidedGraphWhenTheSetIsEmpty() throws {
+        let sorted = try Algorithms.topologicalSort(validGraph, nodes: nil).get()
 		
 		expect(sorted) == [
 			"Argo",
@@ -92,28 +92,70 @@ class AlgorithmTests: XCTestCase {
 		]
 	}
 	
-	func testShouldFailWhenThereIsACycleInTheInputGraph1() {
+	func testShouldFailWhenThereIsACycleInTheInputGraph1() throws {
 		let sorted = Algorithms.topologicalSort(cycleGraph)
-		
-		expect(sorted).to(beNil())
+
+        switch sorted {
+        case let .failure(error):
+            switch error {
+            case let .cycle(nodes):
+                XCTAssertEqual(nodes.count, 4)
+                XCTAssertEqual(nodes.first, nodes.last)
+            default:
+                fail("Unexpected error: \(error)")
+            }
+        default:
+            fail("Expected an error to occur")
+        }
 	}
 	
 	func testShouldFailWhenThereIsACycleInTheInputGraph2() {
 		let sorted = Algorithms.topologicalSort(cycleGraph, nodes: Set(["B"]))
 		
-		expect(sorted).to(beNil())
+		switch sorted {
+        case let .failure(error):
+            switch error {
+            case let .cycle(nodes):
+                XCTAssertEqual(nodes.count, 4)
+                XCTAssertEqual(nodes.first, nodes.last)
+            default:
+                fail("Unexpected error: \(error)")
+            }
+        default:
+            fail("Expected an error to occur")
+        }
 	}
 
 
 	func testShouldFailWhenTheInputGraphIsMissingNodes1() {
 		let sorted = Algorithms.topologicalSort(malformedGraph)
 		
-		expect(sorted).to(beNil())
+		switch sorted {
+        case let .failure(error):
+            switch error {
+            case let .missing(node):
+                XCTAssertEqual(node, "B")
+            default:
+                fail("Unexpected error: \(error)")
+            }
+        default:
+            fail("Expected an error to occur")
+        }
 	}
 
 	func testShouldFailWhenTheInputGraphIsMissingNodes2() {
 		let sorted = Algorithms.topologicalSort(malformedGraph, nodes: Set(["A"]))
 		
-		expect(sorted).to(beNil())
+		switch sorted {
+        case let .failure(error):
+            switch error {
+            case let .missing(node):
+                XCTAssertEqual(node, "B")
+            default:
+                fail("Unexpected error: \(error)")
+            }
+        default:
+            fail("Expected an error to occur")
+        }
 	}
 }

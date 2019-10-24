@@ -89,7 +89,7 @@ public enum CarthageError: Error {
     case duplicateDependencies([DuplicateDependency])
 
     /// There was a cycle between dependencies in the associated graph.
-    case dependencyCycle([Dependency: Set<Dependency>])
+    case dependencyCycle([Dependency])
 
     /// A request to the GitHub API failed.
     case gitHubAPIRequestFailed(Client.Error)
@@ -350,17 +350,9 @@ extension CarthageError: CustomStringConvertible {
                 .joined(separator: "")
             return "The following dependencies are duplicates:\(deps)"
 
-        case let .dependencyCycle(graph):
-            let prettyGraph = graph
-                .map { project, dependencies in
-                    let prettyDependencies = dependencies
-                        .map { $0.name }
-                        .joined(separator: ", ")
+        case let .dependencyCycle(nodes):
 
-                    return "\(project.name): \(prettyDependencies)"
-                }
-                .joined(separator: "\n")
-
+            let prettyGraph = nodes.map({ $0.name }).joined(separator: " -> ")
             return "The dependency graph contained a cycle:\n\(prettyGraph)"
 
         case let .gitHubAPIRequestFailed(message):

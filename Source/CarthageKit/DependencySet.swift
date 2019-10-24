@@ -208,10 +208,21 @@ final class DependencySet {
      The rejectionError for the set will be set in case a cycle was encountered.
      */
     public func validateForCyclicDepencies(rootDependencies: [Dependency]) throws -> Bool {
-        var stack = [Dependency: Set<Dependency>]()
-        let foundCycle = try hasCycle(for: rootDependencies, parent: nil, stack: &stack)
+        var graph = [Dependency: Set<Dependency>]()
+        let foundCycle = try hasCycle(for: rootDependencies, parent: nil, stack: &graph)
         if foundCycle {
-            rejectionError = CarthageError.dependencyCycle(stack)
+            switch Algorithms.topologicalSort(graph) {
+            case let .failure(error):
+                switch error {
+                case let .cycle(nodes):
+                    rejectionError = CarthageError.dependencyCycle(nodes)
+                case let .missing(node):
+                    rejectionError = CarthageError.unknownDependencies([node.name])
+                }
+            default:
+                assertionFailure("Expected topological sort to not succeed, because a cycle is present")
+                return true
+            }
         }
         return !foundCycle
     }
