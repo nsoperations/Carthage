@@ -468,7 +468,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         return SignalProducer(value: resolvedCartfile)
             .flatMap(.concat) { (resolved: ResolvedCartfile) -> SignalProducer<([Dependency: PinnedVersion], CompatibilityInfo.Requirements), CarthageError> in
-                let requirements = self.requirementsByDependency(cartfile: cartfile, resolvedCartfile: resolved, tryCheckoutDirectory: true, dependencyRetriever: effectiveDependencyRetriever)
+                let requirements = self.requirementsByDependency(cartfile: cartfile, resolvedCartfile: resolved, tryCheckoutDirectory: false, dependencyRetriever: effectiveDependencyRetriever)
                 return SignalProducer.zip(SignalProducer(value: resolved.dependencies), requirements)
             }
             .flatMap(.concat) { (info: ([Dependency: PinnedVersion], CompatibilityInfo.Requirements)) -> SignalProducer<[CompatibilityInfo], CarthageError> in

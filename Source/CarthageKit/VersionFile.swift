@@ -103,12 +103,15 @@ struct VersionFile: Codable {
     init?(url: URL) {
         guard
             FileManager.default.fileExists(atPath: url.path),
-            let jsonData = try? Data(contentsOf: url),
-            let versionFile = try? JSONDecoder().decode(VersionFile.self, from: jsonData) else
+            let jsonData = try? Data(contentsOf: url) else
         {
             return nil
         }
-        self = versionFile
+        try? self.init(jsonData: jsonData)
+    }
+
+    init(jsonData: Data) throws {
+        self = try JSONDecoder().decode(VersionFile.self, from: jsonData)
     }
 
     func frameworkURL(

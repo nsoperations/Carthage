@@ -122,8 +122,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             if tryCheckoutDirectory {
                 let dependencyURL = self.directoryURL.appendingPathComponent(dependency.relativePath)
                 cartfileSource = SignalProducer<Bool, NoError> { () -> Bool in
-                    var isDirectory: ObjCBool = false
-                    return FileManager.default.fileExists(atPath: dependencyURL.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                        return dependencyURL.isExistingDirectory
                     }
                     .flatMap(.concat) { directoryExists -> SignalProducer<Cartfile, CarthageError> in
                         if directoryExists {
