@@ -581,11 +581,16 @@ extension VersionFile {
         **/xcuserdata/**
         **/*.xccheckout
         *.xcscmblueprint
+
+        # Do not track schemes, because auto-generate schemes would invalidate the source hash
+        *.xcscheme
         IDEWorkspaceChecks.plist
 
         # Temporary files
         *.swp
         *.orig
+        *.ori
+        *.bak
         *.tmp
 
         # AppCode
@@ -621,21 +626,11 @@ extension VersionFile {
             }
             
             var parentGitIgnore = defaultGitIgnore
-            let schemesCartfile = dependencyDir.appendingPathComponent(Constants.Project.schemesCartfilePath)
             
-            if schemesCartfile.isExistingFile {
+            if let schemeCartfile = try? SchemeCartfile.from(directoryURL: dependencyDir).get() {
                 parentGitIgnore = parentGitIgnore.copy
-                parentGitIgnore.addPattern("*.xcscheme")
-                // For each scheme in the Cartfile.schemes: add an exclusion
-                
-                do {
-                    let contentsOfFile = try String(contentsOf: schemesCartfile, encoding: .utf8)
-                    let includedSchemes = contentsOfFile.components(separatedBy: .newlines)
-                    for scheme in includedSchemes {
-                        parentGitIgnore.addPattern("!\(scheme).xcscheme")
-                    }
-                } catch {
-                    return .failure(CarthageError.readFailed(schemesCartfile, error as NSError))
+                for scheme in schemeCartfile.schemes {
+                    parentGitIgnore.addPattern("!\(scheme).xcscheme")
                 }
             }
             
