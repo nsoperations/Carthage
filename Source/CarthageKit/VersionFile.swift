@@ -579,12 +579,13 @@ extension VersionFile {
 
         # User-specific Xcode files
         **/xcuserdata/**
-        **/*.xccheckout
+        *.xccheckout
         *.xcscmblueprint
 
-        # Do not track schemes, because auto-generate schemes would invalidate the source hash
+        # Do not track schemes, to avoid cache invalidation with scheme auto-generation on
         *.xcscheme
         IDEWorkspaceChecks.plist
+        WorkspaceSettings.xcsettings
 
         # Temporary files
         *.swp
