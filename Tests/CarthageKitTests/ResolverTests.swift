@@ -482,7 +482,7 @@ class ResolverTests: XCTestCase {
         let repository = LocalDependencyStore(directoryURL: repositoryURL)
         
         do {
-            let cartfile = try Cartfile.from(file: testCartfileURL).get()
+            let cartfile = try Cartfile.from(fileURL: testCartfileURL).get()
 
             guard let resolvedCartfile1 = try project.resolveUpdatedDependencies(from: repository,
                                                                                  resolverType: resolverType.self,

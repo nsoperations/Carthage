@@ -99,7 +99,7 @@ class ProjectBuildTests: XCTestCase {
 
     func testShouldFallBackToRepoCacheIfCheckoutIsMissing() {
         let macOSexpected = ["TestFramework3_Mac", "TestFramework2_Mac"]
-        let repoDir = directoryURL.appendingPathComponent(carthageProjectCheckoutsPath)
+        let repoDir = directoryURL.appendingPathComponent(Constants.checkoutsPath)
         let checkout = repoDir.appendingPathComponent("TestFramework1")
         let tmpCheckout = repoDir.appendingPathComponent("TestFramework1_BACKUP")
         do {
@@ -730,7 +730,7 @@ class ProjectMiscTests: XCTestCase {
             return
         }
 
-        let result = project.dependencyRetriever.transitiveDependencies(["Moya"], resolvedCartfile: resolvedCartfileValue).single()
+        let result = project.dependencyRetriever.transitiveDependencies(resolvedCartfile: resolvedCartfileValue, includedDependencyNames: ["Moya"]).single()
 
         expect(result?.value).to(contain("Alamofire"))
         expect(result?.value).to(contain("ReactiveSwift"))

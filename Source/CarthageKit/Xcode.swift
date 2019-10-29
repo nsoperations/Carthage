@@ -867,7 +867,7 @@ public final class Xcode {
 
                         // Do not copy build products that originate from the current project's own carthage dependencies
                         let projectURL = URL(fileURLWithPath: projectPath)
-                        let dependencyCheckoutDir = workingDirectoryURL.appendingPathComponent(carthageProjectCheckoutsPath, isDirectory: true)
+                        let dependencyCheckoutDir = workingDirectoryURL.appendingPathComponent(Constants.checkoutsPath, isDirectory: true)
                         return !dependencyCheckoutDir.hasSubdirectory(projectURL)
                     }
                     .flatMap(.concat) { settings in resolveSameTargetName(for: settings) }

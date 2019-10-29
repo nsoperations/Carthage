@@ -11,6 +11,9 @@ public struct Constants {
     /// to the working directory).
     public static let binariesFolderPath = "Carthage/Build"
 
+    /// The relative path to a project's checked out dependencies.
+    public static let checkoutsPath = "Carthage/Checkouts"
+
     /// The fallback dependencies URL to be used in case
     /// the intended ~/Library/Caches/org.carthage.CarthageKit cannot
     /// be found or created.

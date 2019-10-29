@@ -49,7 +49,7 @@ class XcodeTests: XCTestCase {
 	func testShouldNotFindAnythingInTheCarthageSubdirectory() {
 		let relativePaths = relativePathsForProjectsInDirectory(directoryURL)
 		expect(relativePaths).toNot(beEmpty())
-		let pathsStartingWithCarthage = relativePaths.filter { $0.hasPrefix("\(carthageProjectCheckoutsPath)/") }
+		let pathsStartingWithCarthage = relativePaths.filter { $0.hasPrefix("\(Constants.checkoutsPath)/") }
 		expect(pathsStartingWithCarthage).to(beEmpty())
 	}
 	

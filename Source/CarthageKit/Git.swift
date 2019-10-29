@@ -181,7 +181,9 @@ public final class Git {
                 }
             }
             .flatMap(.concat) { environment in
-                return launchGitTask([ "checkout", "--quiet", "--force", revision ], repositoryFileURL: repositoryFileURL, environment: environment)
+                return launchGitTask([ "checkout", "--quiet", "--force", revision ], repositoryFileURL: repositoryFileURL, environment: environment).then(
+                    launchGitTask([ "clean", "-f", "-d", "-x"], repositoryFileURL: repositoryFileURL, environment: environment)
+                )
             }
             .then(SignalProducer<(), CarthageError>.empty)
     }
