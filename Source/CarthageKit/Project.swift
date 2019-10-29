@@ -604,7 +604,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 // Added mapping from name -> Dependency based on the ResolvedCartfile because
                 // duplicate dependencies with the same name (e.g. github forks) should resolve to the same dependency.
                 let (dependency, version) = arg
-                return self.dependencyRetriever.dependencySet(for: dependency, version: version, mapping: { cartfile.dependency(for: $0.name) ?? $0 })
+                return self.dependencyRetriever.dependencySet(for: dependency, version: version)
                     .map { dependencies in
                         [dependency: dependencies]
                 }

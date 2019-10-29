@@ -88,23 +88,21 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     }
 
     /// Produces the sub dependencies of the given dependency. Uses the checked out directory if able
-    public func dependencySet(for dependency: Dependency, version: PinnedVersion, mapping: ((Dependency) -> Dependency)? = nil) -> SignalProducer<Set<Dependency>, CarthageError> {
+    public func dependencySet(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<Set<Dependency>, CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: true)
-            .map { mapping?($0.0) ?? ($0.0) }
-            .collect()
-            .map { Set($0) }
-            .concat(value: Set())
-            .take(first: 1)
+            .reduce(into: Set<Dependency>(), { set, entry in
+                set.insert(entry.0)
+            })
     }
 
-    public func recursiveDependencySet(for dependency: Dependency, version: PinnedVersion, mapping: ((Dependency) -> Dependency)? = nil) -> SignalProducer<Set<Dependency>, CarthageError> {
+    public func recursiveDependencySet(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<Set<Dependency>, CarthageError> {
         return SignalProducer<Set<Dependency>, CarthageError>.init { () -> Result<Set<Dependency>, CarthageError> in
             do {
                 let rootCartfile = try ResolvedCartfile.from(directoryURL: self.directoryURL).get()
                 let dependencyVersions = rootCartfile.dependencies
 
                 let transitiveDependencies: (Dependency, PinnedVersion) throws -> Set<Dependency> = { dependency, version in
-                    return try self.dependencySet(for: dependency, version: version, mapping: mapping).first()?.get() ?? Set<Dependency>()
+                    return try self.dependencySet(for: dependency, version: version).first()?.get() ?? Set<Dependency>()
                 }
 
                 var resultSet = Set<Dependency>()
@@ -117,9 +115,10 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     if !resultSet.contains(nextDependency) {
                         resultSet.insert(nextDependency)
                         //Find the recursive dependencies for this value
-
-                        let nextVersion = dependencyVersions[nextDependency]!
-
+                        guard let nextVersion = dependencyVersions[nextDependency] else {
+                            // This is an internal inconsistency
+                            throw CarthageError.internalError(description: "Found transitive dependency \(nextDependency) which is not present in the Cartfile.resolved, which should never occur. Please perform a clean bootstrap.")
+                        }
                         let nextSet = try transitiveDependencies(nextDependency, nextVersion)
                         for transitiveDependency in nextSet where !resultSet.contains(transitiveDependency) {
                             unhandledSet.insert(transitiveDependency)

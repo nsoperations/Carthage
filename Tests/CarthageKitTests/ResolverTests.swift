@@ -880,3 +880,17 @@ extension Project {
         return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 }
+
+extension ResolvedCartfile {
+    private func dependency(for name: String) -> Dependency? {
+        return dependencies.keys.first(where: { $0.name == name })
+    }
+    
+    fileprivate func version(for name: String) -> PinnedVersion? {
+        if let dependency = dependency(for: name) {
+            return dependencies[dependency]
+        } else {
+            return nil
+        }
+    }
+}
