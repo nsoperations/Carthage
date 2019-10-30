@@ -63,6 +63,14 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.40.1+nsoperations
+
+- Increased simulator discovery timeout from 3 to 10 seconds to avoid issues on some systems.
+- Fixed bug where carthage validate would fail if the checkouts folder was not up to date
+- Improved message which is printed when a dependency cycle is present: now print the actual cycle
+- Fixed bug where symlinks would not be created for all transitive dependencies of a dependency in both the build folder and the checkouts folder
+- Ensured schemes, IDEWorkspaceChecks.plist and WorkspaceSettings.xcsettings are not included when calculating a source hash to avoid invalidation if auto-creation of schemes is active. The exception is if schemes are listed in Cartfile.schemes.
+
 ### 0.40.0+nsoperations
 
 - Added option `--commitish` and `--project-name` to the build command which can override the auto-detected git ref and project name to use when `--no-skip-current` is present for the project to build.
