@@ -113,17 +113,15 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     guard let nextDependency = unhandledSet.popFirst() else {
                         break
                     }
-                    if !resultSet.contains(nextDependency) {
-                        resultSet.insert(nextDependency)
-                        //Find the recursive dependencies for this value
-                        guard let nextVersion = dependencyVersions[nextDependency] else {
-                            // This is an internal inconsistency
-                            throw CarthageError.internalError(description: "Found transitive dependency \(nextDependency) which is not present in the Cartfile.resolved, which should never occur. Please perform a clean bootstrap.")
-                        }
-                        let nextSet = try transitiveDependencies(nextDependency, nextVersion)
-                        for transitiveDependency in nextSet where !resultSet.contains(transitiveDependency) {
-                            unhandledSet.insert(transitiveDependency)
-                        }
+                    resultSet.insert(nextDependency)
+                    //Find the recursive dependencies for this value
+                    guard let nextVersion = dependencyVersions[nextDependency] else {
+                        // This is an internal inconsistency
+                        throw CarthageError.internalError(description: "Found transitive dependency \(nextDependency) which is not present in the Cartfile.resolved, which should never occur. Please perform a clean bootstrap.")
+                    }
+                    let nextSet = try transitiveDependencies(nextDependency, nextVersion)
+                    for transitiveDependency in nextSet where !resultSet.contains(transitiveDependency) {
+                        unhandledSet.insert(transitiveDependency)
                     }
                 }
                 return .success(resultSet)

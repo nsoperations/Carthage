@@ -224,7 +224,11 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let checkoutsFolder = self.directoryURL.appendingPathComponent(Constants.checkoutsPath)
                 let urls: [URL]
                 do {
-                    urls = try FileManager.default.contentsOfDirectory(at: checkoutsFolder, includingPropertiesForKeys: nil, options: [])
+                    if checkoutsFolder.isExistingDirectory {
+                        urls = try FileManager.default.contentsOfDirectory(at: checkoutsFolder, includingPropertiesForKeys: nil, options: [])
+                    } else {
+                        urls = [URL]()
+                    }
                 } catch {
                     throw CarthageError.readFailed(checkoutsFolder, error as NSError)
                 }
