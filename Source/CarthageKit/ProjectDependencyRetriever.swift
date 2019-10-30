@@ -88,13 +88,49 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     }
 
     /// Produces the sub dependencies of the given dependency. Uses the checked out directory if able
-    public func dependencySet(for dependency: Dependency, version: PinnedVersion, mapping: ((Dependency) -> Dependency)? = nil) -> SignalProducer<Set<Dependency>, CarthageError> {
+    public func dependencySet(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<Set<Dependency>, CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: true)
-            .map { mapping?($0.0) ?? ($0.0) }
-            .collect()
-            .map { Set($0) }
-            .concat(value: Set())
-            .take(first: 1)
+            .reduce(into: Set<Dependency>(), { set, entry in
+                // This is to ensure that dependencies with the same name resolve to the one in the Cartfile.resolved
+                let effectiveDependency: Dependency = resolvedCartfile.dependency(for: entry.0.name) ?? entry.0
+                set.insert(effectiveDependency)
+            })
+    }
+
+    public func recursiveDependencySet(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<Set<Dependency>, CarthageError> {
+        return SignalProducer<Set<Dependency>, CarthageError>.init { () -> Result<Set<Dependency>, CarthageError> in
+            do {
+                let dependencyVersions = resolvedCartfile.dependencies
+
+                let transitiveDependencies: (Dependency, PinnedVersion) throws -> Set<Dependency> = { dependency, version in
+                    return try self.dependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile).first()?.get() ?? Set<Dependency>()
+                }
+
+                var resultSet = Set<Dependency>()
+                var unhandledSet = try transitiveDependencies(dependency, version)
+
+                while true {
+                    guard let nextDependency = unhandledSet.popFirst() else {
+                        break
+                    }
+                    resultSet.insert(nextDependency)
+                    //Find the recursive dependencies for this value
+                    guard let nextVersion = dependencyVersions[nextDependency] else {
+                        // This is an internal inconsistency
+                        throw CarthageError.internalError(description: "Found transitive dependency \(nextDependency) which is not present in the Cartfile.resolved, which should never occur. Please perform a clean bootstrap.")
+                    }
+                    let nextSet = try transitiveDependencies(nextDependency, nextVersion)
+                    for transitiveDependency in nextSet where !resultSet.contains(transitiveDependency) {
+                        unhandledSet.insert(transitiveDependency)
+                    }
+                }
+                return .success(resultSet)
+            } catch let error as CarthageError {
+                return .failure(error)
+            } catch {
+                return .failure(.internalError(description: "Got unexpected error: \(error)"))
+            }
+        }
     }
 
     /// Loads the dependencies for the given dependency, at the given version. Optionally can attempt to read from the Checkout directory
@@ -122,12 +158,11 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             if tryCheckoutDirectory {
                 let dependencyURL = self.directoryURL.appendingPathComponent(dependency.relativePath)
                 cartfileSource = SignalProducer<Bool, NoError> { () -> Bool in
-                    var isDirectory: ObjCBool = false
-                    return FileManager.default.fileExists(atPath: dependencyURL.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                        return dependencyURL.isExistingDirectory
                     }
                     .flatMap(.concat) { directoryExists -> SignalProducer<Cartfile, CarthageError> in
                         if directoryExists {
-                            return SignalProducer(result: Cartfile.from(file: dependencyURL.appendingPathComponent(Constants.Project.cartfilePath)))
+                            return SignalProducer(result: Cartfile.from(fileURL: dependencyURL.appendingPathComponent(Constants.Project.cartfilePath)))
                                 .flatMapError { _ in .empty }
                         } else {
                             return cartfileFetch
@@ -150,21 +185,21 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
     /// Finds all the transitive dependencies for the dependencies to checkout.
     public func transitiveDependencies(
-        _ dependenciesToCheckout: [String]?,
-        resolvedCartfile: ResolvedCartfile
-        ) -> SignalProducer<[String], CarthageError> {
+        resolvedCartfile: ResolvedCartfile,
+        includedDependencyNames: [String]? = nil
+        ) -> SignalProducer<Set<String>, CarthageError> {
         return SignalProducer(value: resolvedCartfile)
             .map { resolvedCartfile -> [(Dependency, PinnedVersion)] in
-                return resolvedCartfile.dependencies
-                    .filter { dep, _ in dependenciesToCheckout?.contains(dep.name) ?? false }
+                return resolvedCartfile.dependencies.filter { dep, _ in includedDependencyNames?.contains(dep.name) ?? true }
             }
-            .flatMap(.merge) { dependencies -> SignalProducer<[String], CarthageError> in
+            .flatMap(.merge) { dependencies -> SignalProducer<Set<String>, CarthageError> in
                 return SignalProducer<(Dependency, PinnedVersion), CarthageError>(dependencies)
                     .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> in
                         return self.dependencies(for: dependency, version: version)
                     }
-                    .map { $0.0.name }
-                    .collect()
+                    .reduce(into: Set<String>(), { set, entry in
+                        set.insert(entry.0.name)
+                    })
         }
     }
 
@@ -277,8 +312,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     public func checkoutOrCloneDependency(
         _ dependency: Dependency,
         version: PinnedVersion,
-        submodulesByPath: [String: Submodule]
-        ) -> SignalProducer<(), CarthageError> {
+        submodulesByPath: [String: Submodule],
+        resolvedCartfile: ResolvedCartfile) -> SignalProducer<(), CarthageError> {
         let revision = version.commitish
         var lock: Lock?
         return cloneOrFetchDependencyLocked(dependency, commitish: revision)
@@ -301,7 +336,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     submodule = nil
                 }
 
-                let symlinkCheckoutPaths = self.symlinkCheckoutPaths(for: dependency, version: version, withRepository: repositoryURL, atRootDirectory: self.directoryURL)
+                let symlinkCheckoutPaths = self.symlinkCheckoutPaths(for: dependency, version: version, withRepository: repositoryURL, atRootDirectory: self.directoryURL, resolvedCartfile: resolvedCartfile)
 
                 if let submodule = submodule {
                     // In the presence of `submodule` for `dependency` — before symlinking, (not after) — add submodule and its submodules:
@@ -610,16 +645,17 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         for dependency: Dependency,
         version: PinnedVersion,
         withRepository repositoryURL: URL,
-        atRootDirectory rootDirectoryURL: URL
+        atRootDirectory rootDirectoryURL: URL,
+        resolvedCartfile: ResolvedCartfile
         ) -> SignalProducer<(), CarthageError> {
         let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
         let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
-        let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(carthageProjectCheckoutsPath, isDirectory: true).resolvingSymlinksInPath()
+        let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(Constants.checkoutsPath, isDirectory: true).resolvingSymlinksInPath()
         let fileManager = FileManager.default
 
-        return dependencySet(for: dependency, version: version)
+        return self.recursiveDependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile)
             // file system objects which might conflict with symlinks
-            .zip(with: Git.list(treeish: version.commitish, atPath: carthageProjectCheckoutsPath, inRepository: repositoryURL)
+            .zip(with: Git.list(treeish: version.commitish, atPath: Constants.checkoutsPath, inRepository: repositoryURL)
                 .map { (path: String) in (path as NSString).lastPathComponent }
                 .collect()
             )
@@ -651,7 +687,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
                 for name in names {
                     let dependencyCheckoutURL = dependencyCheckoutsURL.appendingPathComponent(name)
-                    let subdirectoryPath = (carthageProjectCheckoutsPath as NSString).appendingPathComponent(name)
+                    let subdirectoryPath = (Constants.checkoutsPath as NSString).appendingPathComponent(name)
                     let linkDestinationPath = Dependencies.relativeLinkDestination(for: dependency, subdirectory: subdirectoryPath)
 
                     let dependencyCheckoutURLResource = try? dependencyCheckoutURL.resourceValues(forKeys: [

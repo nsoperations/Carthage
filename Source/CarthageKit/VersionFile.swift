@@ -103,12 +103,15 @@ struct VersionFile: Codable {
     init?(url: URL) {
         guard
             FileManager.default.fileExists(atPath: url.path),
-            let jsonData = try? Data(contentsOf: url),
-            let versionFile = try? JSONDecoder().decode(VersionFile.self, from: jsonData) else
+            let jsonData = try? Data(contentsOf: url) else
         {
             return nil
         }
-        self = versionFile
+        try? self.init(jsonData: jsonData)
+    }
+
+    init(jsonData: Data) throws {
+        self = try JSONDecoder().decode(VersionFile.self, from: jsonData)
     }
 
     func frameworkURL(
@@ -576,12 +579,19 @@ extension VersionFile {
 
         # User-specific Xcode files
         **/xcuserdata/**
-        **/*.xccheckout
+        *.xccheckout
         *.xcscmblueprint
+
+        # Do not track schemes, to avoid cache invalidation with scheme auto-generation on
+        *.xcscheme
+        IDEWorkspaceChecks.plist
+        WorkspaceSettings.xcsettings
 
         # Temporary files
         *.swp
         *.orig
+        *.ori
+        *.bak
         *.tmp
 
         # AppCode
@@ -616,7 +626,16 @@ extension VersionFile {
                 return .success(cachedHexString)
             }
             
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
+            var parentGitIgnore = defaultGitIgnore
+            
+            if let schemeCartfile = try? SchemeCartfile.from(directoryURL: dependencyDir).get() {
+                parentGitIgnore = parentGitIgnore.copy
+                for scheme in schemeCartfile.schemes {
+                    parentGitIgnore.addPattern("!\(scheme).xcscheme")
+                }
+            }
+            
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: parentGitIgnore).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }

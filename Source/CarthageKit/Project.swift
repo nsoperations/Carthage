@@ -213,18 +213,51 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         let dependenciesProducer = self.loadResolvedCartfile().map { Array($0.dependencies.keys) }
 
+        // List all the directories in the checkout dir
+
+        var allDependencyNames: Set<String>?
+        let removeNonExistingDependencyDirectories = SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
+            guard let foundDependencies = allDependencyNames else {
+                return .success(())
+            }
+            return Result<(), CarthageError>(catching: { () -> () in
+                let checkoutsFolder = self.directoryURL.appendingPathComponent(Constants.checkoutsPath)
+                let urls: [URL]
+                do {
+                    if checkoutsFolder.isExistingDirectory {
+                        urls = try FileManager.default.contentsOfDirectory(at: checkoutsFolder, includingPropertiesForKeys: nil, options: [])
+                    } else {
+                        urls = [URL]()
+                    }
+                } catch {
+                    throw CarthageError.readFailed(checkoutsFolder, error as NSError)
+                }
+                for url in urls where !foundDependencies.contains(url.lastPathComponent) {
+                    do {
+                        try FileManager.default.removeItem(at: url)
+                    } catch {
+                        throw CarthageError.internalError(description: "Could not remove directory at URL: \(url)")
+                    }
+                }
+            })
+        }
+        
+        var cartfile: ResolvedCartfile!
+
         return self.checkDependencies(dependenciesProducer: dependenciesProducer, dependenciesToCheck: dependenciesToCheckout)
             .then(self.loadResolvedCartfile()
-                .flatMap(.latest) { resolvedCartfile -> SignalProducer<([String]?, ResolvedCartfile), CarthageError> in
+                .flatMap(.latest) { resolvedCartfile -> SignalProducer<(Set<String>?, ResolvedCartfile), CarthageError> in
+                    cartfile = resolvedCartfile
                     guard let dependenciesToCheckout = dependenciesToCheckout else {
                         return SignalProducer(value: (nil, resolvedCartfile))
                     }
 
                     return self.dependencyRetriever
-                        .transitiveDependencies(dependenciesToCheckout, resolvedCartfile: resolvedCartfile)
-                        .map { (dependenciesToCheckout + $0, resolvedCartfile) }
+                        .transitiveDependencies(resolvedCartfile: resolvedCartfile, includedDependencyNames: dependenciesToCheckout)
+                        .map { (Set(dependenciesToCheckout + $0), resolvedCartfile) }
                 }
                 .map { dependenciesToCheckout, resolvedCartfile -> [(Dependency, PinnedVersion)] in
+                    allDependencyNames = Set(resolvedCartfile.dependencies.keys.map { $0.name })
                     return resolvedCartfile.dependencies
                         .filter { dep, _ in dependenciesToCheckout?.contains(dep.name) ?? true }
                 }
@@ -234,12 +267,13 @@ public final class Project { // swiftlint:disable:this type_body_length
                         .flatMap(.concurrent(limit: 4)) { dependency, version -> SignalProducer<(), CarthageError> in
                             switch dependency {
                             case .git, .gitHub:
-                                return self.dependencyRetriever.checkoutOrCloneDependency(dependency, version: version, submodulesByPath: submodulesByPath)
+                                return self.dependencyRetriever.checkoutOrCloneDependency(dependency, version: version, submodulesByPath: submodulesByPath, resolvedCartfile: cartfile)
                             case .binary:
                                 return .empty
                             }
                     }
             })
+            .then(removeNonExistingDependencyDirectories)
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
@@ -420,7 +454,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             }
         }
 
-        let cartfile = SignalProducer { Cartfile.from(file: cartfileURL) }
+        let cartfile = SignalProducer { Cartfile.from(fileURL: cartfileURL) }
             .flatMapError { error -> SignalProducer<Cartfile, CarthageError> in
                 if isNoSuchFileError(error) && FileManager.default.fileExists(atPath: privateCartfileURL.path) {
                     return SignalProducer(value: Cartfile())
@@ -429,7 +463,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer(error: error)
         }
 
-        let privateCartfile = SignalProducer { Cartfile.from(file: privateCartfileURL) }
+        let privateCartfile = SignalProducer { Cartfile.from(fileURL: privateCartfileURL) }
             .flatMapError { error -> SignalProducer<Cartfile, CarthageError> in
                 if isNoSuchFileError(error) {
                     return SignalProducer(value: Cartfile())
@@ -468,7 +502,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         return SignalProducer(value: resolvedCartfile)
             .flatMap(.concat) { (resolved: ResolvedCartfile) -> SignalProducer<([Dependency: PinnedVersion], CompatibilityInfo.Requirements), CarthageError> in
-                let requirements = self.requirementsByDependency(cartfile: cartfile, resolvedCartfile: resolved, tryCheckoutDirectory: true, dependencyRetriever: effectiveDependencyRetriever)
+                let requirements = self.requirementsByDependency(cartfile: cartfile, resolvedCartfile: resolved, tryCheckoutDirectory: false, dependencyRetriever: effectiveDependencyRetriever)
                 return SignalProducer.zip(SignalProducer(value: resolved.dependencies), requirements)
             }
             .flatMap(.concat) { (info: ([Dependency: PinnedVersion], CompatibilityInfo.Requirements)) -> SignalProducer<[CompatibilityInfo], CarthageError> in
@@ -577,7 +611,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 // Added mapping from name -> Dependency based on the ResolvedCartfile because
                 // duplicate dependencies with the same name (e.g. github forks) should resolve to the same dependency.
                 let (dependency, version) = arg
-                return self.dependencyRetriever.dependencySet(for: dependency, version: version, mapping: { cartfile.dependency(for: $0.name) ?? $0 })
+                return self.dependencyRetriever.dependencySet(for: dependency, version: version, resolvedCartfile: cartfile)
                     .map { dependencies in
                         [dependency: dependencies]
                 }
@@ -595,8 +629,17 @@ public final class Project { // swiftlint:disable:this type_body_length
                         .filter { dependency in dependenciesToInclude.contains(dependency.name) })
                 }
 
-                guard let sortedDependencies = Algorithms.topologicalSort(graph, nodes: filteredDependencies) else { // swiftlint:disable:this single_line_guard
-                    return SignalProducer(error: .dependencyCycle(graph))
+                let sortedDependencies: [Dependency]
+                switch Algorithms.topologicalSort(graph, nodes: filteredDependencies) {
+                case let .failure(error):
+                    switch error {
+                    case let .cycle(nodes):
+                        return SignalProducer(error: .dependencyCycle(nodes))
+                    case let .missing(node):
+                        return SignalProducer(error: .unknownDependencies([node.name]))
+                    }
+                case let .success(deps):
+                    sortedDependencies = deps
                 }
 
                 let sortedPinnedDependencies = cartfile.dependencies.keys
@@ -621,16 +664,19 @@ public final class Project { // swiftlint:disable:this type_body_length
         ) -> BuildSchemeProducer {
 
         let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
-
+        
+        var cartfile: ResolvedCartfile!
+        
         return loadResolvedCartfile()
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                cartfile = resolvedCartfile
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild)
             }
             .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, VersionStatus), CarthageError> in
                 let (dependency, version) = arg
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
-                    self.dependencyRetriever.dependencySet(for: dependency, version: version),
+                    self.dependencyRetriever.dependencySet(for: dependency, version: version, resolvedCartfile: cartfile),
                     VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain, checkSourceHash: options.trackLocalChanges)
                 )
             }
@@ -677,7 +723,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         // Symlink the build folder of binary downloads for consistency with regular checkouts
                         // (even though it's not necessary since binary downloads aren't built by Carthage)
-                        return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
+                        return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                             .then(.init(value: (dependency, version)))
                     }
                     .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
@@ -733,7 +779,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain).map { _ in }
                     } : nil
 
-                return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
+                return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                     .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
@@ -786,8 +832,8 @@ public final class Project { // swiftlint:disable:this type_body_length
         return checkDependencies
     }
 
-    private func symlinkBuildPathIfNeeded(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(), CarthageError> {
-        return dependencyRetriever.dependencySet(for: dependency, version: version)
+    private func symlinkBuildPathIfNeeded(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<(), CarthageError> {
+        return dependencyRetriever.recursiveDependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile)
             .flatMap(.merge) { dependencies -> SignalProducer<(), CarthageError> in
                 // Don't symlink the build folder if the dependency doesn't have
                 // any Carthage dependencies

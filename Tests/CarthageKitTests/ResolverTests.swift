@@ -482,7 +482,7 @@ class ResolverTests: XCTestCase {
         let repository = LocalDependencyStore(directoryURL: repositoryURL)
         
         do {
-            let cartfile = try Cartfile.from(file: testCartfileURL).get()
+            let cartfile = try Cartfile.from(fileURL: testCartfileURL).get()
 
             guard let resolvedCartfile1 = try project.resolveUpdatedDependencies(from: repository,
                                                                                  resolverType: resolverType.self,
@@ -588,11 +588,10 @@ class ResolverTests: XCTestCase {
 		let repositoryURL = projectDirectoryURL.appendingPathComponent("Repository")
 		
 		let project = Project(directoryURL: projectDirectoryURL)
-		let repository = LocalDependencyStore(directoryURL: repositoryURL)
-		
-		let signalProducer = project.resolveUpdatedDependencies(from: repository,
+        let repository = LocalDependencyStore(directoryURL: repositoryURL)
+        let signalProducer = project.resolveUpdatedDependencies(from: repository,
 																resolverType: resolverType.self,
-																dependenciesToUpdate: nil)
+                                                                dependenciesToUpdate: nil)
 		do {
 			guard let resolvedCartfile = try signalProducer.first()?.get() else {
 				fail("Could not load resolved cartfile")
@@ -858,8 +857,9 @@ class ResolverTests: XCTestCase {
 		expect(resolved.error).notTo(beNil())
 		if let error = resolved.error {
 			switch error {
-			case .dependencyCycle:
-				print("Dependency cycle error: \(error)")
+			case let .dependencyCycle(nodes):
+                XCTAssertEqual(nodes.count, 4)
+                XCTAssertEqual(nodes.last, nodes.first)
 			default:
 				fail("Expected error to be of type .dependencyCycle")
 			}
@@ -870,12 +870,35 @@ class ResolverTests: XCTestCase {
 extension Project {
     /// Updates dependencies by using the specified local dependency store instead of 'live' lookup for dependencies and their versions
     /// Returns a signal with the resulting ResolvedCartfile upon success or a CarthageError upon failure.
-    fileprivate func resolveUpdatedDependencies(
+    fileprivate func resolveUpdatedDependencies<T: ResolverProtocol>(
         from store: LocalDependencyStore,
-        resolverType: ResolverProtocol.Type,
-        dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
+        resolverType: T.Type,
+        dependenciesToUpdate: [String]? = nil,
+        configuration: ((T) -> Void)? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
         
         let resolver = resolverType.init(projectDependencyRetriever: store)
+        configuration?(resolver)
         return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 }
+
+final class ResolverEventLogger {
+    
+    init() {}
+    
+    func log(event: ResolverEvent) {
+        switch event {
+        case .foundVersions(let versions, let dependency, let versionSpecifier):
+            print("Versions for dependency '\(dependency)' compatible with versionSpecifier \(versionSpecifier): \(versions)")
+        case .foundTransitiveDependencies(let transitiveDependencies, let dependency, let version):
+            print("Dependencies for dependency '\(dependency)' with version \(version): \(transitiveDependencies)")
+        case .failedRetrievingTransitiveDependencies(let error, let dependency, let version):
+            print("Caught error while retrieving dependencies for \(dependency) at version \(version): \(error)")
+        case .failedRetrievingVersions(let error, let dependency, _):
+            print("Caught error while retrieving versions for \(dependency): \(error)")
+        case .rejected(let dependencySet, let error):
+            print("Rejected dependency set:\n\(dependencySet)\n\nReason: \(error)\n")
+        }
+    }
+}
+

@@ -224,4 +224,35 @@ class VersionFileTests: XCTestCase {
 			commitish: "v1.0", hashes: ["TestHASH"], swiftVersionMatches: [true]
 		)
 	}
+
+    func testPlatforms() throws {
+
+        let versionFileJSON =
+        """
+        {
+          "sourceHash" : "5318923f7d6f5f3241201bfe0c08701736ee61537a85dbeb8c5ed54fe1c79b10",
+          "configuration" : "Debug",
+          "watchOS" : [
+
+          ],
+          "commitish" : "5.9.2",
+          "iOS" : [
+            {
+              "name" : "INGStyleKit",
+              "hash" : "cc4910feafc10b4ad7f989f0f655966db9295e841cc1a198755e6ff858f2bde4",
+              "swiftToolchainVersion" : "5.0+fa58fb777c65bdcab8df8c9b682c929f"
+            }
+          ]
+        }
+        """
+
+        let versionFile = try VersionFile(jsonData: versionFileJSON.data(using: .utf8)!)
+
+        validate(file: versionFile,
+                 matches: true,
+                 platform: .iOS,
+                 commitish: "5.9.2",
+                 hashes: ["cc4910feafc10b4ad7f989f0f655966db9295e841cc1a198755e6ff858f2bde4"],
+                 swiftVersionMatches: [true])
+    }
 }

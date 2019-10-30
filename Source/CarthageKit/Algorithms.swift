@@ -1,3 +1,8 @@
+enum TopologicalSortError<Node: Comparable>: Error {
+    case cycle(nodes: [Node])
+    case missing(node: Node)
+}
+
 final class Algorithms {
 
     /// Returns an array containing the topologically sorted nodes of the provided
@@ -28,7 +33,7 @@ final class Algorithms {
     ///
     /// Nodes that are equal from a topological perspective are sorted by the
     /// strict total order as defined by `Comparable`.
-    static func topologicalSort<Node: Comparable>(_ graph: [Node: Set<Node>]) -> [Node]? {
+    static func topologicalSort<Node: Comparable>(_ graph: [Node: Set<Node>]) -> Result<[Node], TopologicalSortError<Node>> {
         // Maintain a list of nodes with no incoming edges (sources).
         var sources = graph
             .filter { _, incomingEdges in incomingEdges.isEmpty }
@@ -58,8 +63,30 @@ final class Algorithms {
                 }
             }
         }
+        return workingGraph.isEmpty ? .success(sorted) : .failure(sortError(graph: workingGraph))
+    }
 
-        return workingGraph.isEmpty ? sorted : nil
+    private static func sortError<Node>(graph: [Node: Set<Node>]) -> TopologicalSortError<Node> {
+
+        // Assuming for graph now all nodes have incoming edges
+        guard var nextNode = graph.first?.key else {
+            preconditionFailure("Graph should not be empty")
+        }
+
+        var handledNodeIndexes = [Node: Int]()
+        var cycle = [Node]()
+
+        repeat {
+            handledNodeIndexes[nextNode] = cycle.count
+            cycle.append(nextNode)
+            guard let next = graph[nextNode]?.first else {
+                return .missing(node: nextNode)
+            }
+            nextNode = next
+        } while handledNodeIndexes[nextNode] == nil
+
+        let firstIndex = handledNodeIndexes[nextNode]!
+        return .cycle(nodes: Array(cycle[firstIndex..<cycle.count]) + [nextNode])
     }
 
     /// Performs a topological sort on the provided graph with its output sorted to
@@ -73,7 +100,7 @@ final class Algorithms {
     /// given graph.
     ///
     /// Returns nil if the provided graph has a cycle or is malformed.
-    static func topologicalSort<Node: Comparable>(_ graph: [Node: Set<Node>], nodes: Set<Node>?) -> [Node]? {
+    static func topologicalSort<Node: Comparable>(_ graph: [Node: Set<Node>], nodes: Set<Node>?) -> Result<[Node], TopologicalSortError<Node>> {
         guard let includeNodes = nodes else {
             return Algorithms.topologicalSort(graph)
         }
@@ -82,15 +109,16 @@ final class Algorithms {
 
         // Ensure that the graph has no cycles, otherwise determining the set of
         // transitive incoming nodes could infinitely recurse.
-        guard let sorted = Algorithms.topologicalSort(graph) else {
-            return nil
+        let result = Algorithms.topologicalSort(graph)
+        guard let sorted = try? result.get() else {
+            return result
         }
 
         let relevantNodes = Set(includeNodes.flatMap { (node: Node) -> Set<Node> in
             Set([node]).union(Algorithms.transitiveIncomingNodes(graph, node: node))
         })
 
-        return sorted.filter { node in relevantNodes.contains(node) }
+        return .success(sorted.filter { node in relevantNodes.contains(node) })
     }
 
     /// Returns the set of nodes that the given node in the provided graph has as

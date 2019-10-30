@@ -1,8 +1,40 @@
 import Foundation
 import Result
 
-/// The relative path to a project's checked out dependencies.
-public let carthageProjectCheckoutsPath = "Carthage/Checkouts"
+public protocol CartfileProtocol {
+    static var relativePath: String { get }
+    static func from(fileURL: URL) -> Result<Self, CarthageError>
+    static func from(string: String) -> Result<Self, CarthageError>
+}
+
+extension CartfileProtocol {
+    /// Returns the location where Cartfile should exist within the given
+    /// directory.
+    public static func url(in directoryURL: URL) -> URL {
+        return directoryURL.appendingPathComponent(self.relativePath, isDirectory: false)
+    }
+
+    public static func from(fileURL: URL) -> Result<Self, CarthageError> {
+        return Result(catching: { try String(contentsOf: fileURL, encoding: .utf8) })
+            .mapError { .readFailed(fileURL, $0) }
+            .flatMap(self.from)
+            .mapError { error in
+                guard case let .duplicateDependencies(dupes) = error else { return error }
+                let dependencies = dupes
+                    .map { dupe in
+                        return DuplicateDependency(
+                            dependency: dupe.dependency,
+                            locations: [ fileURL.path ]
+                        )
+                }
+                return .duplicateDependencies(dependencies)
+            }
+    }
+
+    public static func from(directoryURL: URL) -> Result<Self, CarthageError> {
+        return from(fileURL: url(in: directoryURL))
+    }
+}
 
 /// Represents a Cartfile, which is a specification of a project's dependencies
 /// and any other settings Carthage needs to build it.
@@ -17,10 +49,17 @@ public struct Cartfile {
         self.dependencies = dependencies
     }
 
-    /// Returns the location where Cartfile should exist within the given
-    /// directory.
-    public static func url(in directoryURL: URL) -> URL {
-        return directoryURL.appendingPathComponent(Constants.Project.cartfilePath)
+    /// Appends the contents of another Cartfile to that of the receiver.
+    public mutating func append(_ cartfile: Cartfile) {
+        for (dependency, version) in cartfile.dependencies {
+            dependencies[dependency] = version
+        }
+    }
+}
+
+extension Cartfile: CartfileProtocol {
+    public static var relativePath: String {
+        return Constants.Project.cartfilePath
     }
 
     /// Attempts to parse Cartfile information from a string.
@@ -92,32 +131,6 @@ public struct Cartfile {
             return .success(Cartfile(dependencies: dependencies))
         }
     }
-
-    /// Attempts to parse a Cartfile from a file at a given URL.
-    public static func from(file cartfileURL: URL) -> Result<Cartfile, CarthageError> {
-        return Result(catching: { try String(contentsOf: cartfileURL, encoding: .utf8) })
-            .mapError { .readFailed(cartfileURL, $0) }
-            .flatMap(Cartfile.from(string:))
-            .mapError { error in
-                guard case let .duplicateDependencies(dupes) = error else { return error }
-
-                let dependencies = dupes
-                    .map { dupe in
-                        return DuplicateDependency(
-                            dependency: dupe.dependency,
-                            locations: [ cartfileURL.path ]
-                        )
-                }
-                return .duplicateDependencies(dependencies)
-        }
-    }
-
-    /// Appends the contents of another Cartfile to that of the receiver.
-    public mutating func append(_ cartfile: Cartfile) {
-        for (dependency, version) in cartfile.dependencies {
-            dependencies[dependency] = version
-        }
-    }
 }
 
 extension Cartfile: CustomStringConvertible {
@@ -164,11 +177,11 @@ public struct ResolvedCartfile {
             return nil
         }
     }
+}
 
-    /// Returns the location where Cartfile.resolved should exist within the given
-    /// directory.
-    public static func url(in directoryURL: URL) -> URL {
-        return directoryURL.appendingPathComponent(Constants.Project.resolvedCartfilePath, isDirectory: false)
+extension ResolvedCartfile: CartfileProtocol {
+    public static var relativePath: String {
+        return Constants.Project.resolvedCartfilePath
     }
 
     /// Attempts to parse Cartfile.resolved information from a string.
@@ -199,20 +212,15 @@ public struct SchemeCartfile {
         self.schemes = Set(schemes)
     }
 
-    /// Returns the location where Cartfile.schemes should exist within the given
-    /// directory.
-    public static func url(in directoryURL: URL) -> URL {
-        return directoryURL.appendingPathComponent(Constants.Project.schemesCartfilePath, isDirectory: false)
+    public var matcher: SchemeMatcher {
+        return LitteralSchemeMatcher(schemeNames: schemes)
     }
+}
 
-    public static func from(url: URL) -> Result<SchemeCartfile, CarthageError> {
-        return Result(catching: { try String(contentsOf: url, encoding: .utf8) })
-            .mapError { .readFailed(url, $0) }
-            .flatMap(SchemeCartfile.from)
-    }
+extension SchemeCartfile: CartfileProtocol {
 
-    public static func from(directoryURL: URL) -> Result<SchemeCartfile, CarthageError> {
-        return from(url: url(in: directoryURL))
+    public static var relativePath: String {
+        return Constants.Project.schemesCartfilePath
     }
 
     public static func from(string: String) -> Result<SchemeCartfile, CarthageError> {
@@ -229,10 +237,6 @@ public struct SchemeCartfile {
             }
         }
         return .success(SchemeCartfile(schemes: schemes))
-    }
-
-    public var matcher: SchemeMatcher {
-        return LitteralSchemeMatcher(schemeNames: schemes)
     }
 }
 
