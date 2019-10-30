@@ -65,6 +65,7 @@ See [Installing Carthage](#installing-carthage)
 
 ### 0.40.1+nsoperations
 
+- Fixed bug where checkout (or bootstrap/update) would not properly clean left over files from a previous checkout leading to unexpected results
 - Increased simulator discovery timeout from 3 to 10 seconds to avoid issues on some systems.
 - Fixed bug where carthage validate would fail if the checkouts folder was not up to date
 - Improved message which is printed when a dependency cycle is present: now print the actual cycle
