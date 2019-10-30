@@ -155,9 +155,27 @@ public func duplicateDependenciesIn(_ cartfile1: Cartfile, _ cartfile2: Cartfile
 public struct ResolvedCartfile {
     /// The dependencies listed in the Cartfile.resolved.
     public let dependencies: [Dependency: PinnedVersion]
+    private let dependenciesByName: [String: Dependency]
 
     public init(dependencies: [Dependency: PinnedVersion]) {
         self.dependencies = dependencies
+        var dependenciesByName = [String: Dependency]()
+        for (dependency, _) in dependencies {
+            dependenciesByName[dependency.name] = dependency
+        }
+        self.dependenciesByName = dependenciesByName
+    }
+
+    public func dependency(for name: String) -> Dependency? {
+        return dependenciesByName[name]
+    }
+
+    public func version(for name: String) -> PinnedVersion? {
+        if let dependency = dependency(for: name) {
+            return dependencies[dependency]
+        } else {
+            return nil
+        }
     }
 }
 

@@ -237,10 +237,13 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             })
         }
+        
+        var cartfile: ResolvedCartfile!
 
         return self.checkDependencies(dependenciesProducer: dependenciesProducer, dependenciesToCheck: dependenciesToCheckout)
             .then(self.loadResolvedCartfile()
                 .flatMap(.latest) { resolvedCartfile -> SignalProducer<(Set<String>?, ResolvedCartfile), CarthageError> in
+                    cartfile = resolvedCartfile
                     guard let dependenciesToCheckout = dependenciesToCheckout else {
                         return SignalProducer(value: (nil, resolvedCartfile))
                     }
@@ -260,7 +263,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         .flatMap(.concurrent(limit: 4)) { dependency, version -> SignalProducer<(), CarthageError> in
                             switch dependency {
                             case .git, .gitHub:
-                                return self.dependencyRetriever.checkoutOrCloneDependency(dependency, version: version, submodulesByPath: submodulesByPath)
+                                return self.dependencyRetriever.checkoutOrCloneDependency(dependency, version: version, submodulesByPath: submodulesByPath, resolvedCartfile: cartfile)
                             case .binary:
                                 return .empty
                             }
@@ -604,7 +607,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 // Added mapping from name -> Dependency based on the ResolvedCartfile because
                 // duplicate dependencies with the same name (e.g. github forks) should resolve to the same dependency.
                 let (dependency, version) = arg
-                return self.dependencyRetriever.dependencySet(for: dependency, version: version)
+                return self.dependencyRetriever.dependencySet(for: dependency, version: version, resolvedCartfile: cartfile)
                     .map { dependencies in
                         [dependency: dependencies]
                 }
@@ -657,16 +660,19 @@ public final class Project { // swiftlint:disable:this type_body_length
         ) -> BuildSchemeProducer {
 
         let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
-
+        
+        var cartfile: ResolvedCartfile!
+        
         return loadResolvedCartfile()
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                cartfile = resolvedCartfile
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild)
             }
             .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, VersionStatus), CarthageError> in
                 let (dependency, version) = arg
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
-                    self.dependencyRetriever.dependencySet(for: dependency, version: version),
+                    self.dependencyRetriever.dependencySet(for: dependency, version: version, resolvedCartfile: cartfile),
                     VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain, checkSourceHash: options.trackLocalChanges)
                 )
             }
@@ -713,7 +719,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         // Symlink the build folder of binary downloads for consistency with regular checkouts
                         // (even though it's not necessary since binary downloads aren't built by Carthage)
-                        return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
+                        return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                             .then(.init(value: (dependency, version)))
                     }
                     .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
@@ -769,7 +775,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain).map { _ in }
                     } : nil
 
-                return self.symlinkBuildPathIfNeeded(for: dependency, version: version)
+                return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                     .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
@@ -822,8 +828,8 @@ public final class Project { // swiftlint:disable:this type_body_length
         return checkDependencies
     }
 
-    private func symlinkBuildPathIfNeeded(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(), CarthageError> {
-        return dependencyRetriever.recursiveDependencySet(for: dependency, version: version)
+    private func symlinkBuildPathIfNeeded(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<(), CarthageError> {
+        return dependencyRetriever.recursiveDependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile)
             .flatMap(.merge) { dependencies -> SignalProducer<(), CarthageError> in
                 // Don't symlink the build folder if the dependency doesn't have
                 // any Carthage dependencies

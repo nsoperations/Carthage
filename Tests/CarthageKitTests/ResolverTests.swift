@@ -588,11 +588,10 @@ class ResolverTests: XCTestCase {
 		let repositoryURL = projectDirectoryURL.appendingPathComponent("Repository")
 		
 		let project = Project(directoryURL: projectDirectoryURL)
-		let repository = LocalDependencyStore(directoryURL: repositoryURL)
-		
-		let signalProducer = project.resolveUpdatedDependencies(from: repository,
+        let repository = LocalDependencyStore(directoryURL: repositoryURL)
+        let signalProducer = project.resolveUpdatedDependencies(from: repository,
 																resolverType: resolverType.self,
-																dependenciesToUpdate: nil)
+                                                                dependenciesToUpdate: nil)
 		do {
 			guard let resolvedCartfile = try signalProducer.first()?.get() else {
 				fail("Could not load resolved cartfile")
@@ -871,26 +870,35 @@ class ResolverTests: XCTestCase {
 extension Project {
     /// Updates dependencies by using the specified local dependency store instead of 'live' lookup for dependencies and their versions
     /// Returns a signal with the resulting ResolvedCartfile upon success or a CarthageError upon failure.
-    fileprivate func resolveUpdatedDependencies(
+    fileprivate func resolveUpdatedDependencies<T: ResolverProtocol>(
         from store: LocalDependencyStore,
-        resolverType: ResolverProtocol.Type,
-        dependenciesToUpdate: [String]? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
+        resolverType: T.Type,
+        dependenciesToUpdate: [String]? = nil,
+        configuration: ((T) -> Void)? = nil) -> SignalProducer<ResolvedCartfile, CarthageError> {
         
         let resolver = resolverType.init(projectDependencyRetriever: store)
+        configuration?(resolver)
         return updatedResolvedCartfile(dependenciesToUpdate, resolver: resolver)
     }
 }
 
-extension ResolvedCartfile {
-    private func dependency(for name: String) -> Dependency? {
-        return dependencies.keys.first(where: { $0.name == name })
-    }
+final class ResolverEventLogger {
     
-    fileprivate func version(for name: String) -> PinnedVersion? {
-        if let dependency = dependency(for: name) {
-            return dependencies[dependency]
-        } else {
-            return nil
+    init() {}
+    
+    func log(event: ResolverEvent) {
+        switch event {
+        case .foundVersions(let versions, let dependency, let versionSpecifier):
+            print("Versions for dependency '\(dependency)' compatible with versionSpecifier \(versionSpecifier): \(versions)")
+        case .foundTransitiveDependencies(let transitiveDependencies, let dependency, let version):
+            print("Dependencies for dependency '\(dependency)' with version \(version): \(transitiveDependencies)")
+        case .failedRetrievingTransitiveDependencies(let error, let dependency, let version):
+            print("Caught error while retrieving dependencies for \(dependency) at version \(version): \(error)")
+        case .failedRetrievingVersions(let error, let dependency, _):
+            print("Caught error while retrieving versions for \(dependency): \(error)")
+        case .rejected(let dependencySet, let error):
+            print("Rejected dependency set:\n\(dependencySet)\n\nReason: \(error)\n")
         }
     }
 }
+

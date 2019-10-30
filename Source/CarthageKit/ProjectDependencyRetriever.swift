@@ -88,21 +88,22 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     }
 
     /// Produces the sub dependencies of the given dependency. Uses the checked out directory if able
-    public func dependencySet(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<Set<Dependency>, CarthageError> {
+    public func dependencySet(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<Set<Dependency>, CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: true)
             .reduce(into: Set<Dependency>(), { set, entry in
-                set.insert(entry.0)
+                // This is to ensure that dependencies with the same name resolve to the one in the Cartfile.resolved
+                let effectiveDependency: Dependency = resolvedCartfile.dependency(for: entry.0.name) ?? entry.0
+                set.insert(effectiveDependency)
             })
     }
 
-    public func recursiveDependencySet(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<Set<Dependency>, CarthageError> {
+    public func recursiveDependencySet(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<Set<Dependency>, CarthageError> {
         return SignalProducer<Set<Dependency>, CarthageError>.init { () -> Result<Set<Dependency>, CarthageError> in
             do {
-                let rootCartfile = try ResolvedCartfile.from(directoryURL: self.directoryURL).get()
-                let dependencyVersions = rootCartfile.dependencies
+                let dependencyVersions = resolvedCartfile.dependencies
 
                 let transitiveDependencies: (Dependency, PinnedVersion) throws -> Set<Dependency> = { dependency, version in
-                    return try self.dependencySet(for: dependency, version: version).first()?.get() ?? Set<Dependency>()
+                    return try self.dependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile).first()?.get() ?? Set<Dependency>()
                 }
 
                 var resultSet = Set<Dependency>()
@@ -313,8 +314,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     public func checkoutOrCloneDependency(
         _ dependency: Dependency,
         version: PinnedVersion,
-        submodulesByPath: [String: Submodule]
-        ) -> SignalProducer<(), CarthageError> {
+        submodulesByPath: [String: Submodule],
+        resolvedCartfile: ResolvedCartfile) -> SignalProducer<(), CarthageError> {
         let revision = version.commitish
         var lock: Lock?
         return cloneOrFetchDependencyLocked(dependency, commitish: revision)
@@ -337,7 +338,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     submodule = nil
                 }
 
-                let symlinkCheckoutPaths = self.symlinkCheckoutPaths(for: dependency, version: version, withRepository: repositoryURL, atRootDirectory: self.directoryURL)
+                let symlinkCheckoutPaths = self.symlinkCheckoutPaths(for: dependency, version: version, withRepository: repositoryURL, atRootDirectory: self.directoryURL, resolvedCartfile: resolvedCartfile)
 
                 if let submodule = submodule {
                     // In the presence of `submodule` for `dependency` — before symlinking, (not after) — add submodule and its submodules:
@@ -646,14 +647,15 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         for dependency: Dependency,
         version: PinnedVersion,
         withRepository repositoryURL: URL,
-        atRootDirectory rootDirectoryURL: URL
+        atRootDirectory rootDirectoryURL: URL,
+        resolvedCartfile: ResolvedCartfile
         ) -> SignalProducer<(), CarthageError> {
         let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
         let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
         let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(Constants.checkoutsPath, isDirectory: true).resolvingSymlinksInPath()
         let fileManager = FileManager.default
 
-        return self.recursiveDependencySet(for: dependency, version: version)
+        return self.recursiveDependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile)
             // file system objects which might conflict with symlinks
             .zip(with: Git.list(treeish: version.commitish, atPath: Constants.checkoutsPath, inRepository: repositoryURL)
                 .map { (path: String) in (path as NSString).lastPathComponent }

@@ -228,7 +228,7 @@ final class DependencySet {
     }
 
     /**
-     Eliminates dependencies with duplicate names, keeping the most relevant once.
+     Eliminates dependencies with duplicate names, keeping the most relevant one.
 
      The carthage model does not allow two dependencies with the same name, this is because forks should be allowed to override their upstreams.
      */
