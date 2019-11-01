@@ -82,7 +82,7 @@ public final class BackTrackingResolver: ResolverProtocol {
                     }
                     throw rejectionError
                 } else {
-                    throw CarthageError.internalError(description: "No dependency set was resolved and no resolver error was present. This should never happen.")
+                    throw CarthageError.assertionError(description: "No dependency set was resolved and no resolver error was present. This should never happen.")
                 }
             }
             result = .success(resolverResult.dependencySet.resolvedDependencies)

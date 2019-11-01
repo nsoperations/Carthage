@@ -175,8 +175,8 @@ public final class Project { // swiftlint:disable:this type_body_length
             self.dependencyRetriever.netrc = try? Netrc.load().get()
         }
 
-        URLLock.globalWaitHandler = { urlLock in
-            observer.send(value: .waiting(urlLock.url))
+        URLLock.globalWaitHandler = { url in
+            observer.send(value: .waiting(url))
         }
     }
 

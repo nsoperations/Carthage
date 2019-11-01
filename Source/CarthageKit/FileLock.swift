@@ -47,11 +47,12 @@ final class FileLock: Lock {
     private var wasLocked = false
     let lockFileURL: URL
     let isRecursive: Bool
-    var onWait: ((FileLock) -> Void)?
+    let onWait: ((FileLock) -> Void)?
 
-    init(lockFileURL: URL, isRecursive: Bool = true) {
+    init(lockFileURL: URL, isRecursive: Bool = true, onWait: ((FileLock) -> Void)? = nil) {
         self.lockFileURL = lockFileURL
         self.isRecursive = isRecursive
+        self.onWait = onWait
     }
 
     deinit {
@@ -146,21 +147,16 @@ final class URLLock: Lock {
 
     let url: URL
     private let fileLock: FileLock
-    var onWait: ((URLLock) -> Void)? {
-        didSet {
-            fileLock.onWait = { [weak self] fileLock in
-                guard let self = self else { return }
-                self.onWait?(self)
+    
+    convenience init(url: URL, isRecursive: Bool = true, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy, onWait: ((URL) -> Void)? = URLLock.globalWaitHandler) {
+        self.init(url: url, lockFileURL: lockFileNamingStrategy(url), isRecursive: isRecursive, onWait: onWait)
+    }
+
+    convenience init(url: URL, lockFileURL: URL, isRecursive: Bool = true, onWait: ((URL) -> Void)? = URLLock.globalWaitHandler) {
+        self.init(url: url, fileLock: FileLock(lockFileURL: lockFileURL, isRecursive: isRecursive, onWait: { _ in
+            onWait?(url)
             }
-        }
-    }
-
-    convenience init(url: URL, isRecursive: Bool = true, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
-        self.init(url: url, lockFileURL: lockFileNamingStrategy(url), isRecursive: isRecursive)
-    }
-
-    convenience init(url: URL, lockFileURL: URL, isRecursive: Bool = true) {
-        self.init(url: url, fileLock: FileLock(lockFileURL: lockFileURL, isRecursive: isRecursive))
+        ))
     }
     
     init(url: URL, fileLock: FileLock) {
@@ -180,31 +176,28 @@ final class URLLock: Lock {
     func unlock() -> Bool {
         return fileLock.unlock()
     }
-    
-    func locked<T>(timeout: Int? = nil, perform: () -> T) throws -> T {
-        guard lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
-            throw CarthageError.lockError(url: url, timeout: timeout)
-        }
-        
-        defer {
-            unlock()
-        }
-        
-        return perform()
-    }
 }
 
 extension URLLock {
-    static var globalWaitHandler: ((URLLock) -> Void)?
+    static var globalWaitHandler: ((URL) -> Void)?
 
-    static func lockReactive(url: URL, timeout: Int? = nil, onWait: ((URLLock) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
+    static func lockReactive(url: URL, timeout: Int? = nil, onWait: ((URL) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
         return SignalProducer({ () -> Result<URLLock, CarthageError> in
-            let lock = URLLock(url: url)
-            lock.onWait = onWait
+            let lock = URLLock(url: url, onWait: onWait)
             guard lock.lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
                 return .failure(CarthageError.lockError(url: url, timeout: timeout))
             }
             return .success(lock)
         })
+    }
+    
+    func locked<T>(timeout: Int? = nil, onWait: ((URL) -> Void)? = URLLock.globalWaitHandler, perform: (URL) throws -> T) -> Result<T, CarthageError> {
+        guard lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
+            return .failure(.lockError(url: url, timeout: timeout))
+        }
+        defer {
+            unlock()
+        }
+        return CarthageResult.catching { try perform(url) }
     }
 }
