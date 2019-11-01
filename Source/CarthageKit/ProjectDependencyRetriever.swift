@@ -77,14 +77,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     /// Returns a signal which will send the URL to the repository's folder on
     /// disk once cloning or fetching has completed.
     public func cloneOrFetchDependency(_ dependency: Dependency, commitish: String? = nil) -> SignalProducer<URL, CarthageError> {
-        var lock: Lock?
-        return cloneOrFetchDependencyLocked(dependency, commitish: commitish)
-            .map { urlLock in
-                lock = urlLock
-                return urlLock.url }
-            .on(terminated: {
-                lock?.unlock()
-            })
+        let result = cloneOrFetchDependencyLockedNonReactive(dependency, commitish: commitish) { $0 }
+        return SignalProducer(result: result)
     }
 
     /// Produces the sub dependencies of the given dependency. Uses the checked out directory if able
@@ -180,6 +174,36 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         case .binary:
             // Binary-only frameworks do not support dependencies
             return .empty
+        }
+    }
+
+    /// Loads the dependencies for the given dependency, at the given version. Optionally can attempt to read from the Checkout directory
+    public func dependenciesNonReactive(
+        for dependency: Dependency,
+        version: PinnedVersion,
+        tryCheckoutDirectory: Bool
+        ) -> Result<[(Dependency, VersionSpecifier)], CarthageError> {
+        switch dependency {
+        case .git, .gitHub:
+            let revision = version.commitish
+            let cartfile: Cartfile?
+            let dependencyURL = self.directoryURL.appendingPathComponent(dependency.relativePath)
+
+            if tryCheckoutDirectory && dependencyURL.isExistingDirectory {
+                cartfile = Cartfile.from(directoryURL: dependencyURL).value
+            } else {
+                cartfile = cloneOrFetchDependencyLockedNonReactive(dependency, commitish: revision) { url -> Cartfile in
+                    return try Git.contentsOfFileInRepository(url, Constants.Project.cartfilePath, revision: revision)
+                        .only()
+                        .flatMap(Cartfile.from(string:))
+                        .get()
+                }.value
+            }
+            return .success(cartfile?.dependencies.map { ($0.0, $0.1) } ?? [])
+
+        case .binary:
+            // Binary-only frameworks do not support dependencies
+            return .success([])
         }
     }
 
@@ -501,6 +525,10 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             .startOnQueue(cloneOrFetchQueue)
     }
 
+    private func cloneOrFetchDependencyLockedNonReactive<T>(_ dependency: Dependency, commitish: String? = nil, perform: (URL) throws -> T) -> Result<T, CarthageError> {
+        return ProjectDependencyRetriever.cloneOrFetchLockedNonReactive(dependency: dependency, preferHTTPS: self.preferHTTPS, lockTimeout: self.lockTimeout, commitish: commitish, observer: { self.projectEventsObserver?.send(value: $0) }, perform: perform)
+    }
+
     private static func cloneOrFetchLocked(
         dependency: Dependency,
         preferHTTPS: Bool,
@@ -574,15 +602,15 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             })
     }
     
-    private static func cloneOrFetchLockedNonReactive(
+    private static func cloneOrFetchLockedNonReactive<T>(
         dependency: Dependency,
         preferHTTPS: Bool,
         lockTimeout: Int?,
         destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil,
         observer: ((ProjectEvent) -> Void)? = nil,
-        perform: ((URL) -> Void)? = nil
-        ) -> Result<(), CarthageError> {
+        perform: (URL) throws -> T
+        ) -> Result<T, CarthageError> {
         
         let repositoryURL = Dependencies.repositoryFileURL(for: dependency, baseURL: destinationURL)
         
@@ -593,7 +621,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             
             let isRepository = try Git.isGitRepository(repositoryURL).getOnly()
             
-            repeat {
+            fetch: do {
                 if isRepository {
                     
                     // If we've already cloned the repo, check for the revision, possibly skipping an unnecessary fetch
@@ -603,12 +631,12 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         
                         // If the given commitish is a branch, we should fetch.
                         if !branchExists && commitExists {
-                            break
+                            break fetch
                         }
                     }
                     
                     guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
-                        break
+                        break fetch
                     }
                     
                     observer?(.fetching(dependency))
@@ -618,9 +646,9 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     observer?(.cloning(dependency))
                     try Git.cloneRepository(remoteURL, repositoryURL).getOnly()
                 }
-            } while false
+            }
             
-            perform?(url)
+            return try perform(url)
         }
     }
 
