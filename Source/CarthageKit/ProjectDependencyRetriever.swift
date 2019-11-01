@@ -573,6 +573,129 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 lock?.unlock()
             })
     }
+    
+    private static func cloneOrFetchLockedNonReactive(
+        dependency: Dependency,
+        preferHTTPS: Bool,
+        lockTimeout: Int?,
+        destinationURL: URL = Constants.Dependency.repositoriesURL,
+        commitish: String? = nil
+        ) -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> {
+        let fileManager = FileManager.default
+        let repositoryURL = Dependencies.repositoryFileURL(for: dependency, baseURL: destinationURL)
+        
+        let lock = URLLock(url: repositoryURL)
+        
+        lock.locked(timeout: lockTimeout) {
+            let remoteURL = dependency.gitURL(preferHTTPS: preferHTTPS)!
+            let isRepository = Git.isGitRepository(repositoryURL)
+            
+            if isRepository {
+                
+                let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
+                    guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
+                        return SignalProducer(value: (nil, urlLock))
+                    }
+
+                    return SignalProducer(value: (.fetching(dependency), urlLock))
+                        .concat(
+                            Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
+                                .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
+                    )
+                }
+
+                // If we've already cloned the repo, check for the revision, possibly skipping an unnecessary fetch
+                if let commitish = commitish {
+                    return SignalProducer.zip(
+                        Git.branchExistsInRepository(repositoryURL, pattern: commitish),
+                        Git.commitExistsInRepository(repositoryURL, revision: commitish)
+                        )
+                        .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+                            // If the given commitish is a branch, we should fetch.
+                            if branchExists || !commitExists {
+                                return fetchProducer()
+                            } else {
+                                return SignalProducer(value: (nil, urlLock))
+                            }
+                    }
+                } else {
+                    return fetchProducer()
+                }
+            } else {
+                // Either the directory didn't exist or it did but wasn't a git repository
+                // (Could happen if the process is killed during a previous directory creation)
+                // So we remove it, then clone
+                _ = try? fileManager.removeItem(at: repositoryURL)
+                return SignalProducer(value: (.cloning(dependency), urlLock))
+                    .concat(
+                        Git.cloneRepository(remoteURL, repositoryURL)
+                            .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
+                )
+            }
+        }
+        
+
+        return URLLock.lockReactive(url: repositoryURL, timeout: lockTimeout, onWait: { _ in })
+            .map { urlLock in
+                lock = urlLock
+                return dependency.gitURL(preferHTTPS: preferHTTPS)!
+            }
+            .flatMap(.merge) { (remoteURL: GitURL) -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+
+                guard let urlLock = lock else {
+                    fatalError("Lock should be not nil at this point")
+                }
+
+                return Git.isGitRepository(repositoryURL)
+                    .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+                        if isRepository {
+                            let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
+                                guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
+                                    return SignalProducer(value: (nil, urlLock))
+                                }
+
+                                return SignalProducer(value: (.fetching(dependency), urlLock))
+                                    .concat(
+                                        Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
+                                            .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
+                                )
+                            }
+
+                            // If we've already cloned the repo, check for the revision, possibly skipping an unnecessary fetch
+                            if let commitish = commitish {
+                                return SignalProducer.zip(
+                                    Git.branchExistsInRepository(repositoryURL, pattern: commitish),
+                                    Git.commitExistsInRepository(repositoryURL, revision: commitish)
+                                    )
+                                    .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+                                        // If the given commitish is a branch, we should fetch.
+                                        if branchExists || !commitExists {
+                                            return fetchProducer()
+                                        } else {
+                                            return SignalProducer(value: (nil, urlLock))
+                                        }
+                                }
+                            } else {
+                                return fetchProducer()
+                            }
+                        } else {
+                            // Either the directory didn't exist or it did but wasn't a git repository
+                            // (Could happen if the process is killed during a previous directory creation)
+                            // So we remove it, then clone
+                            _ = try? fileManager.removeItem(at: repositoryURL)
+                            return SignalProducer(value: (.cloning(dependency), urlLock))
+                                .concat(
+                                    Git.cloneRepository(remoteURL, repositoryURL)
+                                        .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
+                            )
+                        }
+                }
+            }.on(failed: { _ in
+                lock?.unlock()
+            }, interrupted: {
+                lock?.unlock()
+            })
+    }
 
     /// Effective binaries cache
     private func binariesCache(for dependency: Dependency, customCacheCommand: String?) -> BinariesCache? {

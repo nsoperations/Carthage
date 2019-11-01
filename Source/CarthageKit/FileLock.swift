@@ -162,7 +162,7 @@ final class URLLock: Lock {
     convenience init(url: URL, lockFileURL: URL, isRecursive: Bool = true) {
         self.init(url: url, fileLock: FileLock(lockFileURL: lockFileURL, isRecursive: isRecursive))
     }
-
+    
     init(url: URL, fileLock: FileLock) {
         self.url = url
         self.fileLock = fileLock
@@ -179,6 +179,18 @@ final class URLLock: Lock {
     @discardableResult
     func unlock() -> Bool {
         return fileLock.unlock()
+    }
+    
+    func locked<T>(timeout: Int? = nil, perform: () -> T) throws -> T {
+        guard lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
+            throw CarthageError.lockError(url: url, timeout: timeout)
+        }
+        
+        defer {
+            unlock()
+        }
+        
+        return perform()
     }
 }
 
