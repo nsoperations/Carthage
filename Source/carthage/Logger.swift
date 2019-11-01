@@ -74,6 +74,9 @@ final class ProjectEventLogger {
 
         case let .waiting(url):
             carthage.println(formatting.bullets + "Waiting for lock on " + url.path)
+            
+        case let .warning(message):
+            carthage.println(formatting.bullets + "Warning: " + message)
         }
     }
 }

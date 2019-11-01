@@ -59,6 +59,9 @@ public enum ProjectEvent {
 
     /// Waiting for a lock on the specified URL.
     case waiting(URL)
+    
+    /// Generic warning message
+    case warning(String)
 }
 
 extension ProjectEvent: Equatable {
@@ -86,6 +89,9 @@ extension ProjectEvent: Equatable {
             return leftIdentifier == rightIdentifier && leftRevision == rightRevision
 
         case let (.waiting(left), .waiting(right)):
+            return left == right
+            
+        case let (.warning(left), .warning(right)):
             return left == right
 
         default:
@@ -758,6 +764,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .flatMap(.concat) { dependency, version -> BuildSchemeProducer in
                 let dependencyPath = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true).path
                 if !FileManager.default.fileExists(atPath: dependencyPath) {
+                    self.projectEventsObserver.send(value: .warning("No checkout found for \(dependency.name), skipping build"))
                     return .empty
                 }
 
