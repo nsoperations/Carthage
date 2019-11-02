@@ -9,8 +9,6 @@ public struct CompatibilityInfo: Equatable {
             lhs.requirements == rhs.requirements
     }
 
-    public typealias Requirement = (Dependency, VersionSpecifier)
-
     public struct Requirements {
 
         fileprivate var lookupTable: [Dependency?: [Dependency: VersionSpecifier]]
@@ -27,8 +25,8 @@ public struct CompatibilityInfo: Equatable {
             return self.lookupTable.count
         }
 
-        mutating func setRequirement(_ requirement: Requirement, from definingDependency: Dependency?) {
-            self.lookupTable[definingDependency, default: [Dependency: VersionSpecifier]()][requirement.0] = requirement.1
+        mutating func setRequirement(_ requirement: DependencyRequirement, from definingDependency: Dependency?) {
+            self.lookupTable[definingDependency, default: [Dependency: VersionSpecifier]()][requirement.key] = requirement.value
         }
 
         func hasRequirement(for dependency: Dependency, from definingDependency: Dependency?) -> Bool {
@@ -39,8 +37,6 @@ public struct CompatibilityInfo: Equatable {
             return self.lookupTable[definingDependency]
         }
     }
-
-    //public typealias Requirements = [Dependency: [Dependency: VersionSpecifier]]
 
     /// The dependency
     public let dependency: Dependency

@@ -13,7 +13,7 @@ final class ResolverContext {
     private let pinnedVersions: [Dependency: PinnedVersion]
     let projectDependencyRetriever: DependencyRetrieverProtocol
 
-    private var dependencyCache = [PinnedDependency: [DependencyEntry]]()
+    private var dependencyCache = [PinnedDependency: [DependencyRequirement]]()
     private var versionsCache = [DependencyVersionSpec: ConcreteVersionSet]()
     private var conflictCache = [PinnedDependency: DependencyConflict]()
     private var cachedSortedProblematicDependencies: [Dependency]?
@@ -42,9 +42,9 @@ final class ResolverContext {
     /**
      Finds all transitive dependencies for the specified dependency and concrete version.
      */
-    public func findDependencies(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyEntry] {
+    public func findDependencies(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyRequirement] {
         let pinnedDependency = PinnedDependency(dependency: dependency, pinnedVersion: version.pinnedVersion)
-        var result: [DependencyEntry] = try dependencyCache.object(
+        var result: [DependencyRequirement] = try dependencyCache.object(
             for: pinnedDependency,
             byStoringDefault: try findDependenciesUncached(for: dependency, version: version)
         )
@@ -131,7 +131,7 @@ final class ResolverContext {
         return versionSet
     }
 
-    private func findDependenciesUncached(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyEntry] {
+    private func findDependenciesUncached(for dependency: Dependency, version: ConcreteVersion) throws -> [DependencyRequirement] {
         guard let result = try projectDependencyRetriever.dependencies(for: dependency, version: version.pinnedVersion).collect().first()?.get() else {
             throw DependencyRetrieverError.assertionFailure("Could not dematerialize dependencies for dependency: \(dependency) and version: \(version)")
         }

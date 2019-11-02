@@ -1,8 +1,6 @@
 import Foundation
 import BTree
 
-typealias DependencyEntry = (key: Dependency, value: VersionSpecifier)
-
 // swiftlint:disable type_body_length
 
 /**
@@ -57,7 +55,7 @@ final class DependencySet {
 
     // MARK: - Initializers
 
-    public convenience init(requiredDependencies: [DependencyEntry],
+    public convenience init(requiredDependencies: [DependencyRequirement],
                             updatableDependencyNames: Set<String>,
                             resolverContext: ResolverContext) throws {
         self.init(unresolvedDependencies: SortedSet(requiredDependencies.map { $0.key }),
@@ -232,7 +230,7 @@ final class DependencySet {
 
      The carthage model does not allow two dependencies with the same name, this is because forks should be allowed to override their upstreams.
      */
-    public func eliminateSameNamedDependencies(rootEntries: [DependencyEntry]) throws {
+    public func eliminateSameNamedDependencies(rootEntries: [DependencyRequirement]) throws {
         var names = Set<String>()
         var duplicatedDependencyNames = Set<String>()
         var versionSpecifiers = [Dependency: VersionSpecifier]()
@@ -332,7 +330,7 @@ final class DependencySet {
      Expands this set by iterating over the transitive dependencies and processing them.
      */
     @discardableResult
-    private func expand(parent: ConcreteVersionedDependency?, with transitiveDependencies: [DependencyEntry], forceUpdatable: Bool = false) throws -> Bool {
+    private func expand(parent: ConcreteVersionedDependency?, with transitiveDependencies: [DependencyRequirement], forceUpdatable: Bool = false) throws -> Bool {
         for (transitiveDependency, versionSpecifier) in transitiveDependencies {
             let isUpdatable = forceUpdatable || isUpdatableDependency(transitiveDependency)
             if forceUpdatable {
@@ -400,9 +398,9 @@ final class DependencySet {
             if try !constrainVersions(for: transitiveDependency, with: versionSpecifier) {
                 assert(!versionSet.definitions.isEmpty, "Expected definitions to not be empty")
                 if let incompatibleDefinition = versionSet.conflictingDefinition(for: versionSpecifier) {
-                    let existingRequirement: CarthageError.VersionRequirement = (specifier: incompatibleDefinition.versionSpecifier,
+                    let existingRequirement: VersionRequirement = (specifier: incompatibleDefinition.versionSpecifier,
                                                                                  fromDependency: incompatibleDefinition.definingDependency?.dependency)
-                    let newRequirement: CarthageError.VersionRequirement = (specifier: versionSpecifier,
+                    let newRequirement: VersionRequirement = (specifier: versionSpecifier,
                                                                             fromDependency: definition.definingDependency?.dependency)
                     let error = CarthageError.incompatibleRequirements(transitiveDependency, existingRequirement, newRequirement)
 

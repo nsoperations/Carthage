@@ -1,6 +1,10 @@
 import Foundation
 import Result
 
+public typealias DependencyRequirement = (key: Dependency, value: VersionSpecifier)
+public typealias DependencyDefinition = (key: Dependency, value: PinnedVersion)
+public typealias VersionRequirement = (specifier: VersionSpecifier, fromDependency: Dependency?)
+
 /// Describes which versions are acceptable for satisfying a dependency
 /// requirement.
 public enum VersionSpecifier: Hashable {

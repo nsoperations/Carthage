@@ -64,7 +64,7 @@ public final class BackTrackingResolver: ResolverProtocol {
         resolverContext.eventObserver = self.eventPublisher.send
 
         let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
-        let requiredDependencies: [DependencyEntry] = Array(dependencies)
+        let requiredDependencies: [DependencyRequirement] = Array(dependencies)
 
         do {
             let dependencySet = try DependencySet(requiredDependencies: requiredDependencies,

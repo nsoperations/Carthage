@@ -26,8 +26,8 @@ protocol Lock {
 
 extension Lock {
     /// Tries a lock with the specified timeout interval
-    func lock(timeout: TimeInterval) -> Bool {
-        let timeoutDate = Date(timeIntervalSinceNow: timeout)
+    func lock(timeout: TimeInterval?) -> Bool {
+        let timeoutDate = timeout.map { Date(timeIntervalSinceNow: $0) }
         return lock(timeoutDate: timeoutDate)
     }
 
@@ -176,6 +176,16 @@ final class URLLock: Lock {
     func unlock() -> Bool {
         return fileLock.unlock()
     }
+
+    func locked<T>(timeout: Int? = nil, onWait: ((URL) -> Void)? = URLLock.globalWaitHandler, perform: (URL) throws -> T) throws -> T {
+        guard lock(timeout: timeout.map { TimeInterval($0) }) else {
+            throw CarthageError.lockError(url: url, timeout: timeout)
+        }
+        defer {
+            unlock()
+        }
+        return try perform(url)
+    }
 }
 
 extension URLLock {
@@ -184,20 +194,10 @@ extension URLLock {
     static func lockReactive(url: URL, timeout: Int? = nil, onWait: ((URL) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
         return SignalProducer({ () -> Result<URLLock, CarthageError> in
             let lock = URLLock(url: url, onWait: onWait)
-            guard lock.lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
+            guard lock.lock(timeout: timeout.map { TimeInterval($0) }) else {
                 return .failure(CarthageError.lockError(url: url, timeout: timeout))
             }
             return .success(lock)
         })
-    }
-    
-    func locked<T>(timeout: Int? = nil, onWait: ((URL) -> Void)? = URLLock.globalWaitHandler, perform: (URL) throws -> T) -> Result<T, CarthageError> {
-        guard lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
-            return .failure(.lockError(url: url, timeout: timeout))
-        }
-        defer {
-            unlock()
-        }
-        return CarthageResult.catching { try perform(url) }
     }
 }

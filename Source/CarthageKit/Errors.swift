@@ -6,8 +6,6 @@ import XCDBLD
 
 /// Possible errors that can originate from Carthage.
 public enum CarthageError: Error {
-    public typealias VersionRequirement = (specifier: VersionSpecifier, fromDependency: Dependency?)
-
     public struct DuplicatesInArchive: Equatable {
         let dictionary: [URL: [URL]]
     }
@@ -139,7 +137,7 @@ extension CarthageError {
     }
 }
 
-private func == (_ lhs: CarthageError.VersionRequirement, _ rhs: CarthageError.VersionRequirement) -> Bool {
+private func == (_ lhs: VersionRequirement, _ rhs: VersionRequirement) -> Bool {
     return lhs.specifier == rhs.specifier && lhs.fromDependency == rhs.fromDependency
 }
 
