@@ -19,6 +19,7 @@ public final class Xcode {
     
     private static let buildSettingsCache = Cache<BuildArguments, Result<String, CarthageError>>()
     private static let schemeNamesCache = Cache<ProjectLocator, Result<String, CarthageError>>()
+    private static let destinationsCache = Cache<SDK, Result<String?, CarthageError>>()
 
     /// Attempts to build the dependency, then places its build product into the
     /// root directory given.
@@ -820,27 +821,20 @@ public final class Xcode {
             return SignalProducer(error: error)
         }
     }
-
-    /// Runs the build for a given sdk and build arguments, optionally performing a clean first
-    // swiftlint:disable:next static function_body_length
-    private static func build(sdk: SDK, with buildArgs: BuildArguments, in workingDirectoryURL: URL) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> {
-        var argsForLoading = buildArgs
-        argsForLoading.sdk = sdk
-
-        var argsForBuilding = argsForLoading
-        argsForBuilding.onlyActiveArchitecture = false
-
-        // If SDK is the iOS simulator, then also find and set a valid destination.
-        // This fixes problems when the project deployment version is lower than
-        // the target's one and includes simulators unsupported by the target.
-        //
-        // Example: Target is at 8.0, project at 7.0, xcodebuild chooses the first
-        // simulator on the list, iPad 2 7.1, which is invalid for the target.
-        //
-        // See https://github.com/Carthage/Carthage/issues/417.
-        func fetchDestination() -> SignalProducer<String?, CarthageError> {
-            // Specifying destination seems to be required for building with
-            // simulator SDKs since Xcode 7.2.
+    
+    // If SDK is the iOS simulator, then also find and set a valid destination.
+    // This fixes problems when the project deployment version is lower than
+    // the target's one and includes simulators unsupported by the target.
+    //
+    // Example: Target is at 8.0, project at 7.0, xcodebuild chooses the first
+    // simulator on the list, iPad 2 7.1, which is invalid for the target.
+    //
+    // See https://github.com/Carthage/Carthage/issues/417.
+    private static func fetchDestination(sdk: SDK) -> SignalProducer<String?, CarthageError> {
+        // Specifying destination seems to be required for building with
+        // simulator SDKs since Xcode 7.2.
+        
+        let result = destinationsCache.getValue(key: sdk) { sdk -> Result<String?, CarthageError> in
             if sdk.isSimulator {
                 let destinationLookup = Task("/usr/bin/xcrun", arguments: [ "simctl", "list", "devices", "--json" ])
                 return destinationLookup.launch()
@@ -854,11 +848,23 @@ public final class Xcode {
                         }
                     }
                     .map { "platform=\(sdk.platform.rawValue) Simulator,id=\($0.udid.uuidString)" }
+                    .first()!
             }
-            return SignalProducer(value: nil)
+            return .success(nil)
         }
+        return SignalProducer(result: result)
+    }
 
-        return fetchDestination()
+    /// Runs the build for a given sdk and build arguments, optionally performing a clean first
+    // swiftlint:disable:next static function_body_length
+    private static func build(sdk: SDK, with buildArgs: BuildArguments, in workingDirectoryURL: URL) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> {
+        var argsForLoading = buildArgs
+        argsForLoading.sdk = sdk
+
+        var argsForBuilding = argsForLoading
+        argsForBuilding.onlyActiveArchitecture = false
+
+        return fetchDestination(sdk: sdk)
             .flatMap(.concat) { destination -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                 if let destination = destination {
                     argsForBuilding.destination = destination
