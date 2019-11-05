@@ -16,6 +16,9 @@ public typealias BuildSchemeProducer = SignalProducer<TaskEvent<(ProjectLocator,
 public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configuration: String, _ project: ProjectLocator) -> Result<[SDK], CarthageError>
 
 public final class Xcode {
+    
+    private static let buildSettingsCache = Cache<BuildArguments, Result<String, CarthageError>>()
+    private static let schemeNamesCache = Cache<ProjectLocator, Result<String, CarthageError>>()
 
     /// Attempts to build the dependency, then places its build product into the
     /// root directory given.
@@ -242,9 +245,9 @@ public final class Xcode {
 
     /// Sends each shared scheme name found in the receiver.
     static func listSchemeNames(project: ProjectLocator) -> SignalProducer<String, CarthageError> {
-        let task = xcodebuildTask("-list", BuildArguments(project: project))
-
-        return task.launch()
+        let schemesResult = schemeNamesCache.getValue(key: project) { project in
+            let task = xcodebuildTask("-list", BuildArguments(project: project))
+            return task.launch()
             .ignoreTaskData()
             .mapError(CarthageError.taskError)
             // xcodebuild has a bug where xcodebuild -list can sometimes hang
@@ -255,6 +258,10 @@ public final class Xcode {
             .map { data in
                 return String(data: data, encoding: .utf8)!
             }
+            .first()!
+        }
+
+        return SignalProducer(result: schemesResult)
             .flatMap(.merge) { string in
                 return string.linesProducer
             }
@@ -288,9 +295,11 @@ public final class Xcode {
         //
         // "archive" also works around the issue above so use it to determine if
         // it is configured for the archive action.
-        let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments)
-
-        return task.launch()
+        
+        let commandResult = buildSettingsCache.getValue(key: arguments) { arguments in
+            let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments)
+            
+            return task.launch()
             .ignoreTaskData()
             .mapError(CarthageError.taskError)
             // xcodebuild has a bug where xcodebuild -showBuildSettings
@@ -302,8 +311,14 @@ public final class Xcode {
             .map { data in
                 return String(data: data, encoding: .utf8)!
             }
-            .flatMap(.merge) { string -> SignalProducer<BuildSettings, CarthageError> in
-                BuildSettings.produce(string: string, arguments: arguments, action: action)
+            .first()!
+        }
+        
+        switch commandResult {
+        case let .success(output):
+            return BuildSettings.produce(string: output, arguments: arguments, action: action)
+        case let .failure(error):
+            return SignalProducer(error: error)
         }
     }
 

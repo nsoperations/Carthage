@@ -146,3 +146,14 @@ extension BuildArguments: CustomStringConvertible {
         return arguments.joined(separator: " ")
     }
 }
+
+extension BuildArguments: Hashable {
+    
+    public static func != (lhs: BuildArguments, rhs: BuildArguments) -> Bool {
+        return lhs.arguments == rhs.arguments
+    }
+    
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(arguments)
+    }
+}

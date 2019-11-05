@@ -164,6 +164,18 @@ public final class Cache<K: Hashable, V> {
             return nil
         }
     }
+    
+    /**
+      Gets the value corresponding with the specified key and, if not found, will invoke the initializer to initialize and set it first.
+    */
+    public func getValue(key: K, default constructor: (K) throws -> V) rethrows -> V {
+        if let value = self[key] {
+            return value
+        }
+        let value = try constructor(key)
+        self[key] = value
+        return value
+    }
 
     /**
      Removes all stored values.

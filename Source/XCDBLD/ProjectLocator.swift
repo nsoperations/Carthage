@@ -73,3 +73,9 @@ extension ProjectLocator: CustomStringConvertible {
         return fileURL.lastPathComponent
     }
 }
+
+extension ProjectLocator: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(self.fileURL)
+    }
+}

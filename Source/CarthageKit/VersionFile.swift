@@ -625,17 +625,8 @@ extension VersionFile {
             if let cachedHexString = VersionFile.sourceHashCache[dependencyDir] {
                 return .success(cachedHexString)
             }
-            
-            var parentGitIgnore = defaultGitIgnore
-            
-            if let schemeCartfile = try? SchemeCartfile.from(directoryURL: dependencyDir).get() {
-                parentGitIgnore = parentGitIgnore.copy
-                for scheme in schemeCartfile.schemes {
-                    parentGitIgnore.addPattern("!\(scheme).xcscheme")
-                }
-            }
-            
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: parentGitIgnore).map{ $0.hexString as String? }
+                    
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }
