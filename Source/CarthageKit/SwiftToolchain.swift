@@ -8,6 +8,8 @@ import struct Foundation.URL
 /// Swift compiler helper methods
 public final class SwiftToolchain {
     
+    private static let swiftVersionCache = Cache<String?, Result<String, SwiftVersionError>>()
+    
     internal static var swiftVersionRegex: NSRegularExpression = try! NSRegularExpression(pattern: "Apple Swift version ([^\\s]+) .*\\((.[^\\)]+)\\)", options: [])
     
     /// Emits the currect Swift version
@@ -53,15 +55,22 @@ public final class SwiftToolchain {
 
     /// Attempts to determine the local version of swift
     private static func determineSwiftVersion(usingToolchain toolchain: String?) -> SignalProducer<String, SwiftVersionError> {
-        let taskDescription = Task("/usr/bin/env", arguments: compilerVersionArguments(usingToolchain: toolchain))
+        
+        let result = swiftVersionCache.getValue(key: toolchain) { toolchain in
+            
+            let taskDescription = Task("/usr/bin/env", arguments: compilerVersionArguments(usingToolchain: toolchain))
 
-        return taskDescription.launch(standardInput: nil)
-            .ignoreTaskData()
-            .mapError { _ in SwiftVersionError.unknownLocalSwiftVersion }
-            .map { data -> String? in
-                return parseSwiftVersionCommand(output: String(data: data, encoding: .utf8))
-            }
-            .attemptMap { Result($0, failWith: SwiftVersionError.unknownLocalSwiftVersion) }
+            return taskDescription.launch(standardInput: nil)
+                .ignoreTaskData()
+                .mapError { _ in SwiftVersionError.unknownLocalSwiftVersion }
+                .map { data -> String? in
+                    return parseSwiftVersionCommand(output: String(data: data, encoding: .utf8))
+                }
+                .attemptMap { Result($0, failWith: SwiftVersionError.unknownLocalSwiftVersion) }
+                .first()!
+        }
+        
+        return SignalProducer(result: result)
     }
 
     private static func compilerVersionArguments(usingToolchain toolchain: String?) -> [String] {

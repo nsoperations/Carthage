@@ -1,11 +1,11 @@
 #!/usr/bin/xcrun make -f
 
-CARTHAGE_TEMPORARY_FOLDER?=/tmp/Carthage.dst
+CARTHAGE_TEMPORARY_FOLDER?=/tmp/Carthage++.dst
 PREFIX?=/usr/local
 CONFIGURATION?=release
 
 INTERNAL_PACKAGE=CarthageApp.pkg
-OUTPUT_PACKAGE=Carthage.pkg
+OUTPUT_PACKAGE=Carthage++.pkg
 
 CARTHAGE_EXECUTABLE=./.build/$(CONFIGURATION)/carthage
 BINARIES_FOLDER=/usr/local/bin
@@ -58,10 +58,10 @@ installables:
 
 package: installables
 	$(MKDIR) "$(CARTHAGE_TEMPORARY_FOLDER)$(BINARIES_FOLDER)"
-	$(CP) "$(CARTHAGE_EXECUTABLE)" "$(CARTHAGE_TEMPORARY_FOLDER)$(BINARIES_FOLDER)"
+	$(CP) "$(CARTHAGE_EXECUTABLE)" "$(CARTHAGE_TEMPORARY_FOLDER)$(BINARIES_FOLDER)/carthage++"
 	
 	pkgbuild \
-		--identifier "org.carthage.carthage" \
+		--identifier "org.carthage.carthage++" \
 		--install-location "/" \
 		--root "$(CARTHAGE_TEMPORARY_FOLDER)" \
 		--version "$(VERSION_STRING)" \
@@ -74,13 +74,13 @@ package: installables
 
 prefix_install: installables
 	$(MKDIR) "$(PREFIX)/bin"
-	$(CP) -f "$(CARTHAGE_EXECUTABLE)" "$(PREFIX)/bin/"
+	$(CP) -f "$(CARTHAGE_EXECUTABLE)" "$(PREFIX)/bin/carthage++"
 
 install: installables
-	$(SUDO) $(CP) -f "$(CARTHAGE_EXECUTABLE)" "$(BINARIES_FOLDER)"
+	$(SUDO) $(CP) -f "$(CARTHAGE_EXECUTABLE)" "$(BINARIES_FOLDER)/carthage++"
 
 uninstall:
-	$(RM) "$(BINARIES_FOLDER)/carthage"
+	$(RM) "$(BINARIES_FOLDER)/carthage++"
 	
 .build/libSwiftPM.xcconfig:
 	mkdir -p .build
