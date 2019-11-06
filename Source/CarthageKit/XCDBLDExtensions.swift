@@ -27,46 +27,66 @@ extension Platform {
     }
 }
 
+private let projectSchemesCache = Cache<ProjectLocator, Result<[Scheme], CarthageError>>()
+private let projectLocatorCache = Cache<URL, Result<[ProjectLocator], CarthageError>>()
+
 extension ProjectLocator {
+    
     /// Attempts to locate projects and workspaces within the given directory.
     ///
     /// Sends all matches in preferential order.
-    public static func locate(in directoryURL: URL) -> SignalProducer<ProjectLocator, CarthageError> {
-        let enumerationOptions: FileManager.DirectoryEnumerationOptions = [ .skipsHiddenFiles, .skipsPackageDescendants ]
-
-        return Git.gitmodulesEntriesInRepository(directoryURL, revision: nil)
-            .map { directoryURL.appendingPathComponent($0.path) }
-            .concat(value: directoryURL.appendingPathComponent(Constants.checkoutsPath))
-            .collect()
-            .flatMap(.merge) { directoriesToSkip -> SignalProducer<URL, CarthageError> in
-                return FileManager.default.reactive
-                    .enumerator(at: directoryURL.resolvingSymlinksInPath(), includingPropertiesForKeys: [ .typeIdentifierKey ], options: enumerationOptions, catchErrors: true)
-                    .map { _, url in url }
-                    .filter { url in
-                        return !directoriesToSkip.contains { $0.hasSubdirectory(url) }
-                }
-            }
-            .filterMap { url -> ProjectLocator? in
-                if let uti = url.typeIdentifier {
-                    if UTTypeConformsTo(uti as CFString, "com.apple.dt.document.workspace" as CFString) {
-                        return .workspace(url)
-                    } else if UTTypeConformsTo(uti as CFString, "com.apple.xcode.project" as CFString) {
-                        return .projectFile(url)
+    public static func locate(in directoryURL: URL) -> Result<[ProjectLocator], CarthageError> {
+        return projectLocatorCache.getValue(key: directoryURL) { directoryURL in
+            let enumerationOptions: FileManager.DirectoryEnumerationOptions = [ .skipsHiddenFiles, .skipsPackageDescendants ]
+            return Git.gitmodulesEntriesInRepository(directoryURL, revision: nil)
+                .map { directoryURL.appendingPathComponent($0.path) }
+                .concat(value: directoryURL.appendingPathComponent(Constants.checkoutsPath))
+                .collect()
+                .flatMap(.merge) { directoriesToSkip -> SignalProducer<URL, CarthageError> in
+                    return FileManager.default.reactive
+                        .enumerator(at: directoryURL.resolvingSymlinksInPath(), includingPropertiesForKeys: [ .typeIdentifierKey ], options: enumerationOptions, catchErrors: true)
+                        .map { _, url in url }
+                        .filter { url in
+                            return !directoriesToSkip.contains { $0.hasSubdirectory(url) }
                     }
                 }
-                return nil
-            }
-            .collect()
-            .map { $0.sorted() }
-            .flatMap(.merge) { SignalProducer<ProjectLocator, CarthageError>($0) }
+                .filterMap { url -> ProjectLocator? in
+                    if let uti = url.typeIdentifier {
+                        if UTTypeConformsTo(uti as CFString, "com.apple.dt.document.workspace" as CFString) {
+                            return .workspace(url)
+                        } else if UTTypeConformsTo(uti as CFString, "com.apple.xcode.project" as CFString) {
+                            return .projectFile(url)
+                        }
+                    }
+                    return nil
+                }
+                .collect()
+                .map { $0.sorted() }
+                .only()
+        }
     }
 
     /// Sends each scheme found in the receiver.
-    public func schemes() -> SignalProducer<Scheme, CarthageError> {
-        return Xcode.listSchemeNames(project: self)
-            .map { (line: String) -> Scheme in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                return Scheme(trimmed)
+    public func schemes() -> Result<[Scheme], CarthageError> {
+        return projectSchemesCache.getValue(key: self) { project in
+            return CarthageResult.catching {
+                let schemesDir = self.fileURL.appendingPathComponent("xcshareddata/xcschemes")
+                if schemesDir.isExistingDirectory {
+                    do {
+                        return try FileManager.default.contentsOfDirectory(at: schemesDir, includingPropertiesForKeys: [], options: [.skipsHiddenFiles])
+                            .compactMap { url -> Scheme? in
+                                guard url.pathExtension == "xcscheme" else {
+                                    return nil
+                                }
+                                return Scheme(url.deletingPathExtension().lastPathComponent)
+                        }
+                    } catch {
+                        throw CarthageError.readFailed(schemesDir, error as NSError)
+                    }
+                } else {
+                    return []
+                }
+            }
         }
     }
 }

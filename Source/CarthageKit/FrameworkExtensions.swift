@@ -142,6 +142,30 @@ extension SignalProducer where Value: SignalProducerProtocol, Error == Value.Err
     }
 }
 
+extension SignalProducer {
+    
+    /// Start the producer, then block, waiting for events: `value` and
+    /// `completed`.
+    ///
+    /// When a single value or error is sent, the returned `Result` will
+    /// represent those cases. However, when no values are sent, or when more
+    /// than one value is sent, a CarthageError.internalError will be returned.
+    ///
+    /// - returns: Result when single `value` or `failed` event is received.
+    ///            CarthageError.internalError when 0 or more than 1 events are received.
+    public func only(file: String = #file, line: Int = #line) -> Result<Value, Error> {
+        guard let result = self.single() else {
+            fatalError("Got no result while result was expected in file \(file) line #\(line)")
+        }
+        return result
+    }
+    
+    @discardableResult
+    public func getOnly(file: String = #file, line: Int = #line) throws -> Value {
+        return try self.only(file: file, line: line).get()
+    }
+}
+
 extension Signal where Value: EventProtocol, Value.Error == Error {
     /// Dematerializes the signal, like dematerialize(), but only yields inner
     /// Error events if no values were sent.
@@ -194,6 +218,8 @@ extension SignalProducer where Value: EventProtocol, Value.Error == Error {
     }
 }
 
+typealias CarthageResult<Value> = Result<Value, CarthageError>
+
 extension Result where Error == CarthageError {
     /// Constructs a result from a throwing closure taking a `URL`, failing with `CarthageError` if throw occurs.
     /// - parameter carthageError: Defaults to `CarthageError.writeFailed`.
@@ -206,6 +232,16 @@ extension Result where Error == CarthageError {
             self = .success(try closure(url))
         } catch let error as NSError {
             self = .failure(carthageError(url, error))
+        }
+    }
+    
+    static func catching(file: String = #file, line: Int = #line, _ body: () throws -> Success) -> CarthageResult<Value> {
+        do {
+            return .success(try body())
+        } catch let error as CarthageError {
+            return .failure(error)
+        } catch {
+            return .failure(CarthageError.internalError(description: "Unexpected error occured: \(error)"))
         }
     }
 }

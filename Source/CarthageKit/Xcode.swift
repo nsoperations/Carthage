@@ -17,8 +17,9 @@ public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configu
 
 public final class Xcode {
     
+    private typealias ProjectScheme = (project: ProjectLocator, schemes: Scheme)
+    
     private static let buildSettingsCache = Cache<BuildArguments, Result<String, CarthageError>>()
-    private static let schemeNamesCache = Cache<ProjectLocator, Result<String, CarthageError>>()
     private static let destinationsCache = Cache<SDK, Result<String?, CarthageError>>()
 
     /// Attempts to build the dependency, then places its build product into the
@@ -167,6 +168,20 @@ public final class Xcode {
                 lock?.unlock()
             })
     }
+    
+    private static func projectSchemes(directoryURL: URL) -> Result<[ProjectScheme], CarthageError> {
+        return ProjectLocator
+            .locate(in: directoryURL)
+            .flatMap({ projects -> CarthageResult<[ProjectScheme]> in
+                return CarthageResult.catching {
+                    try projects.reduce(into: [ProjectScheme]()) { array, project in
+                        for scheme in try project.schemes().get() {
+                            array.append((project, scheme))
+                        }
+                    }
+                }
+            })
+    }
 
     /// Finds schemes of projects or workspaces, which Carthage should build, found
     /// within the given directory.
@@ -177,24 +192,30 @@ public final class Xcode {
         schemeMatcher: SchemeMatcher?
         ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
         precondition(directoryURL.isFileURL)
-        let locator = ProjectLocator
-            .locate(in: directoryURL)
-            .flatMap(.concat) { project -> SignalProducer<(ProjectLocator, [Scheme]), CarthageError> in
-                return project
-                    .schemes()
-                    .collect()
-                    .flatMapError { error in
-                        if case .noSharedSchemes = error {
-                            return .init(value: [])
-                        } else {
-                            return .init(error: error)
-                        }
-                    }
-                    .map { (project, $0) }
+        
+        CarthageResult.catching { () -> [(Scheme, ProjectLocator)] in
+        
+            let projectSchemes = try self.projectSchemes(directoryURL: directoryURL).get()
+            
+            if projectSchemes.isEmpty {
+                // No schemes and no projects: just return
+                return []
             }
-            .replayLazily(upTo: Int.max)
+            
+            
+        }
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        let locator = SignalProducer<[ProjectSchemes], CarthageError>(result: self.projectSchemes(directoryURL: directoryURL))
         return locator
-            .collect()
             // Allow dependencies which have no projects, not to error out with
             // `.noSharedFrameworkSchemes`.
             .filter { projects in !projects.isEmpty }
@@ -244,44 +265,6 @@ public final class Xcode {
         }
     }
 
-    /// Sends each shared scheme name found in the receiver.
-    static func listSchemeNames(project: ProjectLocator) -> SignalProducer<String, CarthageError> {
-        let schemesResult = schemeNamesCache.getValue(key: project) { project in
-            let task = xcodebuildTask("-list", BuildArguments(project: project))
-            return task.launch()
-            .ignoreTaskData()
-            .mapError(CarthageError.taskError)
-            // xcodebuild has a bug where xcodebuild -list can sometimes hang
-            // indefinitely on projects that don't share any schemes, so
-            // automatically bail out if it looks like that's happening.
-            .timeout(after: 60, raising: .xcodebuildTimeout(project), on: QueueScheduler())
-            .retry(upTo: 2)
-            .map { data in
-                return String(data: data, encoding: .utf8)!
-            }
-            .first()!
-        }
-
-        return SignalProducer(result: schemesResult)
-            .flatMap(.merge) { string in
-                return string.linesProducer
-            }
-            .flatMap(.merge) { line -> SignalProducer<String, CarthageError> in
-                // Matches one of these two possible messages:
-                //
-                // '    This project contains no schemes.'
-                // 'There are no schemes in workspace "Carthage".'
-                if line.hasSuffix("contains no schemes.") || line.hasPrefix("There are no schemes") {
-                    return SignalProducer(error: CarthageError.noSharedSchemes(project, nil))
-                } else {
-                    return SignalProducer(value: line)
-                }
-            }
-            .skip { line in !line.hasSuffix("Schemes:") }
-            .skip(first: 1)
-            .take { line in !line.isEmpty }
-    }
-
     /// Invokes `xcodebuild` to retrieve build settings for the given build
     /// arguments.
     ///
@@ -312,7 +295,7 @@ public final class Xcode {
             .map { data in
                 return String(data: data, encoding: .utf8)!
             }
-            .first()!
+            .only()
         }
         
         switch commandResult {
@@ -833,22 +816,18 @@ public final class Xcode {
     private static func fetchDestination(sdk: SDK) -> SignalProducer<String?, CarthageError> {
         // Specifying destination seems to be required for building with
         // simulator SDKs since Xcode 7.2.
-        
         let result = destinationsCache.getValue(key: sdk) { sdk -> Result<String?, CarthageError> in
             if sdk.isSimulator {
-                let destinationLookup = Task("/usr/bin/xcrun", arguments: [ "simctl", "list", "devices", "--json" ])
-                return destinationLookup.launch()
+                return Task("/usr/bin/xcrun", arguments: [ "simctl", "list", "devices", "--json" ])
+                    .getStdOutData()
                     .mapError(CarthageError.taskError)
-                    .ignoreTaskData()
-                    .flatMap(.concat) { (data: Data) -> SignalProducer<Simulator, CarthageError> in
+                    .flatMap { data -> Result<String?, CarthageError> in
                         if let selectedSimulator = Simulator.selectAvailableSimulator(of: sdk, from: data) {
-                            return .init(value: selectedSimulator)
+                            return .success("platform=\(sdk.platform.rawValue) Simulator,id=\(selectedSimulator.udid.uuidString)")
                         } else {
-                            return .init(error: CarthageError.noAvailableSimulators(platformName: sdk.platform.rawValue))
+                            return .failure(CarthageError.noAvailableSimulators(platformName: sdk.platform.rawValue))
                         }
                     }
-                    .map { "platform=\(sdk.platform.rawValue) Simulator,id=\($0.udid.uuidString)" }
-                    .first()!
             }
             return .success(nil)
         }
