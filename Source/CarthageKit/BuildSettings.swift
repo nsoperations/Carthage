@@ -49,18 +49,16 @@ public struct BuildSettings {
     }
 
     /// Attempts to determine the SDKs this scheme builds for.
-    public var buildSDKs: SignalProducer<SDK, CarthageError> {
-        let supportedPlatforms = self["SUPPORTED_PLATFORMS"]
-
-        if let supportedPlatforms = supportedPlatforms.value {
-            let platforms = supportedPlatforms.split { $0 == " " }.map(String.init)
-            return SignalProducer<String, CarthageError>(platforms)
-                .map { platform in SignalProducer(result: SDK.from(string: platform)) }
-                .flatten(.merge)
+    public var buildSDKs: Result<[SDK], CarthageError> {
+        return CarthageResult.catching {
+            let supportedPlatforms = self["SUPPORTED_PLATFORMS"]
+            if let supportedPlatforms = supportedPlatforms.value {
+                let platforms = supportedPlatforms.split { $0 == " " }.map(String.init)
+                return try platforms.map { try SDK.from(string: $0).get() }
+            }
+            let sdkResult = self["PLATFORM_NAME"].flatMap(SDK.from(string:))
+            return [try sdkResult.get()]
         }
-
-        let firstBuildSDK = self["PLATFORM_NAME"].flatMap(SDK.from(string:))
-        return SignalProducer(result: firstBuildSDK)
     }
 
     /// Attempts to determine the ProductType specified in these build settings.
@@ -216,53 +214,46 @@ public struct BuildSettings {
         return directoryURL
     }
 
-    static func produce(string: String, arguments: BuildArguments, action: BuildArguments.Action?) -> SignalProducer<BuildSettings, CarthageError> {
-        return SignalProducer { observer, lifetime in
-            var currentSettings: [String: String] = [:]
-            var currentTarget: String?
-
-            let flushTarget = { () -> Void in
-                if let currentTarget = currentTarget {
-                    let buildSettings = BuildSettings(
-                        target: currentTarget,
-                        settings: currentSettings,
-                        arguments: arguments,
-                        action: action
-                    )
-                    observer.send(value: buildSettings)
-                }
-
-                currentTarget = nil
-                currentSettings = [:]
+    static func parseBuildSettings(string: String, arguments: BuildArguments, action: BuildArguments.Action?) -> [BuildSettings] {
+        
+        var allSettings = [BuildSettings]()
+        var currentSettings: [String: String] = [:]
+        var currentTarget: String?
+        
+        let flushTarget = {
+            if let currentTarget = currentTarget {
+                let buildSettings = BuildSettings(
+                    target: currentTarget,
+                    settings: currentSettings,
+                    arguments: arguments,
+                    action: action
+                )
+                allSettings.append(buildSettings)
             }
-
-            string.enumerateLines { line, stop in
-                if lifetime.hasEnded {
-                    stop = true
-                    return
-                }
-
-                if let result = self.targetSettingsRegex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
-                    let targetRange = Range(result.range(at: 1), in: line)!
-
-                    flushTarget()
-                    currentTarget = String(line[targetRange])
-                    return
-                }
-
-                let trimSet = CharacterSet.whitespacesAndNewlines
-                let components = line
-                    .split(maxSplits: 1) { $0 == "=" }
-                    .map { $0.trimmingCharacters(in: trimSet) }
-
-                if components.count == 2 {
-                    currentSettings[components[0]] = components[1]
-                }
-            }
-
-            flushTarget()
-            observer.sendCompleted()
+            currentTarget = nil
+            currentSettings = [:]
         }
+        
+        string.enumerateLines { line, stop in
+            if let result = self.targetSettingsRegex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
+                let targetRange = Range(result.range(at: 1), in: line)!
+                flushTarget()
+                currentTarget = String(line[targetRange])
+                return
+            }
+            
+            let trimSet = CharacterSet.whitespacesAndNewlines
+            let components = line
+                .split(maxSplits: 1) { $0 == "=" }
+                .map { $0.trimmingCharacters(in: trimSet) }
+            
+            if components.count == 2 {
+                currentSettings[components[0]] = components[1]
+            }
+        }
+        
+        flushTarget()
+        return allSettings
     }
 }
 

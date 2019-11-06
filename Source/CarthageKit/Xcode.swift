@@ -19,7 +19,7 @@ public final class Xcode {
     
     private typealias ProjectScheme = (project: ProjectLocator, schemes: Scheme)
     
-    private static let buildSettingsCache = Cache<BuildArguments, Result<String, CarthageError>>()
+    private static let buildSettingsCache = Cache<BuildArguments, Result<[BuildSettings], CarthageError>>()
     private static let destinationsCache = Cache<SDK, Result<String?, CarthageError>>()
 
     /// Attempts to build the dependency, then places its build product into the
@@ -202,6 +202,10 @@ public final class Xcode {
                 return []
             }
             
+            // If there is a workspace which contains this project: use the workspace
+            
+            // Otherwise use the project
+            
             
         }
         
@@ -270,7 +274,7 @@ public final class Xcode {
     ///
     /// Upon .success, sends one BuildSettings value for each target included in
     /// the referenced scheme.
-    static func loadBuildSettings(with arguments: BuildArguments, for action: BuildArguments.Action? = nil) -> SignalProducer<BuildSettings, CarthageError> {
+    static func loadBuildSettings(with arguments: BuildArguments, for action: BuildArguments.Action? = nil) -> Result<[BuildSettings], CarthageError> {
         // xcodebuild (in Xcode 8.0) has a bug where xcodebuild -showBuildSettings
         // can hang indefinitely on projects that contain core data models.
         // rdar://27052195
@@ -280,29 +284,23 @@ public final class Xcode {
         // "archive" also works around the issue above so use it to determine if
         // it is configured for the archive action.
         
-        let commandResult = buildSettingsCache.getValue(key: arguments) { arguments in
+        return buildSettingsCache.getValue(key: arguments) { arguments in
             let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments)
-            
             return task.launch()
-            .ignoreTaskData()
-            .mapError(CarthageError.taskError)
-            // xcodebuild has a bug where xcodebuild -showBuildSettings
-            // can sometimes hang indefinitely on projects that don't
-            // share any schemes, so automatically bail out if it looks
-            // like that's happening.
-            .timeout(after: 60, raising: .xcodebuildTimeout(arguments.project), on: QueueScheduler(qos: .default))
-            .retry(upTo: 5)
-            .map { data in
-                return String(data: data, encoding: .utf8)!
-            }
-            .only()
-        }
-        
-        switch commandResult {
-        case let .success(output):
-            return BuildSettings.produce(string: output, arguments: arguments, action: action)
-        case let .failure(error):
-            return SignalProducer(error: error)
+                .ignoreTaskData()
+                .mapError(CarthageError.taskError)
+                // xcodebuild has a bug where xcodebuild -showBuildSettings
+                // can sometimes hang indefinitely on projects that don't
+                // share any schemes, so automatically bail out if it looks
+                // like that's happening.
+                .timeout(after: 60, raising: .xcodebuildTimeout(arguments.project), on: QueueScheduler(qos: .default))
+                .map { data in
+                    return String(data: data, encoding: .utf8)!
+                }
+                .only()
+                .map {
+                    return BuildSettings.parseBuildSettings(string: $0, arguments: arguments, action: action)
+                }
         }
     }
 
@@ -511,33 +509,28 @@ public final class Xcode {
     }
 
     /// Determines whether the given scheme should be built automatically.
-    private static func shouldBuildScheme(_ buildArguments: BuildArguments, forPlatforms: Set<Platform>, schemeMatcher: SchemeMatcher?) -> SignalProducer<Bool, CarthageError> {
+    private static func shouldBuildScheme(_ buildArguments: BuildArguments, forPlatforms: Set<Platform>, schemeMatcher: SchemeMatcher?) -> CarthageResult<Bool> {
         precondition(buildArguments.scheme != nil)
 
         guard schemeMatcher?.matches(scheme: buildArguments.scheme!) ?? true else {
-            return SignalProducer(value: false)
+            return .success(false)
         }
 
         return loadBuildSettings(with: buildArguments)
-            .flatMap(.concat) { settings -> SignalProducer<FrameworkType?, CarthageError> in
-                let frameworkType = SignalProducer(result: settings.frameworkType)
-
-                if forPlatforms.isEmpty {
-                    return frameworkType
-                        .flatMapError { _ in .empty }
-                } else {
-                    return settings.buildSDKs
-                        .filter { forPlatforms.contains($0.platform) }
-                        .flatMap(.merge) { _ in frameworkType }
-                        .flatMapError { _ in .empty }
+            .map { settingsArray in
+                return settingsArray.contains { (settings) -> Bool in
+                    if settings.frameworkType.value == nil {
+                        return false
+                    }
+                    
+                    if forPlatforms.isEmpty {
+                        return true
+                    }
+                    
+                    let buildSDKs = settings.buildSDKs.value ?? []
+                    return buildSDKs.contains {forPlatforms.contains($0.platform) }
                 }
             }
-            .filter(shouldBuildFrameworkType)
-            // If we find any framework target, we should indeed build this scheme.
-            .map { _ in true }
-            // Otherwise, nope.
-            .concat(value: false)
-            .take(first: 1)
     }
 
     /// Aggregates all of the build settings sent on the given signal, associating
@@ -998,10 +991,14 @@ public final class Xcode {
     ///
     /// If an SDK is unrecognized or could not be determined, an error will be
     /// sent on the returned signal.
-    private static func SDKsForScheme(_ scheme: Scheme, inProject project: ProjectLocator) -> SignalProducer<SDK, CarthageError> {
+    private static func SDKsForScheme(_ scheme: Scheme, inProject project: ProjectLocator) -> Result<[SDK], CarthageError> {
         return loadBuildSettings(with: BuildArguments(project: project, scheme: scheme))
-            .take(first: 1)
-            .flatMap(.merge) { $0.buildSDKs }
+            .flatMap { settingsArray -> CarthageResult<[SDK]> in
+                guard let first = settingsArray.first else {
+                    return .success([])
+                }
+                return first.buildSDKs
+            }
     }
 }
 
