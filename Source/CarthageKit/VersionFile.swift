@@ -579,6 +579,7 @@ extension VersionFile {
 
         # User-specific Xcode files
         **/xcuserdata/**
+        **/xcdebugger/**
         *.xccheckout
         *.xcscmblueprint
 
