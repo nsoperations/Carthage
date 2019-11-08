@@ -246,6 +246,16 @@ extension Result where Error == CarthageError {
     }
 }
 
+extension Result where Value: Sequence {
+    func filter(_ predicate: (Value.Element) -> Bool) -> Result<[Value.Element], Error> {
+        return self.map { $0.filter(predicate) }
+    }
+    
+    func reduce<T>(into: T, updateAccumulatingResult: (inout T, Value.Element) -> Void) -> Result<T, Error> {
+        return self.map { $0.reduce(into: into, updateAccumulatingResult) }
+    }
+}
+
 extension URL {
     fileprivate func volumeSupportsFileCloning() throws -> Bool {
         guard #available(macOS 10.12, *) else { return false }

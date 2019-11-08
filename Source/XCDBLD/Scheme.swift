@@ -1,15 +1,9 @@
 /// Represents a scheme to be built
-public struct Scheme {
+public struct Scheme: Hashable {
     public let name: String
 
     public init(_ name: String) {
         self.name = name
-    }
-}
-
-extension Scheme: Equatable {
-    public static func == (lhs: Scheme, rhs: Scheme) -> Bool {
-        return lhs.name == rhs.name
     }
 }
 

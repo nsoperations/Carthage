@@ -29,20 +29,20 @@ public final class Archive {
             }
 
             let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
-            frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: configuration, schemeMatcher: schemeMatcher)
-                .flatMap(.merge) { scheme, project -> SignalProducer<BuildSettings, CarthageError> in
-                    let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
-                    return Xcode.loadBuildSettings(with: buildArguments)
-                }
-                .flatMap(.concat) { settings -> SignalProducer<String, CarthageError> in
-                    if let wrapperName = settings.wrapperName.value, settings.productType.value == .framework {
-                        return .init(value: wrapperName)
-                    } else {
-                        return .empty
+            let frameworksResult: CarthageResult<[String]> = CarthageResult.catching {
+                var frameworkSet = Set<String>()
+                let projectSchemes = try Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: configuration, schemeMatcher: schemeMatcher).get()
+                for projectScheme in projectSchemes {
+                    let buildArguments = BuildArguments(project: projectScheme.project, scheme: projectScheme.scheme, configuration: configuration)
+                    for settings in try Xcode.loadBuildSettings(with: buildArguments).get() {
+                        if let wrapperName = settings.wrapperName.value, settings.productType.value == .framework {
+                            frameworkSet.insert(wrapperName)
+                        }
                     }
                 }
-                .collect()
-                .map { Array(Set($0)).sorted() }
+                return frameworkSet.sorted()
+            }
+            frameworks = SignalProducer(result: frameworksResult)
         }
 
         return frameworks.flatMap(.merge) { frameworks -> SignalProducer<URL, CarthageError> in

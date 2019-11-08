@@ -102,7 +102,7 @@ public final class CopyFramework {
                     .map { $0.appendingPathExtension("dSYM") }
                     .copyFileURLsIntoDirectory(tempFolder)
                     .flatMap(.merge) { dSYMURL -> SignalProducer<URL, CarthageError> in
-                        return Xcode.stripBinary(dSYMURL, keepingArchitectures: validArchitectures)
+                        return SignalProducer(result: Xcode.stripBinary(dSYMURL, keepingArchitectures: validArchitectures))
                             .then(SignalProducer<URL, CarthageError>(value: dSYMURL))
                     }
                     .moveFileURLsIntoDirectory(destinationURL)
@@ -114,14 +114,14 @@ public final class CopyFramework {
 
         return SignalProducer(value: source)
             .copyFileURLsIntoDirectory(tempFolder)
-            .flatMap(.merge) { url -> SignalProducer<URL, CarthageError> in
+            .attemptMap { url -> Result<URL, CarthageError> in
                 return Xcode.stripFramework(
                     url,
                     keepingArchitectures: validArchitectures,
                     strippingDebugSymbols: shouldStripDebugSymbols,
                     codesigningIdentity: codeSigningIdentity
                     )
-                    .then(SignalProducer(value: url))
+                    .map { _ in url }
             }
             .moveFileURLsIntoDirectory(frameworksFolder)
             .then(SignalProducer<(), CarthageError>.empty)

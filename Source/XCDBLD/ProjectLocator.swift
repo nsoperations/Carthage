@@ -24,6 +24,13 @@ public enum ProjectLocator {
             return url
         }
     }
+    
+    public var isWorkspace: Bool {
+        if case .workspace = self {
+            return true
+        }
+        return false
+    }
 
     /// The number of levels deep the current object is in the directory hierarchy.
     public var level: Int {

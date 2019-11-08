@@ -15,9 +15,9 @@ public typealias BuildSchemeProducer = SignalProducer<TaskEvent<(ProjectLocator,
 /// A callback static function used to determine whether or not an SDK should be built
 public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configuration: String, _ project: ProjectLocator) -> Result<[SDK], CarthageError>
 
+typealias ProjectScheme = (project: ProjectLocator, scheme: Scheme)
+
 public final class Xcode {
-    
-    private typealias ProjectScheme = (project: ProjectLocator, schemes: Scheme)
     
     private static let buildSettingsCache = Cache<BuildArguments, Result<[BuildSettings], CarthageError>>()
     private static let destinationsCache = Cache<SDK, Result<String?, CarthageError>>()
@@ -85,13 +85,10 @@ public final class Xcode {
                 return BuildSchemeProducer { observer, lifetime in
                     // Use SignalProducer.replayLazily to avoid enumerating the given directory
                     // multiple times.
-                    buildableSchemesInDirectory(directoryURL,
-                                                withConfiguration: options.configuration,
-                                                forPlatforms: options.platforms,
-                                                schemeMatcher: schemeMatcher
-                        )
-                        .flatMap(.concat) { (scheme: Scheme, project: ProjectLocator) -> SignalProducer<TaskEvent<URL>, CarthageError> in
-                            let initialValue = (project, scheme)
+                    return SignalProducer(result: buildableSchemesInDirectory(directoryURL, withConfiguration: options.configuration, forPlatforms: options.platforms, schemeMatcher: schemeMatcher))
+                        .flatten()
+                        .flatMap(.concat) { projectScheme -> SignalProducer<TaskEvent<URL>, CarthageError> in
+                            let initialValue = projectScheme
 
                             let wrappedSDKFilter: SDKFilterCallback = { sdks, scheme, configuration, project in
                                 let filteredSDKs: [SDK]
@@ -104,9 +101,9 @@ public final class Xcode {
                             }
 
                             return buildScheme(
-                                scheme,
+                                projectScheme.scheme,
                                 withOptions: options,
-                                inProject: project,
+                                inProject: projectScheme.project,
                                 rootDirectoryURL: rootDirectoryURL,
                                 workingDirectoryURL: directoryURL,
                                 sdkFilter: wrappedSDKFilter
@@ -169,15 +166,13 @@ public final class Xcode {
             })
     }
     
-    private static func projectSchemes(directoryURL: URL) -> Result<[ProjectScheme], CarthageError> {
+    private static func projectSchemes(directoryURL: URL) -> Result<[ProjectLocator:[Scheme]], CarthageError> {
         return ProjectLocator
             .locate(in: directoryURL)
-            .flatMap({ projects -> CarthageResult<[ProjectScheme]> in
-                return CarthageResult.catching {
-                    try projects.reduce(into: [ProjectScheme]()) { array, project in
-                        for scheme in try project.schemes().get() {
-                            array.append((project, scheme))
-                        }
+            .flatMap({ projects -> CarthageResult<[ProjectLocator:[Scheme]]> in
+                return CarthageResult.catching { () -> [ProjectLocator:[Scheme]] in
+                    try projects.reduce(into: [ProjectLocator:[Scheme]]()) { dict, project in
+                        dict[project, default: [Scheme]()].append(contentsOf: try project.schemes().get())
                     }
                 }
             })
@@ -190,82 +185,36 @@ public final class Xcode {
         withConfiguration configuration: String,
         forPlatforms platforms: Set<Platform> = [],
         schemeMatcher: SchemeMatcher?
-        ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
+        ) -> Result<[ProjectScheme], CarthageError> {
         precondition(directoryURL.isFileURL)
         
-        CarthageResult.catching { () -> [(Scheme, ProjectLocator)] in
+        return CarthageResult.catching { () -> [ProjectScheme] in
         
-            let projectSchemes = try self.projectSchemes(directoryURL: directoryURL).get()
+            let projectSchemes: [ProjectLocator: [Scheme]] = try self.projectSchemes(directoryURL: directoryURL).get()
             
             if projectSchemes.isEmpty {
                 // No schemes and no projects: just return
                 return []
             }
             
-            // If there is a workspace which contains this project: use the workspace
+            var ret = [ProjectScheme]()
             
-            // Otherwise use the project
+            //TODO: construct workspace lookup dictionary, by reading the contents of the workspace
+            let workspaceLookupDict = [ProjectLocator: ProjectLocator]()
             
-            
-        }
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        let locator = SignalProducer<[ProjectSchemes], CarthageError>(result: self.projectSchemes(directoryURL: directoryURL))
-        return locator
-            // Allow dependencies which have no projects, not to error out with
-            // `.noSharedFrameworkSchemes`.
-            .filter { projects in !projects.isEmpty }
-            .flatMap(.merge) { (projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                return schemesInProjects(projects).flatten()
-            }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                /// Check whether we should the scheme by checking against the project. If we're building
-                /// from a workspace, then it might include additional targets that would trigger our
-                /// check.
-                let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
-                return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
-                    .filter { $0 }
-                    .map { _ in (scheme, project) }
-            }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                return locator
-                    // This scheduler hop is required to avoid disallowed recursive signals.
-                    // See https://github.com/ReactiveCocoa/ReactiveCocoa/pull/2042.
-                    .start(on: QueueScheduler(qos: .default, name: "org.carthage.CarthageKit.Xcode.buildInDirectory"))
-                    // Pick up the first workspace which can build the scheme.
-                    .flatMap(.concat) { project, schemes -> SignalProducer<ProjectLocator, CarthageError> in
-                        switch project {
-                        case .workspace where schemes.contains(scheme):
-                            let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
-                            return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
-                                .filter { $0 }
-                                .map { _ in project }
-
-                        default:
-                            return .empty
+            for (project, schemes) in projectSchemes where !project.isWorkspace {
+                for scheme in schemes {
+                    let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
+                    if shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher).value == true {
+                        if let workspace = workspaceLookupDict[project] {
+                            ret.append((workspace, scheme))
+                        } else {
+                            ret.append((project, scheme))
                         }
                     }
-                    // If there is no appropriate workspace, use the project in
-                    // which the scheme is defined instead.
-                    .concat(value: project)
-                    .take(first: 1)
-                    .map { project in (scheme, project) }
-            }
-            .collect()
-            .flatMap(.merge) { (schemes: [(Scheme, ProjectLocator)]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                if !schemes.isEmpty {
-                    return .init(schemes)
-                } else {
-                    return .init(error: .noSharedFrameworkSchemes(.git(GitURL(directoryURL.path)), platforms))
                 }
+            }
+            return ret
         }
     }
 
@@ -274,7 +223,7 @@ public final class Xcode {
     ///
     /// Upon .success, sends one BuildSettings value for each target included in
     /// the referenced scheme.
-    static func loadBuildSettings(with arguments: BuildArguments, for action: BuildArguments.Action? = nil) -> Result<[BuildSettings], CarthageError> {
+    static func loadBuildSettings(with arguments: BuildArguments, for action: BuildArguments.Action? = nil) -> CarthageResult<[BuildSettings]> {
         // xcodebuild (in Xcode 8.0) has a bug where xcodebuild -showBuildSettings
         // can hang indefinitely on projects that contain core data models.
         // rdar://27052195
@@ -314,32 +263,32 @@ public final class Xcode {
         keepingArchitectures: [String],
         strippingDebugSymbols: Bool,
         codesigningIdentity: String? = nil
-        ) -> SignalProducer<(), CarthageError> {
+        ) -> Result<(), CarthageError> {
 
-        let stripArchitectures = stripBinary(frameworkURL, keepingArchitectures: keepingArchitectures)
-        let stripSymbols = strippingDebugSymbols ? stripDebugSymbols(frameworkURL) : .empty
-
-        // Xcode doesn't copy `Headers`, `PrivateHeaders` and `Modules` directory at
-        // all.
-        let stripHeaders = stripHeadersDirectory(frameworkURL)
-        let stripPrivateHeaders = stripPrivateHeadersDirectory(frameworkURL)
-        let stripModules = stripModulesDirectory(frameworkURL)
-
-        let sign = codesigningIdentity.map { codesign(frameworkURL, $0) } ?? .empty
-
-        return stripArchitectures
-            .concat(stripSymbols)
-            .concat(stripHeaders)
-            .concat(stripPrivateHeaders)
-            .concat(stripModules)
-            .concat(sign)
+        return stripBinary(frameworkURL, keepingArchitectures: keepingArchitectures)
+            .flatMap {
+                strippingDebugSymbols ? stripDebugSymbols(frameworkURL) : .success(())
+            }
+            .flatMap {
+                stripHeadersDirectory(frameworkURL)
+            }
+            .flatMap {
+                stripPrivateHeadersDirectory(frameworkURL)
+            }
+            .flatMap {
+                stripModulesDirectory(frameworkURL)
+            }
+            .flatMap {
+                codesigningIdentity.map({ codesign(frameworkURL, $0) }) ?? .success(())
+            }
     }
 
     /// Strips a universal file from unexpected architectures.
-    static func stripBinary(_ binaryURL: URL, keepingArchitectures: [String]) -> SignalProducer<(), CarthageError> {
+    static func stripBinary(_ binaryURL: URL, keepingArchitectures: [String]) -> CarthageResult<()> {
         return Frameworks.architecturesInPackage(binaryURL)
             .filter { !keepingArchitectures.contains($0) }
             .flatMap(.concat) { stripArchitecture(binaryURL, $0) }
+            .wait()
     }
 
     // MARK: - Private
@@ -354,33 +303,6 @@ public final class Xcode {
     /// arguments.
     private static func xcodebuildTask(_ task: String, _ buildArguments: BuildArguments) -> Task {
         return xcodebuildTask([task], buildArguments)
-    }
-
-    /// Sends pairs of a scheme and a project, the scheme actually resides in
-    /// the project.
-    private static func schemesInProjects(_ projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<[(Scheme, ProjectLocator)], CarthageError> {
-        return SignalProducer<(ProjectLocator, [Scheme]), CarthageError>(projects)
-            .map { (project: ProjectLocator, schemes: [Scheme]) in
-                // Only look for schemes that actually reside in the project
-                let containedSchemes = schemes.filter { scheme -> Bool in
-                    let schemePath = project.fileURL.appendingPathComponent("xcshareddata/xcschemes/\(scheme).xcscheme").path
-                    return FileManager.default.fileExists(atPath: schemePath)
-                }
-                return (project, containedSchemes)
-            }
-            .filter { (project: ProjectLocator, schemes: [Scheme]) in
-                switch project {
-                case .projectFile where !schemes.isEmpty:
-                    return true
-
-                default:
-                    return false
-                }
-            }
-            .flatMap(.concat) { project, schemes in
-                return SignalProducer<(Scheme, ProjectLocator), CarthageError>(schemes.map { ($0, project) })
-            }
-            .collect()
     }
 
     /// Finds the built product for the given settings, then copies it (preserving
@@ -658,12 +580,12 @@ public final class Xcode {
             toolchain: options.toolchain
         )
 
-        return SDKsForScheme(scheme, inProject: project)
+        return SignalProducer(result: SDKsForScheme(scheme, inProject: project))
+            .flatten()
             .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
                 var argsForLoading = buildArgs
                 argsForLoading.sdk = sdk
-
-                return loadBuildSettings(with: argsForLoading)
+                let result: CarthageResult<SDK> = loadBuildSettings(with: argsForLoading)
                     .filter { settings in
                         // Filter out SDKs that require bitcode when bitcode is disabled in
                         // project settings. This is necessary for testing frameworks, which
@@ -671,6 +593,7 @@ public final class Xcode {
                         return settings.bitcodeEnabled.value == true || ![.tvOS, .watchOS].contains(sdk)
                     }
                     .map { _ in sdk }
+                return SignalProducer(result: result)
             }
             .reduce(into: [:]) { (sdksByPlatform: inout [Platform: Set<SDK>], sdk: SDK) in
                 let platform = sdk.platform
@@ -773,28 +696,23 @@ public final class Xcode {
                     // occur if the framework is a static framework packaged
                     // like a dynamic framework.
                     .take(first: 1)
-                    .flatMap(.concat) { _ -> SignalProducer<TaskEvent<URL>, CarthageError> in
-                        return createDebugInformation(builtProductURL)
+                    .flatMap(.concat) { _ -> SignalProducer<URL?, CarthageError> in
+                        return SignalProducer(result: createDebugInformation(builtProductURL))
                     }
                     .then(SignalProducer<URL, CarthageError>(value: builtProductURL))
         }
     }
 
     /// Fixes problem when more than one xcode target has the same Product name for same Deployment target and configuration by deleting TARGET_BUILD_DIR.
-    private static func resolveSameTargetName(for settings: BuildSettings) -> SignalProducer<BuildSettings, CarthageError> {
-        switch settings.targetBuildDirectory {
-        case .success(let buildDir):
-            let result = Task("/usr/bin/xcrun", arguments: ["rm", "-rf", buildDir])
+    private static func resolveSameTargetName(for settings: BuildSettings) -> CarthageResult<BuildSettings> {
+        return settings.targetBuildDirectory.flatMap { buildDir in
+            return Task("/usr/bin/xcrun", arguments: ["rm", "-rf", buildDir])
                 .launch()
+                .mapError(CarthageError.taskError)
                 .wait()
-
-            if let error = result.error {
-                return SignalProducer(error: CarthageError.taskError(error))
-            }
-
-            return SignalProducer(value: settings)
-        case .failure(let error):
-            return SignalProducer(error: error)
+                .map {
+                    settings
+                }
         }
     }
     
@@ -806,10 +724,10 @@ public final class Xcode {
     // simulator on the list, iPad 2 7.1, which is invalid for the target.
     //
     // See https://github.com/Carthage/Carthage/issues/417.
-    private static func fetchDestination(sdk: SDK) -> SignalProducer<String?, CarthageError> {
+    private static func fetchDestination(sdk: SDK) -> CarthageResult<String?> {
         // Specifying destination seems to be required for building with
         // simulator SDKs since Xcode 7.2.
-        let result = destinationsCache.getValue(key: sdk) { sdk -> Result<String?, CarthageError> in
+        return destinationsCache.getValue(key: sdk) { sdk -> Result<String?, CarthageError> in
             if sdk.isSimulator {
                 return Task("/usr/bin/xcrun", arguments: [ "simctl", "list", "devices", "--json" ])
                     .getStdOutData()
@@ -824,7 +742,6 @@ public final class Xcode {
             }
             return .success(nil)
         }
-        return SignalProducer(result: result)
     }
 
     /// Runs the build for a given sdk and build arguments, optionally performing a clean first
@@ -836,7 +753,7 @@ public final class Xcode {
         var argsForBuilding = argsForLoading
         argsForBuilding.onlyActiveArchitecture = false
 
-        return fetchDestination(sdk: sdk)
+        return SignalProducer(result: fetchDestination(sdk: sdk))
             .flatMap(.concat) { destination -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                 if let destination = destination {
                     argsForBuilding.destination = destination
@@ -851,7 +768,9 @@ public final class Xcode {
                 // See https://github.com/Carthage/Carthage/issues/2056
                 // and https://developer.apple.com/library/content/qa/qa1964/_index.html.
                 let xcodebuildAction: BuildArguments.Action = sdk.isDevice ? .archive : .build
-                return loadBuildSettings(with: argsForLoading, for: xcodebuildAction)
+                
+                return SignalProducer(result: loadBuildSettings(with: argsForLoading, for: xcodebuildAction))
+                    .flatten()
                     .filter { settings in
                         // Only copy build products that are frameworks
                         guard let frameworkType = settings.frameworkType.value, shouldBuildFrameworkType(frameworkType), let projectPath = settings.projectPath.value else {
@@ -893,6 +812,9 @@ public final class Xcode {
                                     // Disable the "Strip Linked Product" build
                                     // setting so we can later generate a dSYM
                                     "STRIP_INSTALLED_PRODUCT=NO",
+                                    
+                                    // Enabled whole module compilation since we are not interested in incremental mode
+                                    "SWIFT_COMPILATION_MODE=wholemodule",
                                 ]
                             }
 
@@ -909,89 +831,83 @@ public final class Xcode {
     }
 
     /// Creates a dSYM for the provided dynamic framework.
-    private static func createDebugInformation(_ builtProductURL: URL) -> SignalProducer<TaskEvent<URL>, CarthageError> {
+    private static func createDebugInformation(_ builtProductURL: URL) -> CarthageResult<URL?> {
         let dSYMURL = builtProductURL.appendingPathExtension("dSYM")
-
         let executableName = builtProductURL.deletingPathExtension().lastPathComponent
         if !executableName.isEmpty {
             let executable = builtProductURL.appendingPathComponent(executableName).path
             let dSYM = dSYMURL.path
             let dsymutilTask = Task("/usr/bin/xcrun", arguments: ["dsymutil", executable, "-o", dSYM])
-
             return dsymutilTask.launch()
                 .mapError(CarthageError.taskError)
-                .flatMapTaskEvents(.concat) { _ in SignalProducer(value: dSYMURL) }
+                .wait()
+                .map { _ in dSYMURL }
         } else {
-            return .empty
+            return .success(nil)
         }
     }
 
     /// Strips the given architecture from a framework.
-    private static func stripArchitecture(_ frameworkURL: URL, _ architecture: String) -> SignalProducer<(), CarthageError> {
-        return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in Frameworks.binaryURL(frameworkURL) }
-            .flatMap(.merge) { binaryURL -> SignalProducer<TaskEvent<Data>, CarthageError> in
-                let lipoTask = Task("/usr/bin/xcrun", arguments: [ "lipo", "-remove", architecture, "-output", binaryURL.path, binaryURL.path])
-                return lipoTask.launch()
-                    .mapError(CarthageError.taskError)
-            }
-            .then(SignalProducer<(), CarthageError>.empty)
+    private static func stripArchitecture(_ frameworkURL: URL, _ architecture: String) -> CarthageResult<()> {
+        return Frameworks.binaryURL(frameworkURL).flatMap { binaryURL in
+            let lipoTask = Task("/usr/bin/xcrun", arguments: [ "lipo", "-remove", architecture, "-output", binaryURL.path, binaryURL.path])
+            return lipoTask.launch()
+                .mapError(CarthageError.taskError)
+                .wait()
+        }
     }
 
     /// Strips debug symbols from the given framework
-    private static func stripDebugSymbols(_ frameworkURL: URL) -> SignalProducer<(), CarthageError> {
-        return SignalProducer<URL, CarthageError> { () -> Result<URL, CarthageError> in Frameworks.binaryURL(frameworkURL) }
-            .flatMap(.merge) { binaryURL -> SignalProducer<TaskEvent<Data>, CarthageError> in
-                let stripTask = Task("/usr/bin/xcrun", arguments: [ "strip", "-S", "-o", binaryURL.path, binaryURL.path])
-                return stripTask.launch()
-                    .mapError(CarthageError.taskError)
-            }
-            .then(SignalProducer<(), CarthageError>.empty)
+    private static func stripDebugSymbols(_ frameworkURL: URL) -> CarthageResult<()> {
+        return Frameworks.binaryURL(frameworkURL).flatMap { binaryURL in
+            let stripTask = Task("/usr/bin/xcrun", arguments: [ "strip", "-S", "-o", binaryURL.path, binaryURL.path])
+            return stripTask.launch()
+                .mapError(CarthageError.taskError)
+                .wait()
+        }
     }
 
     /// Strips `Headers` directory from the given framework.
-    private static func stripHeadersDirectory(_ frameworkURL: URL) -> SignalProducer<(), CarthageError> {
+    private static func stripHeadersDirectory(_ frameworkURL: URL) -> CarthageResult<()> {
         return stripDirectory(named: "Headers", of: frameworkURL)
     }
 
     /// Strips `PrivateHeaders` directory from the given framework.
-    private static func stripPrivateHeadersDirectory(_ frameworkURL: URL) -> SignalProducer<(), CarthageError> {
+    private static func stripPrivateHeadersDirectory(_ frameworkURL: URL) -> CarthageResult<()> {
         return stripDirectory(named: "PrivateHeaders", of: frameworkURL)
     }
 
     /// Strips `Modules` directory from the given framework.
-    private static func stripModulesDirectory(_ frameworkURL: URL) -> SignalProducer<(), CarthageError> {
+    private static func stripModulesDirectory(_ frameworkURL: URL) -> CarthageResult<()> {
         return stripDirectory(named: "Modules", of: frameworkURL)
     }
 
-    private static func stripDirectory(named directory: String, of frameworkURL: URL) -> SignalProducer<(), CarthageError> {
-        return SignalProducer { () -> Result<(), CarthageError> in
+    private static func stripDirectory(named directory: String, of frameworkURL: URL) -> CarthageResult<()> {
+        return CarthageResult.catching {
             let directoryURLToStrip = frameworkURL.appendingPathComponent(directory, isDirectory: true)
-
-            return Result(at: directoryURLToStrip, attempt: {
-                guard $0.isExistingDirectory else {
-                    return
-                }
-                try FileManager.default.removeItem(at: $0)
-            })
+            guard directoryURLToStrip.isExistingDirectory else {
+                return
+            }
+            try FileManager.default.removeItem(at: directoryURLToStrip)
         }
     }
 
     /// Signs a framework with the given codesigning identity.
-    private static func codesign(_ frameworkURL: URL, _ expandedIdentity: String) -> SignalProducer<(), CarthageError> {
+    private static func codesign(_ frameworkURL: URL, _ expandedIdentity: String) -> CarthageResult<()> {
         let codesignTask = Task(
             "/usr/bin/xcrun",
             arguments: ["codesign", "--force", "--sign", expandedIdentity, "--preserve-metadata=identifier,entitlements", frameworkURL.path]
         )
         return codesignTask.launch()
             .mapError(CarthageError.taskError)
-            .then(SignalProducer<(), CarthageError>.empty)
+            .wait()
     }
 
     /// Determines which SDKs the given scheme builds for, by default.
     ///
     /// If an SDK is unrecognized or could not be determined, an error will be
     /// sent on the returned signal.
-    private static func SDKsForScheme(_ scheme: Scheme, inProject project: ProjectLocator) -> Result<[SDK], CarthageError> {
+    private static func SDKsForScheme(_ scheme: Scheme, inProject project: ProjectLocator) -> CarthageResult<[SDK]> {
         return loadBuildSettings(with: BuildArguments(project: project, scheme: scheme))
             .flatMap { settingsArray -> CarthageResult<[SDK]> in
                 guard let first = settingsArray.first else {
