@@ -13,7 +13,7 @@ private func gitHubUserAgent() -> String {
 extension Server {
     /// The URL that should be used for cloning the given repository over HTTPS.
     public func httpsURL(for repository: Repository) -> GitURL {
-        let auth = tokenFromEnvironment(forServer: self).map { "\($0)@" } ?? ""
+        let auth = Environment.gitHubToken(forServer: self).map { "\($0)@" } ?? ""
         let scheme = url.scheme!
 
         return GitURL("\(scheme)://\(auth)\(url.host!)/\(repository.owner)/\(repository.name).git")
@@ -82,67 +82,10 @@ extension Release {
     }
 }
 
-private func credentialsFromGit(forServer server: Server) -> (String, String)? {
-    let data = "url=\(server)".data(using: .utf8)!
-
-    return Git.launchGitTask([ "credential", "fill" ], standardInput: SignalProducer(value: data))
-        .flatMap(.concat) { string in
-            return string.linesProducer
-        }
-        .reduce(into: [:]) { (values: inout [String: String], line: String) in
-            let parts = line
-                .split(maxSplits: 1, omittingEmptySubsequences: true) { $0 == "=" }
-                .map(String.init)
-
-            if parts.count >= 2 {
-                let key = parts[0]
-                let value = parts[1]
-
-                values[key] = value
-            }
-        }
-        .map { (values: [String: String]) -> (String, String)? in
-            if let username = values["username"], let password = values["password"] {
-                return (username, password)
-            }
-
-            return nil
-        }
-        .first()?
-        .value ?? nil // swiftlint:disable:this redundant_nil_coalescing
-}
-
-private func tokenFromEnvironment(forServer server: Server) -> String? {
-    let environment = ProcessInfo.processInfo.environment
-
-    if let accessTokenInput = environment["GITHUB_ACCESS_TOKEN"] {
-        // Treat the input as comma-separated series of domains and tokens.
-        // (e.g., `GITHUB_ACCESS_TOKEN="github.com=XXXXXXXXXXXXX,enterprise.local/ghe=YYYYYYYYY"`)
-        let records = accessTokenInput
-            .split(omittingEmptySubsequences: true) { $0 == "," }
-            .reduce(into: [:]) { (values: inout [String: String], record) in
-                let parts = record.split(maxSplits: 1, omittingEmptySubsequences: true) { $0 == "=" }.map(String.init)
-                switch parts.count {
-                case 1:
-                    // If the input is provided as an access token itself, use the
-                    // token for Github.com.
-                    values["github.com"] = parts[0]
-
-                case 2:
-                    let (server, token) = (parts[0], parts[1])
-                    values[server] = token
-
-                default:
-                    break
-                }
-        }
-        return records[server.url.host!]
-    }
-
-    return nil
-}
-
 extension Client {
+
+    private static let gitCredentialCache = Cache<Server, (String, String)?>()
+
     convenience init(server: Server, isAuthenticated: Bool = true) {
         if Client.userAgent == nil {
             Client.userAgent = gitHubUserAgent()
@@ -152,13 +95,77 @@ extension Client {
 
         if !isAuthenticated {
             self.init(server, urlSession: urlSession)
-        } else if let token = tokenFromEnvironment(forServer: server) {
+        } else if let token = Environment.gitHubToken(forServer: server) {
             self.init(server, token: token, urlSession: urlSession)
-        } else if let (username, password) = credentialsFromGit(forServer: server) {
+        } else if let (username, password) = Client.credentialsFromGit(forServer: server) {
             self.init(server, username: username, password: password, urlSession: urlSession)
         } else {
             self.init(server, urlSession: urlSession)
         }
+    }
+
+    private static func credentialsFromGit(forServer server: Server) -> (String, String)? {
+        return gitCredentialCache.getValue(key: server) { server in
+            let data = "url=\(server)".data(using: .utf8)!
+            return Git.launchGitTask([ "credential", "fill" ], standardInput: SignalProducer(value: data))
+                .flatMap(.concat) { string in
+                    return string.linesProducer
+                }
+                .reduce(into: [:]) { (values: inout [String: String], line: String) in
+                    let parts = line
+                        .split(maxSplits: 1, omittingEmptySubsequences: true) { $0 == "=" }
+                        .map(String.init)
+
+                    if parts.count >= 2 {
+                        let key = parts[0]
+                        let value = parts[1]
+
+                        values[key] = value
+                    }
+                }
+                .map { (values: [String: String]) -> (String, String)? in
+                    if let username = values["username"], let password = values["password"] {
+                        return (username, password)
+                    }
+
+                    return nil
+                }
+                .first()?
+                .value ?? nil // swiftlint:disable:this redundant_nil_coalescing
+        }
+    }
+}
+
+fileprivate enum Environment {
+
+    fileprivate static func gitHubToken(forServer server: Server) -> String? {
+        let environment = ProcessInfo.processInfo.environment
+
+        if let accessTokenInput = environment["GITHUB_ACCESS_TOKEN"] {
+            // Treat the input as comma-separated series of domains and tokens.
+            // (e.g., `GITHUB_ACCESS_TOKEN="github.com=XXXXXXXXXXXXX,enterprise.local/ghe=YYYYYYYYY"`)
+            let records = accessTokenInput
+                .split(omittingEmptySubsequences: true) { $0 == "," }
+                .reduce(into: [:]) { (values: inout [String: String], record) in
+                    let parts = record.split(maxSplits: 1, omittingEmptySubsequences: true) { $0 == "=" }.map(String.init)
+                    switch parts.count {
+                    case 1:
+                        // If the input is provided as an access token itself, use the
+                        // token for Github.com.
+                        values["github.com"] = parts[0]
+
+                    case 2:
+                        let (server, token) = (parts[0], parts[1])
+                        values[server] = token
+
+                    default:
+                        break
+                    }
+            }
+            return records[server.url.host!]
+        }
+
+        return nil
     }
 }
 

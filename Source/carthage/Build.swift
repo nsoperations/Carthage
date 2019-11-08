@@ -119,12 +119,31 @@ public struct BuildCommand: CommandProtocol {
 
     public func build(project: Project, options: Options) -> SignalProducer<(), CarthageError> {
 
+        let launchDates = Atomic([Int: Date]())
         Task.globalSignal.observeResult { taskResult in
             switch taskResult {
-            case let .success(event):
-                carthage.println(event.description)
-            case let .failure(error):
-                carthage.println(error)
+            case let .success(taskEvent):
+                switch taskEvent {
+                case let .launch(task):
+                    launchDates.modify({ dict -> Void in
+                        dict[task.identifier] = Date()
+                    })
+                    carthage.println("Task #\(task.identifier): \(task.description)")
+                case let .success(task, _):
+                    if let launchDate = launchDates.modify({ dict -> Date? in
+                        return dict.removeValue(forKey: task.identifier)
+                    }) {
+                        let duration = Date().timeIntervalSince(launchDate)
+                        carthage.println("Task #\(task.identifier) succeeded in \(duration)s.")
+                    } else {
+                        carthage.println("Task #\(task.identifier) succeeded.")
+                    }
+
+                default:
+                    break
+                }
+            case let .failure(taskError):
+                carthage.println(taskError.description)
             }
         }
 
