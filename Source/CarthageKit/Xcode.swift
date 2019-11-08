@@ -119,7 +119,7 @@ public final class Xcode {
         }
     }
     
-    private static func projectSchemes(directoryURL: URL) -> Result<[ProjectLocator:[Scheme]], CarthageError> {
+    private static func projectSchemes(directoryURL: URL) -> CarthageResult<[ProjectLocator:[Scheme]]> {
         return ProjectLocator
             .locate(in: directoryURL)
             .flatMap({ projects -> CarthageResult<[ProjectLocator:[Scheme]]> in
