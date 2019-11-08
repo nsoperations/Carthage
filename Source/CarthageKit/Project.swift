@@ -283,7 +283,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
-    public func build(includingSelf: Bool, dependenciesToBuild: [String]?, buildOptions: BuildOptions, customProjectName: String?, customCommitish: String?) -> BuildSchemeProducer {
+    public func build(includingSelf: Bool, dependenciesToBuild: [String]?, buildOptions: BuildOptions, customProjectName: String?, customCommitish: String?) -> SignalProducer<(), CarthageError> {
         let buildProducer = self.loadResolvedCartfile()
             .map { _ in self }
             .flatMapError { error -> SignalProducer<Project, CarthageError> in
@@ -302,8 +302,8 @@ public final class Project { // swiftlint:disable:this type_body_length
         if !includingSelf {
             return buildProducer
         } else {
-            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: buildOptions, rootDirectoryURL: directoryURL, lockTimeout: self.lockTimeout, customProjectName: customProjectName, customCommitish: customCommitish)
-                .flatMapError { error -> BuildSchemeProducer in
+            let currentProducers = SignalProducer(result: Xcode.buildInDirectory(directoryURL, withOptions: buildOptions, rootDirectoryURL: directoryURL, lockTimeout: self.lockTimeout, customProjectName: customProjectName, customCommitish: customCommitish))
+                .flatMapError { error -> SignalProducer<(), CarthageError> in
                     switch error {
                     case let .noSharedFrameworkSchemes(project, _):
                         // Log that building the current project is being skipped.
@@ -666,7 +666,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     func buildCheckedOutDependenciesWithOptions( // swiftlint:disable:this cyclomatic_complexity function_body_length
         _ options: BuildOptions,
         dependenciesToBuild: [String]? = nil
-        ) -> BuildSchemeProducer {
+        ) -> SignalProducer<(), CarthageError> {
 
         let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
         
@@ -760,7 +760,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     }
                     .flatten()
             }
-            .flatMap(.concat) { dependency, version -> BuildSchemeProducer in
+            .flatMap(.concat) { dependency, version -> SignalProducer<(), CarthageError> in
                 let dependencyPath = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true).path
                 if !FileManager.default.fileExists(atPath: dependencyPath) {
                     self.projectEventsObserver.send(value: .warning("No checkout found for \(dependency.name), skipping build"))
@@ -775,19 +775,19 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let rootDirectoryURL = self.directoryURL
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
-                let builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = options.useBinaries ? { builtProductURLs in
+                let builtProductsHandler: (([URL]) -> CarthageResult<()>)? = options.useBinaries ? { builtProductURLs in
                     let frameworkNames = builtProductURLs.compactMap { url -> String? in
                         guard url.pathExtension == "framework" else {
                             return nil
                         }
                         return url.deletingPathExtension().lastPathComponent
                     }
-                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain).map { _ in }
+                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain).wait()
                     } : nil
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                     .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, builtProductsHandler: builtProductsHandler))
-                    .flatMapError { error -> BuildSchemeProducer in
+                    .flatMapError { error -> SignalProducer<(), CarthageError> in
                         switch error {
                         case .noSharedFrameworkSchemes:
                             // Log that building the dependency is being skipped,
@@ -804,12 +804,12 @@ public final class Project { // swiftlint:disable:this type_body_length
                                                                                  configuration: options.configuration,
                                                                                  buildProducts: [],
                                                                                  rootDirectoryURL: self.directoryURL)
-                                    .then(BuildSchemeProducer.empty)
+                                    .then(SignalProducer<(), CarthageError>.empty)
                             }
                             return .empty
 
                         default:
-                            return SignalProducer(error: error)
+                            return SignalProducer<(), CarthageError>(error: error)
                         }
                 }
         }

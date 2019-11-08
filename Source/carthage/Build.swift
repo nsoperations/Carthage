@@ -118,6 +118,16 @@ public struct BuildCommand: CommandProtocol {
     }
 
     public func build(project: Project, options: Options) -> SignalProducer<(), CarthageError> {
+
+        Task.globalSignal.observeResult { taskResult in
+            switch taskResult {
+            case let .success(event):
+                carthage.println(event.description)
+            case let .failure(error):
+                carthage.println(error)
+            }
+        }
+
         return self.openLoggingHandle(options)
             .flatMap(.merge) { stdoutHandle, temporaryURL -> SignalProducer<(), CarthageError> in
 
@@ -126,7 +136,7 @@ public struct BuildCommand: CommandProtocol {
                 project.lockTimeout = options.lockTimeout
                 let buildProgress = project.build(includingSelf: shouldBuildCurrentProject, dependenciesToBuild: options.dependenciesToBuild, buildOptions: options.buildOptions, customProjectName: options.customProjectName, customCommitish: options.customCommitish)
 
-                let stderrHandle = options.isVerbose ? FileHandle.standardError : stdoutHandle
+                //let stderrHandle = options.isVerbose ? FileHandle.standardError : stdoutHandle
 
                 let formatting = options.colorOptions.formatting
 
@@ -143,25 +153,28 @@ public struct BuildCommand: CommandProtocol {
                             if let path = temporaryURL?.path {
                                 carthage.println(formatting.bullets + "xcodebuild output can be found in " + formatting.path(path))
                             }
-                    },
-                        value: { taskEvent in
-                            switch taskEvent {
-                            case let .launch(task):
-                                stdoutHandle.write(task.description.data(using: .utf8)!)
-
-                            case let .standardOutput(data):
-                                stdoutHandle.write(data)
-
-                            case let .standardError(data):
-                                stderrHandle.write(data)
-
-                            case let .success(project, scheme):
-                                carthage.println(formatting.bullets + "Building scheme " + formatting.quote(scheme.name) + " in " + formatting.projectName(project.description))
-                            }
-                    }
-                    )
+                    })
                     .then(SignalProducer<(), CarthageError>.empty)
         }
+
+        /*
+     ,
+     value: { taskEvent in
+     switch taskEvent {
+     case let .launch(task):
+     stdoutHandle.write(task.description.data(using: .utf8)!)
+
+     case let .standardOutput(data):
+     stdoutHandle.write(data)
+
+     case let .standardError(data):
+     stderrHandle.write(data)
+
+     case let .success(project, scheme):
+     carthage.println(formatting.bullets + "Building scheme " + formatting.quote(scheme.name) + " in " + formatting.projectName(project.description))
+     }
+     }
+     */
     }
 
     /// Opens an existing file, if provided, or creates a temporary file if not, returning a handle and the URL to the
