@@ -665,8 +665,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     /// Returns a producer-of-producers representing each scheme being built.
     func buildCheckedOutDependenciesWithOptions( // swiftlint:disable:this cyclomatic_complexity function_body_length
         _ options: BuildOptions,
-        dependenciesToBuild: [String]? = nil,
-        sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) }
+        dependenciesToBuild: [String]? = nil
         ) -> BuildSchemeProducer {
 
         let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
@@ -787,7 +786,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     } : nil
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
-                    .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
+                    .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, builtProductsHandler: builtProductsHandler))
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:

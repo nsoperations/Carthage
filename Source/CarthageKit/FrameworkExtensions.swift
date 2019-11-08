@@ -437,9 +437,9 @@ extension Task {
         return launch()
             .on(value: { (taskEvent: TaskEvent<Data>) in
                 switch taskEvent {
-                case .standardError(let data):
+                case .standardError(_, let data):
                     stdOutData += data
-                case .standardOutput(let data):
+                case .standardOutput(_, let data):
                     stdErrData += data
                 default:
                     break

@@ -195,4 +195,16 @@ extension URLLock {
             return .success(lock)
         })
     }
+    
+    static func locked<T>(url: URL, timeout: Int? = nil, onWait: ((URLLock) -> Void)? = URLLock.globalWaitHandler, perform: (URL) throws -> T) throws -> T {
+        let lock = URLLock(url: url)
+        lock.onWait = onWait
+        guard lock.lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
+            throw CarthageError.lockError(url: url, timeout: timeout)
+        }
+        defer {
+            lock.unlock()
+        }
+        return try perform(url)
+    }
 }
