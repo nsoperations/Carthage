@@ -900,6 +900,9 @@ public final class Xcode {
                                     // Disable the "Strip Linked Product" build
                                     // setting so we can later generate a dSYM
                                     "STRIP_INSTALLED_PRODUCT=NO",
+
+                                    // Enabled whole module compilation since we are not interested in incremental mode
+                                    "SWIFT_COMPILATION_MODE=wholemodule",
                                 ]
                             }
 
