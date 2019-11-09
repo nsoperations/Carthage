@@ -17,10 +17,6 @@ public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configu
 
 public final class Xcode {
     
-    private static let buildSettingsCache = Cache<BuildArguments, Result<String, CarthageError>>()
-    private static let schemeNamesCache = Cache<ProjectLocator, Result<String, CarthageError>>()
-    private static let destinationsCache = Cache<SDK, Result<String?, CarthageError>>()
-
     /// Attempts to build the dependency, then places its build product into the
     /// root directory given.
     ///
@@ -246,9 +242,9 @@ public final class Xcode {
 
     /// Sends each shared scheme name found in the receiver.
     static func listSchemeNames(project: ProjectLocator) -> SignalProducer<String, CarthageError> {
-        let schemesResult = schemeNamesCache.getValue(key: project) { project in
-            let task = xcodebuildTask("-list", BuildArguments(project: project))
-            return task.launch()
+        let task = xcodebuildTask("-list", BuildArguments(project: project), useCache: true)
+
+        return task.launch()
             .ignoreTaskData()
             .mapError(CarthageError.taskError)
             // xcodebuild has a bug where xcodebuild -list can sometimes hang
@@ -259,10 +255,6 @@ public final class Xcode {
             .map { data in
                 return String(data: data, encoding: .utf8)!
             }
-            .first()!
-        }
-
-        return SignalProducer(result: schemesResult)
             .flatMap(.merge) { string in
                 return string.linesProducer
             }
@@ -296,11 +288,9 @@ public final class Xcode {
         //
         // "archive" also works around the issue above so use it to determine if
         // it is configured for the archive action.
-        
-        let commandResult = buildSettingsCache.getValue(key: arguments) { arguments in
-            let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments)
-            
-            return task.launch()
+        let task = xcodebuildTask(["archive", "-showBuildSettings", "-skipUnavailableActions"], arguments, useCache: true)
+
+        return task.launch()
             .ignoreTaskData()
             .mapError(CarthageError.taskError)
             // xcodebuild has a bug where xcodebuild -showBuildSettings
@@ -312,14 +302,8 @@ public final class Xcode {
             .map { data in
                 return String(data: data, encoding: .utf8)!
             }
-            .first()!
-        }
-        
-        switch commandResult {
-        case let .success(output):
-            return BuildSettings.produce(string: output, arguments: arguments, action: action)
-        case let .failure(error):
-            return SignalProducer(error: error)
+            .flatMap(.merge) { string -> SignalProducer<BuildSettings, CarthageError> in
+                BuildSettings.produce(string: string, arguments: arguments, action: action)
         }
     }
 
@@ -365,14 +349,14 @@ public final class Xcode {
 
     /// Creates a task description for executing `xcodebuild` with the given
     /// arguments.
-    private static func xcodebuildTask(_ tasks: [String], _ buildArguments: BuildArguments) -> Task {
-        return Task("/usr/bin/xcrun", arguments: buildArguments.arguments + tasks)
+    private static func xcodebuildTask(_ tasks: [String], _ buildArguments: BuildArguments, workingDirectoryPath: String? = nil, useCache: Bool = false) -> Task {
+        return Task("/usr/bin/xcrun", arguments: buildArguments.arguments + tasks, workingDirectoryPath: workingDirectoryPath, useCache: useCache)
     }
 
     /// Creates a task description for executing `xcodebuild` with the given
     /// arguments.
-    private static func xcodebuildTask(_ task: String, _ buildArguments: BuildArguments) -> Task {
-        return xcodebuildTask([task], buildArguments)
+    private static func xcodebuildTask(_ task: String, _ buildArguments: BuildArguments, workingDirectoryPath: String? = nil, useCache: Bool = false) -> Task {
+        return xcodebuildTask([task], buildArguments, workingDirectoryPath: workingDirectoryPath, useCache: useCache)
     }
 
     /// Sends pairs of a scheme and a project, the scheme actually resides in
@@ -833,26 +817,21 @@ public final class Xcode {
     private static func fetchDestination(sdk: SDK) -> SignalProducer<String?, CarthageError> {
         // Specifying destination seems to be required for building with
         // simulator SDKs since Xcode 7.2.
-        
-        let result = destinationsCache.getValue(key: sdk) { sdk -> Result<String?, CarthageError> in
-            if sdk.isSimulator {
-                let destinationLookup = Task("/usr/bin/xcrun", arguments: [ "simctl", "list", "devices", "--json" ])
-                return destinationLookup.launch()
-                    .mapError(CarthageError.taskError)
-                    .ignoreTaskData()
-                    .flatMap(.concat) { (data: Data) -> SignalProducer<Simulator, CarthageError> in
-                        if let selectedSimulator = Simulator.selectAvailableSimulator(of: sdk, from: data) {
-                            return .init(value: selectedSimulator)
-                        } else {
-                            return .init(error: CarthageError.noAvailableSimulators(platformName: sdk.platform.rawValue))
-                        }
+        if sdk.isSimulator {
+            let destinationLookup = Task("/usr/bin/xcrun", arguments: [ "simctl", "list", "devices", "--json" ], useCache: true)
+            return destinationLookup.launch()
+                .mapError(CarthageError.taskError)
+                .ignoreTaskData()
+                .flatMap(.concat) { (data: Data) -> SignalProducer<Simulator, CarthageError> in
+                    if let selectedSimulator = Simulator.selectAvailableSimulator(of: sdk, from: data) {
+                        return .init(value: selectedSimulator)
+                    } else {
+                        return .init(error: CarthageError.noAvailableSimulators(platformName: sdk.platform.rawValue))
                     }
-                    .map { "platform=\(sdk.platform.rawValue) Simulator,id=\($0.udid.uuidString)" }
-                    .first()!
-            }
-            return .success(nil)
+                }
+                .map { "platform=\(sdk.platform.rawValue) Simulator,id=\($0.udid.uuidString)" }
         }
-        return SignalProducer(result: result)
+        return SignalProducer(value: nil)
     }
 
     /// Runs the build for a given sdk and build arguments, optionally performing a clean first
@@ -927,8 +906,7 @@ public final class Xcode {
                             return result
                         }()
 
-                        var buildScheme = xcodebuildTask(actions, argsForBuilding)
-                        buildScheme.workingDirectoryPath = workingDirectoryURL.path
+                        let buildScheme = xcodebuildTask(actions, argsForBuilding, workingDirectoryPath: workingDirectoryURL.path)
                         return buildScheme.launch()
                             .flatMapTaskEvents(.concat) { _ in SignalProducer(settings) }
                             .mapError(CarthageError.taskError)

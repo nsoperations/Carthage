@@ -34,6 +34,10 @@ registry.register(VersionCommand())
 registry.register(DiagnoseCommand())
 registry.register(SwiftVersionCommand())
 
+#if DEBUG
+Task.debugLoggingEnabled = true
+#endif
+
 let helpCommand = HelpCommand(registry: registry)
 registry.register(helpCommand)
 

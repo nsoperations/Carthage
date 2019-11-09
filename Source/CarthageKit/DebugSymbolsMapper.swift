@@ -86,8 +86,14 @@ final class DebugSymbolsMapper {
 
     private static func uuidsOfDwarf(_ binaryURL: URL) throws -> [String: String] {
 
+        // The output of dwarfdump is a series of lines formatted as follows
+        // for each architecture:
+        //
+        //     UUID: <UUID> (<Architecture>) <PathToBinary>
+        //
+
         let normalizedURL = try normalizedBinaryURL(url: binaryURL)
-        let task = Task("/usr/bin/xcrun", arguments: ["dwarfdump", "--uuid", normalizedURL.path])
+        let task = Task("/usr/bin/xcrun", arguments: ["dwarfdump", "--uuid", normalizedURL.path], useCache: true)
 
         let stdOutString = try task.getStdOutString().mapError(CarthageError.taskError).get()
 
@@ -101,7 +107,6 @@ final class DebugSymbolsMapper {
                 archsToUUIDs[elements[2].replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")] = String(elements[1])
             }
         }
-
         return archsToUUIDs
     }
 
