@@ -83,15 +83,6 @@
         }
       },
       {
-        "package": "ReactiveTask",
-        "repositoryURL": "https://github.com/nsoperations/ReactiveTask.git",
-        "state": {
-          "branch": "fix/handle-launch-exceptions",
-          "revision": "cc9ccbaa91a0c7ed960a990dc2a4f825c677ffd2",
-          "version": null
-        }
-      },
-      {
         "package": "Result",
         "repositoryURL": "https://github.com/antitypical/Result.git",
         "state": {
