@@ -43,7 +43,8 @@ let package = Package(
             exclude: ["swift-is-crashy.c"]
         ),
 	.target(
-            name: "ReactiveTask"
+            name: "ReactiveTask",
+            dependencies: ["ReactiveSwift", "Result"]
         ),
         .target(
             name: "wildmatch"
