@@ -41,6 +41,37 @@ Task.debugLoggingEnabled = true
 let helpCommand = HelpCommand(registry: registry)
 registry.register(helpCommand)
 
-registry.main(defaultVerb: helpCommand.verb) { error in
+let start = Date()
+
+registry.main(defaultVerb: helpCommand.verb, successHandler: {
+    
+    #if DEBUG
+    let totalDuration = Date().timeIntervalSince(start)
+    
+    println("-------------------------------------------------------------------------------")
+    
+    println("Total duration: \(totalDuration) s.")
+    
+    let taskHistory: [Task: TimeInterval] = Task.history
+    
+    let totalTaskDuration: TimeInterval = taskHistory.values.reduce(0.0) { $0 + $1 }
+    
+    println("Total duration of tasks: \(totalTaskDuration) s.")
+    
+    println("Ordered tasks by duration:")
+    
+    let orderedTasks: [(key: Task, value: TimeInterval)] = taskHistory.sorted {
+        $0.value > $1.value
+    }
+    
+    for entry in orderedTasks {
+        println("\(entry.key) took \(entry.value) s.")
+    }
+    
+    println("-------------------------------------------------------------------------------")
+    
+    #endif
+    
+}, errorHandler: { error in
     fputs(error.description + "\n", stderr)
-}
+})

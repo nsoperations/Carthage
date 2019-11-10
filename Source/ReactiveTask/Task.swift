@@ -424,7 +424,15 @@ extension Signal where Value: TaskEventType {
 extension Task {
     
     private static let taskCache = Atomic(Dictionary<Task, Data>())
-    private static let taskHistory = Atomic(Set<Task>())
+    
+    #if DEBUG
+    private static let taskHistory = Atomic(Dictionary<Task, TimeInterval>())
+    
+    public static var history: [Task: TimeInterval] {
+        return taskHistory.value
+    }
+    
+    #endif
     
     public static var debugLoggingEnabled = false
     
@@ -443,18 +451,20 @@ extension Task {
         shouldBeTerminatedOnParentExit: Bool = false
         ) -> SignalProducer<TaskEvent<Data>, TaskError> {
         
-        if self.useCache, let cachedData = Task.taskCache.withValue({ $0[self] }) {
+        if self.useCache, let cachedData = Task.taskCache[self] {
             if Task.debugLoggingEnabled {
                 print("Task #\(self.identifier) cache hit: \(self)")
             }
             return SignalProducer<TaskEvent<Data>, TaskError>(values: .launch(self), .standardOutput(cachedData), .success(cachedData))
         }
         
+        #if DEBUG
         if Task.debugLoggingEnabled {
-            if !Task.taskHistory.modify({ return $0.insert(self) }).inserted {
+            if Task.taskHistory[self] != nil {
                 print("Task #\(self.identifier) has been executed before, consider caching")
             }
         }
+        #endif
         
         var launchDate: Date!
         
@@ -563,6 +573,11 @@ extension Task {
                         process.terminationHandler = { process in
                             let terminationStatus = process.terminationStatus
                             let duration = Date().timeIntervalSince(launchDate)
+                            
+                            #if DEBUG
+                            Task.taskHistory[self] = duration
+                            #endif
+                            
                             if terminationStatus == EXIT_SUCCESS {
                                 // Wait for stderr to finish, then pass
                                 // through stdout.
@@ -575,7 +590,7 @@ extension Task {
                                     .then(stdoutAggregated)
                                     .map { data in
                                         if self.useCache {
-                                            Task.taskCache.modify { $0[self] = data }
+                                            Task.taskCache[self] = data
                                         }
                                         return TaskEvent.success(data)
                                     }
@@ -635,6 +650,32 @@ extension Task {
                 .startWithSignal { signal, taskDisposable in
                     lifetime += taskDisposable
                     signal.observe(observer)
+            }
+        }
+    }
+}
+
+public protocol Cache {
+    associatedtype Key: Hashable
+    associatedtype Value
+    subscript(_ key: Key) -> Value? { get set }
+}
+
+extension Dictionary: Cache {
+    
+}
+
+extension Atomic where Value: Cache {
+    public subscript(_ key: Value.Key) -> Value.Value? {
+        get {
+            return self.withValue { map -> Value.Value? in
+                return map[key]
+            }
+        }
+        
+        set {
+            self.modify { map in
+                map[key] = newValue
             }
         }
     }
