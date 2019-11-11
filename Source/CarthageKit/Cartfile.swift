@@ -58,6 +58,14 @@ public struct Cartfile {
 }
 
 extension Cartfile: CartfileProtocol {
+    
+    /// Returns an array containing dependencies that are listed in both arguments.
+    public func duplicateDependencies(from cartfile: Cartfile) -> [Dependency] {
+        let projects1 = self.dependencies.keys
+        let projects2 = cartfile.dependencies.keys
+        return Array(Set(projects1).intersection(Set(projects2)))
+    }
+    
     public static var relativePath: String {
         return Constants.Project.cartfilePath
     }
@@ -143,126 +151,10 @@ extension Cartfile: CustomStringConvertible {
     }
 }
 
-/// Returns an array containing dependencies that are listed in both arguments.
-public func duplicateDependenciesIn(_ cartfile1: Cartfile, _ cartfile2: Cartfile) -> [Dependency] {
-    let projects1 = cartfile1.dependencies.keys
-    let projects2 = cartfile2.dependencies.keys
-    return Array(Set(projects1).intersection(Set(projects2)))
-}
-
-/// Represents a parsed Cartfile.resolved, which specifies which exact version was
-/// checked out for each dependency.
-public struct ResolvedCartfile {
-    /// The dependencies listed in the Cartfile.resolved.
-    public let dependencies: [Dependency: PinnedVersion]
-    private let dependenciesByName: [String: Dependency]
-
-    public init(dependencies: [Dependency: PinnedVersion]) {
-        self.dependencies = dependencies
-        var dependenciesByName = [String: Dependency]()
-        for (dependency, _) in dependencies {
-            dependenciesByName[dependency.name] = dependency
-        }
-        self.dependenciesByName = dependenciesByName
-    }
-
-    public func dependency(for name: String) -> Dependency? {
-        return dependenciesByName[name]
-    }
-
-    public func version(for name: String) -> PinnedVersion? {
-        if let dependency = dependency(for: name) {
-            return dependencies[dependency]
-        } else {
-            return nil
-        }
-    }
-}
-
-extension ResolvedCartfile: CartfileProtocol {
-    public static var relativePath: String {
-        return Constants.Project.resolvedCartfilePath
-    }
-
-    /// Attempts to parse Cartfile.resolved information from a string.
-    public static func from(string: String) -> Result<ResolvedCartfile, CarthageError> {
-        var dependencies = [Dependency: PinnedVersion]()
-        var result: Result<(), CarthageError> = .success(())
-
-        let scanner = Scanner(string: string)
-        scannerLoop: while !scanner.isAtEnd {
-            switch Dependency.from(scanner).fanout(PinnedVersion.from(scanner)) {
-            case let .success((dep, version)):
-                dependencies[dep] = version
-
-            case let .failure(error):
-                result = .failure(CarthageError(scannableError: error))
-                break scannerLoop
-            }
-        }
-        return result.map { _ in ResolvedCartfile(dependencies: dependencies) }
-    }
-}
-
-public struct SchemeCartfile {
-
-    public let schemes: Set<String>
-
-    public init<T: Sequence>(schemes: T) where T.Element == String {
-        self.schemes = Set(schemes)
-    }
-
-    public var matcher: SchemeMatcher {
-        return LitteralSchemeMatcher(schemeNames: schemes)
-    }
-}
-
-extension SchemeCartfile: CartfileProtocol {
-
-    public static var relativePath: String {
-        return Constants.Project.schemesCartfilePath
-    }
-
-    public static func from(string: String) -> Result<SchemeCartfile, CarthageError> {
-        var schemes = Set<String>()
-        let lines = string.components(separatedBy: .newlines)
-        for line in lines {
-            if line.hasPrefix(Cartfile.commentIndicator) {
-                continue
-            }
-            let scheme = line.trimmingCharacters(in: .whitespaces)
-
-            if !scheme.isEmpty {
-                schemes.insert(scheme)
-            }
-        }
-        return .success(SchemeCartfile(schemes: schemes))
-    }
-}
-
-extension SchemeCartfile: CustomStringConvertible {
-    public var description: String {
-        return schemes
-            .sorted { $0 < $1 }
-            .joined(separator: "\n")
-            .appending("\n")
-    }
-}
-
-extension ResolvedCartfile: CustomStringConvertible {
-    public var description: String {
-        return dependencies
-            .sorted { $0.key.description < $1.key.description }
-            .map { "\($0.key) \"\($0.value)\"" }
-            .joined(separator: "\n")
-            .appending("\n")
-    }
-}
-
 extension String {
     /// Returns self without any potential trailing Cartfile comment. A Cartfile
     /// comment starts with the first `commentIndicator` that is not embedded in any quote
-    var strippingTrailingCartfileComment: String {
+    fileprivate var strippingTrailingCartfileComment: String {
 
         // Since the Cartfile syntax doesn't support nested quotes, such as `"version-\"alpha\""`,
         // simply consider any odd-number occurence of a quote as a quote-start, and any

@@ -64,7 +64,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
     /// Limits the number of concurrent clones/fetches to the number of active
     /// processors.
-    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: ProcessInfo.processInfo.activeProcessorCount)
+    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: Constants.concurrencyLimit)
 
     public init(directoryURL: URL, projectEventsObserver: Signal<ProjectEvent, NoError>.Observer? = nil) {
         self.directoryURL = directoryURL

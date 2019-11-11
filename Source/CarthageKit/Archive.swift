@@ -28,8 +28,7 @@ public final class Archive {
                 effectiveDependencyName = Dependencies.fetchDependencyNameForRepository(at: directoryURL).first()?.value
             }
 
-            let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
-            frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: configuration, schemeMatcher: schemeMatcher)
+            frameworks = Xcode.buildableSchemesInDirectory(directoryURL, withConfiguration: configuration)
                 .flatMap(.merge) { scheme, project -> SignalProducer<BuildSettings, CarthageError> in
                     let buildArguments = BuildArguments(project: project, scheme: scheme, configuration: configuration)
                     return Xcode.loadBuildSettings(with: buildArguments)

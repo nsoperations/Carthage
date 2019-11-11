@@ -270,7 +270,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 .zip(with: submodulesSignal)
                 .flatMap(.merge) { dependencies, submodulesByPath -> SignalProducer<(), CarthageError> in
                     return SignalProducer<(Dependency, PinnedVersion), CarthageError>(dependencies)
-                        .flatMap(.concurrent(limit: 4)) { dependency, version -> SignalProducer<(), CarthageError> in
+                        .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(), CarthageError> in
                             switch dependency {
                             case .git, .gitHub:
                                 return self.dependencyRetriever.checkoutOrCloneDependency(dependency, version: version, submodulesByPath: submodulesByPath, resolvedCartfile: cartfile)
@@ -482,7 +482,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .attemptMap { cartfile, privateCartfile -> Result<Cartfile, CarthageError> in
                 var cartfile = cartfile
 
-                let duplicateDeps = duplicateDependenciesIn(cartfile, privateCartfile).map { dependency in
+                let duplicateDeps = cartfile.duplicateDependencies(from: privateCartfile).map { dependency in
                     return DuplicateDependency(
                         dependency: dependency,
                         locations: ["\(Constants.Project.cartfilePath)", "\(Constants.Project.privateCartfilePath)"]
@@ -547,7 +547,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         let effectiveDependencyRetriever = dependencyRetriever ?? self.dependencyRetriever
 
         return SignalProducer(resolvedCartfile.dependencies)
-            .flatMap(.concurrent(limit: 4)) { arg -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { arg -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
                 let (dependency, pinnedVersion) = arg
                 return effectiveDependencyRetriever.dependencies(for: dependency, version: pinnedVersion, tryCheckoutDirectory: tryCheckoutDirectory)
                     .map { (dependency, $0) }
@@ -711,7 +711,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             }
             .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                 return SignalProducer(dependencies)
-                    .flatMap(.concurrent(limit: 4)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                    .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         switch dependency {
                         case .git, .gitHub:
                             guard options.useBinaries else {

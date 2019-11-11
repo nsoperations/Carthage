@@ -75,15 +75,12 @@ public final class Xcode {
             .flatMap(.merge) { urlLock -> BuildSchemeProducer in
                 lock = urlLock
 
-                let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
-
                 return BuildSchemeProducer { observer, lifetime in
                     // Use SignalProducer.replayLazily to avoid enumerating the given directory
                     // multiple times.
                     buildableSchemesInDirectory(directoryURL,
                                                 withConfiguration: options.configuration,
-                                                forPlatforms: options.platforms,
-                                                schemeMatcher: schemeMatcher
+                                                forPlatforms: options.platforms
                         )
                         .flatMap(.concat) { (scheme: Scheme, project: ProjectLocator) -> SignalProducer<TaskEvent<URL>, CarthageError> in
                             let initialValue = (project, scheme)
@@ -169,10 +166,13 @@ public final class Xcode {
     static func buildableSchemesInDirectory( // swiftlint:disable:this static function_body_length
         _ directoryURL: URL,
         withConfiguration configuration: String,
-        forPlatforms platforms: Set<Platform> = [],
-        schemeMatcher: SchemeMatcher?
+        forPlatforms platforms: Set<Platform> = []
         ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
         precondition(directoryURL.isFileURL)
+        
+        // First check whether there is a Cartfile.project which describes the project to build, if not revert to the old deprecated way of introspecting the schemes
+        
+        let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
         let locator = ProjectLocator
             .locate(in: directoryURL)
             .flatMap(.concat) { project -> SignalProducer<(ProjectLocator, [Scheme]), CarthageError> in
@@ -197,7 +197,7 @@ public final class Xcode {
             .flatMap(.merge) { (projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
                 return schemesInProjects(projects).flatten()
             }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
                 /// Check whether we should the scheme by checking against the project. If we're building
                 /// from a workspace, then it might include additional targets that would trigger our
                 /// check.
@@ -206,7 +206,7 @@ public final class Xcode {
                     .filter { $0 }
                     .map { _ in (scheme, project) }
             }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
                 return locator
                     // This scheduler hop is required to avoid disallowed recursive signals.
                     // See https://github.com/ReactiveCocoa/ReactiveCocoa/pull/2042.
