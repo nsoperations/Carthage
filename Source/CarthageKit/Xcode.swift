@@ -76,8 +76,6 @@ public final class Xcode {
                 lock = urlLock
 
                 return BuildSchemeProducer { observer, lifetime in
-                    // Use SignalProducer.replayLazily to avoid enumerating the given directory
-                    // multiple times.
                     buildableSchemesInDirectory(directoryURL,
                                                 withConfiguration: options.configuration,
                                                 forPlatforms: options.platforms
@@ -170,7 +168,17 @@ public final class Xcode {
         ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
         precondition(directoryURL.isFileURL)
         
-        // First check whether there is a Cartfile.project which describes the project to build, if not revert to the old deprecated way of introspecting the schemes
+        // Try to read the Cartfile.project. If it exists use that, otherwise revert to the old (slow!!!) way of auto-discovery
+        let projectCartfileURL = ProjectCartfile.url(in: directoryURL)
+        if projectCartfileURL.isExistingFile {
+            return SignalProducer<ProjectCartfile, CarthageError>(result: ProjectCartfile.from(fileURL: projectCartfileURL))
+                .flatMap(.merge) { projectCartfile -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+                    let projectSchemes: [(Scheme, ProjectLocator)] = projectCartfile.schemeConfigurations.map { entry in
+                        return (Scheme(entry.key), entry.value.projectLocator(in: directoryURL))
+                    }
+                    return SignalProducer(projectSchemes)
+                }
+        }
         
         let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
         let locator = ProjectLocator
@@ -665,8 +673,21 @@ public final class Xcode {
             derivedDataPath: options.derivedDataPath,
             toolchain: options.toolchain
         )
-
-        return SDKsForScheme(scheme, inProject: project)
+        
+        // If the Cartfile.project exists use that instead of trying to auto-discover the SDKs based on the build settings
+        let sdkProducer: SignalProducer<SDK, CarthageError>
+        
+        let projectCartfileURL = ProjectCartfile.url(in: workingDirectoryURL)
+        if projectCartfileURL.isExistingFile {
+            sdkProducer = SignalProducer<ProjectCartfile, CarthageError>(result: ProjectCartfile.from(fileURL: projectCartfileURL))
+            .flatMap(.merge) { projectCartfile -> SignalProducer<SDK, CarthageError> in
+                guard let sdks = projectCartfile.schemeConfigurations[scheme.name]?.sdks else {
+                    return SignalProducer(error: CarthageError.internalError(description: "No definition found in Cartfile.project for scheme: \(scheme.name)"))
+                }
+                return SignalProducer(sdks)
+            }
+        } else {
+            sdkProducer = SDKsForScheme(scheme, inProject: project)
             .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
                 var argsForLoading = buildArgs
                 argsForLoading.sdk = sdk
@@ -680,6 +701,9 @@ public final class Xcode {
                     }
                     .map { _ in sdk }
             }
+        }
+        
+        return sdkProducer
             .reduce(into: [:]) { (sdksByPlatform: inout [Platform: Set<SDK>], sdk: SDK) in
                 let platform = sdk.platform
 
@@ -692,7 +716,7 @@ public final class Xcode {
             }
             .flatMap(.concat) { sdksByPlatform -> SignalProducer<(Platform, [SDK]), CarthageError> in
                 if sdksByPlatform.isEmpty {
-                    fatalError("No SDKs found for scheme \(scheme)")
+                    return SignalProducer(error: CarthageError.internalError(description: "No SDKs found for scheme \(scheme)"))
                 }
 
                 let values = sdksByPlatform.map { ($0, Array($1)) }
@@ -718,10 +742,10 @@ public final class Xcode {
                 case 2:
                     let (simulatorSDKs, deviceSDKs) = SDK.splitSDKs(sdks)
                     guard let deviceSDK = deviceSDKs.first else {
-                        fatalError("Could not find device SDK in \(sdks)")
+                        return SignalProducer(error: CarthageError.internalError(description: "Could not find device SDK in \(sdks)"))
                     }
                     guard let simulatorSDK = simulatorSDKs.first else {
-                        fatalError("Could not find simulator SDK in \(sdks)")
+                        return SignalProducer(error: CarthageError.internalError(description: "Could not find simulator SDK in \(sdks)"))
                     }
 
                     return settingsByTarget(build(sdk: deviceSDK, with: buildArgs, in: workingDirectoryURL))
@@ -739,22 +763,22 @@ public final class Xcode {
                             case let .success(deviceSettingsByTarget):
                                 return settingsByTarget(build(sdk: simulatorSDK, with: buildArgs, in: workingDirectoryURL))
                                     .flatMapTaskEvents(.concat) { (simulatorSettingsByTarget: [String: BuildSettings]) -> SignalProducer<(BuildSettings, BuildSettings), CarthageError> in
-                                        assert(
-                                            deviceSettingsByTarget.count == simulatorSettingsByTarget.count,
-                                            "Number of targets built for \(deviceSDK) (\(deviceSettingsByTarget.count)) does not match "
-                                                + "number of targets built for \(simulatorSDK) (\(simulatorSettingsByTarget.count))"
-                                        )
-
+                                        guard deviceSettingsByTarget.count == simulatorSettingsByTarget.count else {
+                                            return SignalProducer(error: CarthageError.internalError(description: "Number of targets built for \(deviceSDK) (\(deviceSettingsByTarget.count)) does not match "
+                                            + "number of targets built for \(simulatorSDK) (\(simulatorSettingsByTarget.count))"))
+                                        }
                                         return SignalProducer { observer, lifetime in
                                             for (target, deviceSettings) in deviceSettingsByTarget {
                                                 if lifetime.hasEnded {
                                                     break
                                                 }
 
-                                                let simulatorSettings = simulatorSettingsByTarget[target]
-                                                assert(simulatorSettings != nil, "No \(simulatorSDK) build settings found for target \"\(target)\"")
-
-                                                observer.send(value: (deviceSettings, simulatorSettings!))
+                                                guard let simulatorSettings = simulatorSettingsByTarget[target] else {
+                                                    observer.send(error: CarthageError.internalError(description: "No \(simulatorSDK) build settings found for target \"\(target)\""))
+                                                    return
+                                                }
+                                                
+                                                observer.send(value: (deviceSettings, simulatorSettings))
                                             }
 
                                             observer.sendCompleted()
@@ -771,7 +795,7 @@ public final class Xcode {
                     }
 
                 default:
-                    fatalError("SDK count \(sdks.count) in scheme \(scheme) is not supported")
+                    return SignalProducer(error: CarthageError.internalError(description: "SDK count \(sdks.count) in scheme \(scheme) is not supported"))
                 }
             }
             .flatMapTaskEvents(.concat) { builtProductURL -> SignalProducer<URL, CarthageError> in

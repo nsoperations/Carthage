@@ -1,0 +1,13 @@
+
+SomeiOSScheme:
+  project: SomeProject.xcproject
+  workspace: SomeWorkspace.xcworkspace
+  sdks:
+    - iphoneos
+    - iphonesimulator
+
+SomeWatchScheme:
+  project: SomeProject.xcproject
+  sdks:
+    - watchos
+    - watchsimulator

@@ -158,7 +158,7 @@ extension Cartfile: CustomStringConvertible {
 extension String {
     /// Returns self without any potential trailing Cartfile comment. A Cartfile
     /// comment starts with the first `commentIndicator` that is not embedded in any quote
-    fileprivate var strippingTrailingCartfileComment: String {
+    var strippingTrailingCartfileComment: String {
 
         // Since the Cartfile syntax doesn't support nested quotes, such as `"version-\"alpha\""`,
         // simply consider any odd-number occurence of a quote as a quote-start, and any
