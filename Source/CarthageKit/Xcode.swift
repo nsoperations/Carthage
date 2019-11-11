@@ -741,59 +741,48 @@ public final class Xcode {
 
                 case 2:
                     let (simulatorSDKs, deviceSDKs) = SDK.splitSDKs(sdks)
-                    guard let deviceSDK = deviceSDKs.first else {
+                    guard deviceSDKs.first != nil else {
                         return SignalProducer(error: CarthageError.internalError(description: "Could not find device SDK in \(sdks)"))
                     }
-                    guard let simulatorSDK = simulatorSDKs.first else {
+                    guard simulatorSDKs.first != nil else {
                         return SignalProducer(error: CarthageError.internalError(description: "Could not find simulator SDK in \(sdks)"))
                     }
-
-                    return settingsByTarget(build(sdk: deviceSDK, with: buildArgs, in: workingDirectoryURL))
-                        .flatMap(.concat) { settingsEvent -> SignalProducer<TaskEvent<(BuildSettings, BuildSettings)>, CarthageError> in
-                            switch settingsEvent {
-                            case let .launch(task):
-                                return SignalProducer(value: .launch(task))
-
-                            case let .standardOutput(data):
-                                return SignalProducer(value: .standardOutput(data))
-
-                            case let .standardError(data):
-                                return SignalProducer(value: .standardError(data))
-
-                            case let .success(deviceSettingsByTarget):
-                                return settingsByTarget(build(sdk: simulatorSDK, with: buildArgs, in: workingDirectoryURL))
-                                    .flatMapTaskEvents(.concat) { (simulatorSettingsByTarget: [String: BuildSettings]) -> SignalProducer<(BuildSettings, BuildSettings), CarthageError> in
-                                        guard deviceSettingsByTarget.count == simulatorSettingsByTarget.count else {
-                                            return SignalProducer(error: CarthageError.internalError(description: "Number of targets built for \(deviceSDK) (\(deviceSettingsByTarget.count)) does not match "
-                                            + "number of targets built for \(simulatorSDK) (\(simulatorSettingsByTarget.count))"))
-                                        }
-                                        return SignalProducer { observer, lifetime in
-                                            for (target, deviceSettings) in deviceSettingsByTarget {
-                                                if lifetime.hasEnded {
-                                                    break
-                                                }
-
-                                                guard let simulatorSettings = simulatorSettingsByTarget[target] else {
-                                                    observer.send(error: CarthageError.internalError(description: "No \(simulatorSDK) build settings found for target \"\(target)\""))
-                                                    return
-                                                }
-                                                
-                                                observer.send(value: (deviceSettings, simulatorSettings))
-                                            }
-
-                                            observer.sendCompleted()
-                                        }
-                                }
+                    
+                    return SignalProducer(sdks)
+                        .flatMap(.concurrent(limit: 2)) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
+                            return build(sdk: sdk, with: buildArgs, in: workingDirectoryURL).map { event in
+                                return event.map { (sdk, $0) }
                             }
                         }
+                        .collectTaskEvents()
+                        .flatMapTaskEvents(.concat) { allSettings -> SignalProducer<(BuildSettings, BuildSettings), CarthageError> in
+                            var deviceSettingsByTarget = [String: BuildSettings]()
+                            var simulatorSettingsByTarget = [String: BuildSettings]()
+                            for settings in allSettings {
+                                if settings.sdk.isDevice {
+                                    deviceSettingsByTarget[settings.settings.target] = settings.settings
+                                } else if settings.sdk.isSimulator {
+                                    simulatorSettingsByTarget[settings.settings.target] = settings.settings
+                                }
+                            }
+                            
+                            var settingsTuples = [(BuildSettings, BuildSettings)]()
+                            for entry in deviceSettingsByTarget {
+                                let deviceSettings = entry.value
+                                guard let simulatorSettings = simulatorSettingsByTarget[entry.key] else {
+                                    return SignalProducer(error: CarthageError.internalError(description: "No simulator build settings found for target \"\(entry.key)\""))
+                                }
+                                settingsTuples.append((deviceSettings, simulatorSettings))
+                            }
+                            return SignalProducer(settingsTuples)
+                        }
                         .flatMapTaskEvents(.concat) { deviceSettings, simulatorSettings in
-                            return mergeBuildProducts(
-                                deviceBuildSettings: deviceSettings,
-                                simulatorBuildSettings: simulatorSettings,
-                                into: deviceSettings.productDestinationPath(in: folderURL)
-                            )
-                    }
-
+                                return mergeBuildProducts(
+                                    deviceBuildSettings: deviceSettings,
+                                    simulatorBuildSettings: simulatorSettings,
+                                    into: deviceSettings.productDestinationPath(in: folderURL)
+                                )
+                        }
                 default:
                     return SignalProducer(error: CarthageError.internalError(description: "SDK count \(sdks.count) in scheme \(scheme) is not supported"))
                 }
@@ -894,9 +883,9 @@ public final class Xcode {
                         let dependencyCheckoutDir = workingDirectoryURL.appendingPathComponent(Constants.checkoutsPath, isDirectory: true)
                         return !dependencyCheckoutDir.hasSubdirectory(projectURL)
                     }
-                    .flatMap(.concat) { settings in resolveSameTargetName(for: settings) }
+                    .flatMap(.concat) { settings -> SignalProducer<BuildSettings, CarthageError> in resolveSameTargetName(for: settings) }
                     .collect()
-                    .flatMap(.concat) { settings -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
+                    .flatMap(.concat) { (settings: [BuildSettings]) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                         let actions: [String] = {
                             var result: [String] = [xcodebuildAction.rawValue]
 
@@ -937,7 +926,7 @@ public final class Xcode {
                         return buildScheme.launch()
                             .flatMapTaskEvents(.concat) { _ in SignalProducer(settings) }
                             .mapError(CarthageError.taskError)
-                }
+                    }
         }
     }
 
