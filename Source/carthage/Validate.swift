@@ -14,7 +14,7 @@ public struct ValidateCommand: CommandProtocol {
             return project.validate()
             }
             .on(value: { _ in
-                carthage.println("No incompatibilities found in Cartfile.resolved")
+                carthage.printOut("No incompatibilities found in Cartfile.resolved")
             })
             .waitOnCommand()
     }

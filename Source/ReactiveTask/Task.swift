@@ -2,42 +2,6 @@ import Foundation
 import ReactiveSwift
 import Result
 
-/// An error originating from ReactiveTask.
-public enum TaskError: Error, Equatable {
-    
-    /// A shell task failed to launch
-    case launchFailed(Task, reason: String?)
-    
-    /// A shell task exited unsuccessfully.
-    case shellTaskFailed(Task, exitCode: Int32, standardError: String?)
-    
-    /// An error was returned from a POSIX API.
-    case posixError(Int32)
-}
-
-extension TaskError: CustomStringConvertible {
-    public var description: String {
-        switch self {
-        case let .launchFailed(task, reason: reason):
-            var description = "A shell task (\(task)) failed to launch"
-            if let reason = reason {
-                description += ":\n\(reason)"
-            }
-            return description
-            
-        case let .shellTaskFailed(task, exitCode, standardError):
-            var description = "A shell task (\(task)) failed with exit code \(exitCode)"
-            if let standardError = standardError {
-                description += ":\n\(standardError)"
-            }
-            return description
-            
-        case let .posixError(code):
-            return NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: nil).description
-        }
-    }
-}
-
 /// Describes how to execute a shell command.
 public struct Task {
     /// The path to the executable that should be launched.
@@ -74,7 +38,7 @@ public struct Task {
     
     private static let counter = Atomic(0)
     
-    fileprivate let identifier: Int
+    public let identifier: Int
     
     /// A GCD group which to wait completion
     fileprivate static let group = DispatchGroup()
@@ -431,7 +395,6 @@ extension Task {
     public static var history: [Task: TimeInterval] {
         return taskHistory.value
     }
-    
     #endif
     
     public static var debugLoggingEnabled = false
@@ -583,7 +546,7 @@ extension Task {
                                 // through stdout.
                                 
                                 if Task.debugLoggingEnabled {
-                                    print(String(format: "Task #\(self.identifier) finished successfully in %.2f s.", duration))
+                                    print(String(format: "Task #\(self.identifier) finished successfully in %.2fs.", duration))
                                 }
                                 
                                 lifetime += stderrAggregated
@@ -598,7 +561,7 @@ extension Task {
                             } else {
                                 
                                 if Task.debugLoggingEnabled {
-                                    print(String(format: "Task #\(self.identifier) failed with exit code \(terminationStatus) in %.2f s.", duration))
+                                    print(String(format: "Task #\(self.identifier) failed with exit code \(terminationStatus) in %.2fs.", duration))
                                 }
                                 // Wait for stdout to finish, then pass
                                 // through stderr.
@@ -650,32 +613,6 @@ extension Task {
                 .startWithSignal { signal, taskDisposable in
                     lifetime += taskDisposable
                     signal.observe(observer)
-            }
-        }
-    }
-}
-
-public protocol Cache {
-    associatedtype Key: Hashable
-    associatedtype Value
-    subscript(_ key: Key) -> Value? { get set }
-}
-
-extension Dictionary: Cache {
-    
-}
-
-extension Atomic where Value: Cache {
-    public subscript(_ key: Value.Key) -> Value.Value? {
-        get {
-            return self.withValue { map -> Value.Value? in
-                return map[key]
-            }
-        }
-        
-        set {
-            self.modify { map in
-                map[key] = newValue
             }
         }
     }

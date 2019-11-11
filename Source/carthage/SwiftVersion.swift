@@ -26,7 +26,7 @@ public struct SwiftVersionCommand: CommandProtocol {
     public func run(_ options: Options) -> Result<(), CarthageError> {
         switch SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()! {
         case .success(let pinnedVersion):
-            carthage.println(pinnedVersion)
+            carthage.printOut(pinnedVersion)
             return .success(())
         case .failure(let error):
             let carthageError = CarthageError.internalError(description: error.description)

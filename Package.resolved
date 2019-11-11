@@ -12,11 +12,11 @@
       },
       {
         "package": "Commandant",
-        "repositoryURL": "https://github.com/Carthage/Commandant.git",
+        "repositoryURL": "https://github.com/nsoperations/Commandant.git",
         "state": {
-          "branch": null,
-          "revision": "2cd0210f897fe46c6ce42f52ccfa72b3bbb621a0",
-          "version": "0.16.0"
+          "branch": "feature/success-handler",
+          "revision": "52f74502b2a06a89dffb5c29164fa7a408133225",
+          "version": null
         }
       },
       {

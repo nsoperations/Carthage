@@ -141,7 +141,7 @@ public struct BuildCommand: CommandProtocol {
                     .on(
                         started: {
                             if let path = temporaryURL?.path {
-                                carthage.println(formatting.bullets + "xcodebuild output can be found in " + formatting.path(path))
+                                carthage.printOut(formatting.bullets + "xcodebuild output can be found in " + formatting.path(path))
                             }
                     },
                         value: { taskEvent in
@@ -156,7 +156,7 @@ public struct BuildCommand: CommandProtocol {
                                 stderrHandle.write(data)
 
                             case let .success(project, scheme):
-                                carthage.println(formatting.bullets + "Building scheme " + formatting.quote(scheme.name) + " in " + formatting.projectName(project.description))
+                                carthage.printOut(formatting.bullets + "Building scheme " + formatting.quote(scheme.name) + " in " + formatting.projectName(project.description))
                             }
                     }
                     )
