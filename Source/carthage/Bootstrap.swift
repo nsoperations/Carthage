@@ -16,7 +16,7 @@ public struct BootstrapCommand: CommandProtocol {
             .flatMap(.merge) { project -> SignalProducer<(), CarthageError> in
                 if !FileManager.default.fileExists(atPath: project.resolvedCartfileURL.path) {
                     let formatting = options.checkoutOptions.colorOptions.formatting
-                    carthage.println(formatting.bullets + "No Cartfile.resolved found, updating dependencies")
+                    carthage.printOut(formatting.bullets + "No Cartfile.resolved found, updating dependencies")
                     return project.updateDependencies(
                         shouldCheckout: options.checkoutAfterUpdate,
                         buildOptions: options.buildOptions).then(options.buildProducer(project: project))

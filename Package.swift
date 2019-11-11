@@ -10,8 +10,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/antitypical/Result.git", from: "4.1.0"),
-        .package(url: "https://github.com/nsoperations/ReactiveTask.git", .branch("fix/handle-launch-exceptions")),
-        .package(url: "https://github.com/Carthage/Commandant.git", .exact("0.16.0")),
+        .package(url: "https://github.com/nsoperations/Commandant.git", .branch("feature/success-handler")),
         .package(url: "https://github.com/jdhealy/PrettyColors.git", from: "5.0.2"),
         .package(url: "https://github.com/ReactiveCocoa/ReactiveSwift.git", from: "5.0.0"),
         .package(url: "https://github.com/mdiep/Tentacle.git", from: "0.13.1"),
@@ -31,7 +30,7 @@ let package = Package(
         ),
         .target(
             name: "CarthageKit",
-            dependencies: ["XCDBLD", "Tentacle", "Curry", "BTree", "wildmatch"]
+            dependencies: ["XCDBLD", "Tentacle", "Curry", "BTree", "wildmatch", "ReactiveTask"]
         ),
         .testTarget(
             name: "CarthageKitTests",
@@ -42,6 +41,10 @@ let package = Package(
             name: "carthage",
             dependencies: ["XCDBLD", "CarthageKit", "Commandant", "Curry", "PrettyColors"],
             exclude: ["swift-is-crashy.c"]
+        ),
+	.target(
+            name: "ReactiveTask",
+            dependencies: ["ReactiveSwift", "Result"]
         ),
         .target(
             name: "wildmatch"

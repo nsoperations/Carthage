@@ -8,12 +8,12 @@ import Result
 setlinebuf(stdout)
 
 guard Git.ensureGitVersion().first()?.value == true else {
-    fputs("Carthage requires git \(Git.carthageRequiredGitVersion) or later.\n", stderr)
+    printErr("Carthage requires git \(Git.carthageRequiredGitVersion) or later.\n")
     exit(EXIT_FAILURE)
 }
 
 if let remoteVersion = remoteVersion(), CarthageKitVersion.current.value < remoteVersion {
-    fputs("Please update to the latest Carthage version: \(remoteVersion). You currently are on \(CarthageKitVersion.current.value)" + "\n", stderr)
+    printErr("Please update to the latest Carthage version: \(remoteVersion). You currently are on \(CarthageKitVersion.current.value)" + "\n")
 }
 
 if let carthagePath = Bundle.main.executablePath {
@@ -34,9 +34,47 @@ registry.register(VersionCommand())
 registry.register(DiagnoseCommand())
 registry.register(SwiftVersionCommand())
 
+#if DEBUG
+Task.debugLoggingEnabled = true
+let start = Date()
+#endif
+
 let helpCommand = HelpCommand(registry: registry)
 registry.register(helpCommand)
 
-registry.main(defaultVerb: helpCommand.verb) { error in
-    fputs(error.description + "\n", stderr)
-}
+registry.main(defaultVerb: helpCommand.verb, successHandler: {
+    
+    #if DEBUG
+    let totalDuration = Date().timeIntervalSince(start)
+    
+    printErr("-------------------------------------------------------------------------------")
+    printErr("")
+    printErr(String(format: "Total duration: %.2fs.", totalDuration))
+    printErr("")
+    
+    let taskHistory: [Task: TimeInterval] = Task.history
+    
+    let totalTaskDuration: TimeInterval = taskHistory.values.reduce(0.0) { $0 + $1 }
+    
+    printErr(String(format: "Total duration of tasks: %.2fs.", totalTaskDuration))
+    
+    printErr("")
+    printErr("Ordered tasks by duration:")
+    printErr("")
+    
+    let orderedTasks: [(key: Task, value: TimeInterval)] = taskHistory.sorted {
+        $0.value > $1.value
+    }
+    
+    for entry in orderedTasks {
+        printErr(String(format: "Task #\(entry.key.identifier) took %.2fs: \(entry.key)", entry.value))
+    }
+    
+    printErr("")
+    printErr("-------------------------------------------------------------------------------")
+    
+    #endif
+    
+}, errorHandler: { error in
+    printErr(error.description + "\n")
+})

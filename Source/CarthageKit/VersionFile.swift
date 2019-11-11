@@ -42,7 +42,7 @@ func &&(lhs: VersionStatus, rhs: VersionStatus) -> VersionStatus {
 
 struct VersionFile: Codable {
 
-    static let sourceHashCache = Cache<URL, String>()
+    static let sourceHashCache = Atomic(Dictionary<URL, String>())
 
     enum CodingKeys: String, CodingKey {
         case commitish = "commitish"
@@ -579,6 +579,7 @@ extension VersionFile {
 
         # User-specific Xcode files
         **/xcuserdata/**
+        **/xcdebugger/**
         *.xccheckout
         *.xcscmblueprint
 

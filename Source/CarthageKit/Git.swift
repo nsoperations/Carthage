@@ -70,7 +70,8 @@ public final class Git {
         _ arguments: [String],
         repositoryFileURL: URL? = nil,
         standardInput: SignalProducer<Data, NoError>? = nil,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil,
+        useCache: Bool = false
         ) -> SignalProducer<String, CarthageError> {
         // See https://github.com/Carthage/Carthage/issues/219.
         var updatedEnvironment = environment ?? ProcessInfo.processInfo.environment
@@ -79,7 +80,7 @@ public final class Git {
         // Error rather than prompt to resolve ssh errors (such as missing known_hosts entry)
         updatedEnvironment["GIT_SSH_COMMAND"] = "ssh -oBatchMode=yes"
 
-        let taskDescription = Task("/usr/bin/env", arguments: [ "git" ] + arguments, workingDirectoryPath: repositoryFileURL?.path, environment: updatedEnvironment)
+        let taskDescription = Task("/usr/bin/env", arguments: [ "git" ] + arguments, workingDirectoryPath: repositoryFileURL?.path, environment: updatedEnvironment, useCache: useCache)
 
         return taskDescription.launch(standardInput: standardInput)
             .ignoreTaskData()

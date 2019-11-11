@@ -20,23 +20,15 @@ private let outputQueue = { () -> DispatchQueue in
 }()
 
 /// A thread-safe version of Swift's standard println().
-internal func println() {
+internal func printOut(_ object: Any) {
     outputQueue.async {
-        Swift.print()
+        fputs(String(describing: object) + "\n", stdout)
     }
 }
 
-/// A thread-safe version of Swift's standard println().
-internal func println<T>(_ object: T) {
+internal func printErr(_ object: Any) {
     outputQueue.async {
-        Swift.print(object)
-    }
-}
-
-/// A thread-safe version of Swift's standard print().
-internal func print<T>(_ object: T) {
-    outputQueue.async {
-        Swift.print(object, terminator: "")
+        fputs(String(describing: object) + "\n", stderr)
     }
 }
 

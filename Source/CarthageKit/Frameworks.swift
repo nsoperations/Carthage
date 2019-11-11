@@ -512,7 +512,7 @@ final class Frameworks {
 
     /// Sends a set of UUIDs for each architecture present in the given URL.
     private static func UUIDsFromDwarfdump(_ url: URL) -> SignalProducer<Set<UUID>, CarthageError> {
-        let dwarfdumpTask = Task("/usr/bin/xcrun", arguments: [ "dwarfdump", "--uuid", url.path ])
+        let dwarfdumpTask = Task("/usr/bin/xcrun", arguments: [ "dwarfdump", "--uuid", url.path ], useCache: true)
 
         return dwarfdumpTask.launch()
             .ignoreTaskData()

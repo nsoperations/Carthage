@@ -73,12 +73,12 @@ public struct DiagnoseCommand: CommandProtocol {
 
                 let repositoryUrl = baseUrl.appendingPathComponent("Repository")
 
-                carthage.println(formatting.bullets + "Started storing diagnosis info into directory: \(baseUrl.path)")
+                carthage.printOut(formatting.bullets + "Started storing diagnosis info into directory: \(baseUrl.path)")
 
                 let repository = LocalDependencyStore(directoryURL: repositoryUrl)
                 var dependencyMappings: [Dependency: Dependency]?
                 if let mappingsFilePath = options.mappingsFilePath {
-                    carthage.println(formatting.bullets + "Using dependency mappings from file: \(mappingsFilePath)")
+                    carthage.printOut(formatting.bullets + "Using dependency mappings from file: \(mappingsFilePath)")
                     dependencyMappings = try self.mappings(from: mappingsFilePath)
                 }
                 let logger = ResolverEventLogger(colorOptions: options.colorOptions, verbose: options.isVerbose)
@@ -94,8 +94,8 @@ public struct DiagnoseCommand: CommandProtocol {
                         }
                         return cartfileURL
                     }.map { cartfileURL -> URL in
-                        carthage.println(formatting.bullets + "Finished storing diagnosis info into directory: \(baseUrl.path)")
-                        carthage.println(formatting.bullets + "Please submit the contents of this directory to the Carthage team for review")
+                        carthage.printOut(formatting.bullets + "Finished storing diagnosis info into directory: \(baseUrl.path)")
+                        carthage.printOut(formatting.bullets + "Please submit the contents of this directory to the Carthage team for review")
                         return cartfileURL
                 }
             } catch let error {

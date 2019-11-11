@@ -12,11 +12,11 @@
       },
       {
         "package": "Commandant",
-        "repositoryURL": "https://github.com/Carthage/Commandant.git",
+        "repositoryURL": "https://github.com/nsoperations/Commandant.git",
         "state": {
-          "branch": null,
-          "revision": "2cd0210f897fe46c6ce42f52ccfa72b3bbb621a0",
-          "version": "0.16.0"
+          "branch": "feature/success-handler",
+          "revision": "52f74502b2a06a89dffb5c29164fa7a408133225",
+          "version": null
         }
       },
       {
@@ -29,12 +29,30 @@
         }
       },
       {
+        "package": "CwlCatchException",
+        "repositoryURL": "https://github.com/mattgallagher/CwlCatchException.git",
+        "state": {
+          "branch": null,
+          "revision": "7cd2f8cacc4d22f21bc0b2309c3b18acf7957b66",
+          "version": "1.2.0"
+        }
+      },
+      {
+        "package": "CwlPreconditionTesting",
+        "repositoryURL": "https://github.com/mattgallagher/CwlPreconditionTesting.git",
+        "state": {
+          "branch": null,
+          "revision": "c228db5d2ad1b01ebc84435e823e6cca4e3db98b",
+          "version": "1.2.0"
+        }
+      },
+      {
         "package": "Nimble",
         "repositoryURL": "https://github.com/Quick/Nimble.git",
         "state": {
           "branch": null,
-          "revision": "f8657642dfdec9973efc79cc68bcef43a653a2bc",
-          "version": "8.0.2"
+          "revision": "6abeb3f5c03beba2b9e4dbe20886e773b5b629b6",
+          "version": "8.0.4"
         }
       },
       {
@@ -51,8 +69,8 @@
         "repositoryURL": "https://github.com/Quick/Quick.git",
         "state": {
           "branch": null,
-          "revision": "94df9b449508344667e5afc7e80f8bcbff1e4c37",
-          "version": "2.1.0"
+          "revision": "33682c2f6230c60614861dfc61df267e11a1602f",
+          "version": "2.2.0"
         }
       },
       {
@@ -62,15 +80,6 @@
           "branch": null,
           "revision": "c37950dc5020544c58d4bf47c0d028893686b9e6",
           "version": "5.0.1"
-        }
-      },
-      {
-        "package": "ReactiveTask",
-        "repositoryURL": "https://github.com/nsoperations/ReactiveTask.git",
-        "state": {
-          "branch": "fix/handle-launch-exceptions",
-          "revision": "14ef462cf721633eaddd906b70cb7d2015d4ac6c",
-          "version": null
         }
       },
       {

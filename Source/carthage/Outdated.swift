@@ -95,20 +95,20 @@ public struct OutdatedCommand: CommandProtocol {
                 let formatting = options.colorOptions.formatting
 
                 if !outdatedDependencies.isEmpty {
-                    carthage.println(formatting.path("The following dependencies are outdated:"))
+                    carthage.printOut(formatting.path("The following dependencies are outdated:"))
 
                     for (project, current, applicable, latest) in outdatedDependencies {
                         if options.outputXcodeWarnings {
-                            carthage.println("warning: \(formatting.projectName(project.name)) is out of date (\(current) -> \(applicable)) (Latest: \(latest))")
+                            carthage.printOut("warning: \(formatting.projectName(project.name)) is out of date (\(current) -> \(applicable)) (Latest: \(latest))")
                         } else {
                             let update = UpdateType(currentVersion: current, applicableVersion: applicable, latestVersion: latest)
                             let style = formatting[update]
                             let versionSummary = "\(style(current.description)) -> \(style(applicable.description)) (Latest: \(latest))"
-                            carthage.println(formatting.projectName(project.name) + " " + versionSummary)
+                            carthage.printOut(formatting.projectName(project.name) + " " + versionSummary)
                         }
                     }
                 } else {
-                    carthage.println("All dependencies are up to date.")
+                    carthage.printOut("All dependencies are up to date.")
                 }
             })
             .waitOnCommand()

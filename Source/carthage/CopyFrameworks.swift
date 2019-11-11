@@ -31,7 +31,7 @@ public struct CopyFrameworksCommand: CommandProtocol {
             let symbolsFolder: URL = try self.appropriateDestinationFolder().get()
 
             let waitHandler: (URL) -> Void = { url in
-                carthage.println("Waiting for lock on url: \(url)")
+                carthage.printOut("Waiting for lock on url: \(url)")
             }
 
             return inputFiles(options)
@@ -43,11 +43,11 @@ public struct CopyFrameworksCommand: CommandProtocol {
                 .on(value: { event in
                     switch event {
                     case .copied(let frameworkName):
-                        carthage.println("Copied \(frameworkName)")
+                        carthage.printOut("Copied \(frameworkName)")
                     case .ignored(let frameworkName):
-                        carthage.println("Ignoring \(frameworkName) because it does not support the current architecture")
+                        carthage.printOut("Ignoring \(frameworkName) because it does not support the current architecture")
                     case .skipped(let frameworkName):
-                        carthage.println("Skipped \(frameworkName) because it was already copied before")
+                        carthage.printOut("Skipped \(frameworkName) because it was already copied before")
                     }
                 })
                 .waitOnCommand()
@@ -165,7 +165,7 @@ public struct CopyFrameworksCommand: CommandProtocol {
                     .on(
                         value: { url in
                             let name = url.lastPathComponent
-                            carthage.println("Automatically discovered framework \(name) at: \"\(url.path)\"")
+                            carthage.printOut("Automatically discovered framework \(name) at: \"\(url.path)\"")
                     }
                 )
             )
