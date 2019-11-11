@@ -24,7 +24,7 @@ extension SchemeCartfile: CartfileProtocol {
         var schemes = Set<String>()
         let lines = string.components(separatedBy: .newlines)
         for line in lines {
-            if line.hasPrefix(Cartfile.commentIndicator) {
+            if line.hasPrefix(ResolvedCartfile.commentIndicator) {
                 continue
             }
             let scheme = line.trimmingCharacters(in: .whitespaces)

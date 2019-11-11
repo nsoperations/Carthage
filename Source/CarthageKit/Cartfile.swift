@@ -2,12 +2,19 @@ import Foundation
 import Result
 
 public protocol CartfileProtocol {
+    /// Any text following this character is considered a comment
+    static var commentIndicator: String { get }
+    
     static var relativePath: String { get }
     static func from(fileURL: URL) -> Result<Self, CarthageError>
     static func from(string: String) -> Result<Self, CarthageError>
 }
 
 extension CartfileProtocol {
+    public static var commentIndicator: String {
+        return "#"
+    }
+    
     /// Returns the location where Cartfile should exist within the given
     /// directory.
     public static func url(in directoryURL: URL) -> URL {
@@ -39,9 +46,6 @@ extension CartfileProtocol {
 /// Represents a Cartfile, which is a specification of a project's dependencies
 /// and any other settings Carthage needs to build it.
 public struct Cartfile {
-    /// Any text following this character is considered a comment
-    static let commentIndicator = "#"
-
     /// The dependencies listed in the Cartfile.
     public var dependencies: [Dependency: VersionSpecifier]
 
