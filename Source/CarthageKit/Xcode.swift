@@ -749,7 +749,7 @@ public final class Xcode {
                     }
                     
                     return SignalProducer(sdks)
-                        .flatMap(.concat) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
+                        .flatMap(.concurrent(limit: 2)) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
                             return build(sdk: sdk, with: buildArgs, in: workingDirectoryURL).map { event in
                                 return event.map { (sdk, $0) }
                             }
