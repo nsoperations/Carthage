@@ -749,7 +749,7 @@ public final class Xcode {
                     }
                     
                     return SignalProducer(sdks)
-                        .flatMap(.concurrent(limit: 2)) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
+                        .flatMap(.concat) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
                             return build(sdk: sdk, with: buildArgs, in: workingDirectoryURL).map { event in
                                 return event.map { (sdk, $0) }
                             }
@@ -888,7 +888,6 @@ public final class Xcode {
                     .flatMap(.concat) { (settings: [BuildSettings]) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                         let actions: [String] = {
                             var result: [String] = [xcodebuildAction.rawValue]
-
                             if xcodebuildAction == .archive {
                                 result += [
                                     // Prevent generating unnecessary empty `.xcarchive`
@@ -913,11 +912,9 @@ public final class Xcode {
                                     // Disable the "Strip Linked Product" build
                                     // setting so we can later generate a dSYM
                                     "STRIP_INSTALLED_PRODUCT=NO",
-
-                                    // Enabled whole module compilation since we are not interested in incremental mode
-                                    "SWIFT_COMPILATION_MODE=wholemodule",
                                 ]
                             }
+                            result.append("SWIFT_COMPILATION_MODE=wholemodule")
 
                             return result
                         }()
