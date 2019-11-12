@@ -42,6 +42,20 @@ class AlgorithmTests: XCTestCase {
 			"Carthage",
 		]
 	}
+    
+    func testSortWithLevel() throws {
+        let sorted = try Algorithms.topologicalSortWithLevel(validGraph).get()
+        
+        expect(sorted) == [
+            NodeLevel(level: 0, node: "Argo"),
+            NodeLevel(level: 0, node: "PrettyColors"),
+            NodeLevel(level: 0, node: "Result"),
+            NodeLevel(level: 1, node: "Commandant"),
+            NodeLevel(level: 1, node: "ReactiveCocoa"),
+            NodeLevel(level: 2, node: "ReactiveTask"),
+            NodeLevel(level: 3, node: "Carthage"),
+        ]
+    }
 	
 	func testShouldOnlyIncludeTheProvidedNodeAndItsTransitiveDependencies1() throws {
         let sorted = try Algorithms.topologicalSort(validGraph, nodes: Set(["ReactiveTask"])).get()
