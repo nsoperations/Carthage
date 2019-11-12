@@ -180,6 +180,27 @@ final class Algorithms {
 
         return .success(sorted.filter { node in relevantNodes.contains(node) })
     }
+    
+    static func topologicalSortWithLevel<Node: Comparable>(_ graph: [Node: Set<Node>], nodes: Set<Node>?) -> Result<[NodeLevel<Node>], TopologicalSortError<Node>> {
+        guard let includeNodes = nodes else {
+            return Algorithms.topologicalSortWithLevel(graph)
+        }
+
+        precondition(includeNodes.isSubset(of: Set(graph.keys)))
+
+        // Ensure that the graph has no cycles, otherwise determining the set of
+        // transitive incoming nodes could infinitely recurse.
+        let result = Algorithms.topologicalSortWithLevel(graph)
+        guard let sorted = try? result.get() else {
+            return result
+        }
+
+        let relevantNodes = Set(includeNodes.flatMap { (node: Node) -> Set<Node> in
+            Set([node]).union(Algorithms.transitiveIncomingNodes(graph, node: node))
+        })
+
+        return .success(sorted.filter { nodeLevel in relevantNodes.contains(nodeLevel.node) })
+    }
 
     /// Returns the set of nodes that the given node in the provided graph has as
     /// its incoming nodes, both directly and transitively.
