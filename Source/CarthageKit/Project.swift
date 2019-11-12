@@ -762,14 +762,22 @@ public final class Project { // swiftlint:disable:this type_body_length
                         }
                     }
                     .flatMap(.merge) { dependencies -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
-                        let leveledDependencies = [Int: [(Dependency, PinnedVersion)]]()
+                        var leveledDependencies: [[(Dependency, PinnedVersion)]] = []
+                        var currentLevel = -1
                         for versionedDependency in dependencies {
-                            if let level = levelLookupDict[versionedDependency.0]
-                            
+                            if let level = levelLookupDict[versionedDependency.0] {
+                                assert(level >= 0)
+                                if level != currentLevel {
+                                    assert(level > currentLevel)
+                                    currentLevel = level
+                                    leveledDependencies.append([(Dependency, PinnedVersion)]())
+                                }
+                                leveledDependencies[leveledDependencies.count - 1].append(versionedDependency)
+                            } else {
+                                return SignalProducer(error: CarthageError.internalError(description: "Could not find dependency \(versionedDependency.0) in build list"))
+                            }
                         }
-                        
-                        
-                        return SignalProducer(leveledDependencies.values)
+                        return SignalProducer(leveledDependencies)
                     }
             }
             .flatMap(.concat) { (sameLevelDependencies: [(Dependency, PinnedVersion)]) -> BuildSchemeProducer in
