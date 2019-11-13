@@ -9,7 +9,7 @@ public struct BuildOptions {
     /// The toolchain to build with.
     public var toolchain: String?
     /// The path to the custom derived data folder.
-    public var derivedDataPath: String?
+    public var derivedDataPath: String
     /// Whether to skip building if valid cached builds exist.
     public var cacheBuilds: Bool
     /// Whether to use downloaded binaries if possible.
@@ -25,7 +25,7 @@ public struct BuildOptions {
         configuration: String,
         platforms: Set<Platform> = [],
         toolchain: String? = nil,
-        derivedDataPath: String? = nil,
+        derivedDataPath: String,
         cacheBuilds: Bool = true,
         useBinaries: Bool = true,
         customCacheCommand: String? = nil,

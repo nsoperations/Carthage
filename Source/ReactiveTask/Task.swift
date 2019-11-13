@@ -405,14 +405,6 @@ extension Task {
         private var _result: Result<Data, TaskError>?
         private let condition = NSCondition()
         
-        var result: Result<Data, TaskError>? {
-            condition.lock()
-            defer {
-                condition.unlock()
-            }
-            return _result
-        }
-        
         func setResult(_ result: Result<Data, TaskError>) {
             condition.lock()
             _result = result
@@ -421,25 +413,18 @@ extension Task {
         }
         
         func waitForResult(completion: @escaping (Result<Data, TaskError>) -> Void) {
-            self.condition.lock()
-            let result = self._result
-            self.condition.unlock()
-            if let validResult = result {
-                completion(validResult)
-            } else {
-                TaskResult.queue.async {
-                    var validResult: Result<Data, TaskError>!
-                    self.condition.lock()
-                    while true {
-                        validResult = self._result
-                        if validResult != nil {
-                            break
-                        }
-                        self.condition.wait()
+            TaskResult.queue.async {
+                var validResult: Result<Data, TaskError>!
+                self.condition.lock()
+                while true {
+                    validResult = self._result
+                    if validResult != nil {
+                        break
                     }
-                    self.condition.unlock()
-                    completion(validResult)
+                    self.condition.wait()
                 }
+                self.condition.unlock()
+                completion(validResult)
             }
         }
     }

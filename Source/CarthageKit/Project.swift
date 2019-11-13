@@ -801,7 +801,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
 
                 var options = options
-                let baseURL = options.derivedDataPath.flatMap(URL.init(string:)) ?? Constants.Dependency.derivedDataURL
+                let baseURL = URL(fileURLWithPath: options.derivedDataPath)
                 let derivedDataPerSwiftVersion = baseURL.appendingPathComponent(swiftVersion, isDirectory: true)
                 let derivedDataPerDependency = derivedDataPerSwiftVersion.appendingPathComponent(dependency.name, isDirectory: true)
                 let derivedDataVersioned = derivedDataPerDependency.appendingPathComponent(version.commitish, isDirectory: true)

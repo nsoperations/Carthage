@@ -73,7 +73,7 @@ public final class Xcode {
         precondition(directoryURL.isFileURL)
 
         var lock: Lock?
-        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath ?? Constants.Dependency.derivedDataURL.path), timeout: lockTimeout)
+        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath), timeout: lockTimeout)
             .flatMap(.merge) { urlLock -> BuildSchemeProducer in
                 lock = urlLock
 
@@ -856,6 +856,8 @@ public final class Xcode {
             .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
                 var argsForLoading = buildArgs
                 argsForLoading.sdk = sdk
+                precondition(argsForLoading.derivedDataPath != nil)
+                argsForLoading.derivedDataPath = argsForLoading.derivedDataPath!.appendingPathComponent(sdk.rawValue)
                 
                 return loadBuildSettings(with: argsForLoading)
                     .filter { settings in
@@ -901,6 +903,8 @@ public final class Xcode {
     private static func build(sdk: SDK, with buildArgs: BuildArguments, in workingDirectoryURL: URL) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> {
         var argsForLoading = buildArgs
         argsForLoading.sdk = sdk
+        precondition(argsForLoading.derivedDataPath != nil)
+        argsForLoading.derivedDataPath = argsForLoading.derivedDataPath!.appendingPathComponent(sdk.rawValue)
 
         var argsForBuilding = argsForLoading
         argsForBuilding.onlyActiveArchitecture = false
