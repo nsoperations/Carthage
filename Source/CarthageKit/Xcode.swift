@@ -158,6 +158,27 @@ public final class Xcode {
                 lock?.unlock()
             })
     }
+    
+    static func generateProjectCartfile(directoryURL: URL) -> SignalProducer<ProjectCartfile, CarthageError> {
+        return discoverBuildableSchemes(directoryURL: directoryURL, configuration: "Debug", platforms: Set())
+            .flatMap(.concat) { entry -> SignalProducer<(Scheme, ProjectLocator, [SDK]), CarthageError> in
+                let (scheme, project) = entry
+                let sdkResult = SDKsForScheme(scheme, inProject: project).collect().single()!
+                return SignalProducer(result: sdkResult).map {
+                    (scheme, project, $0)
+                }
+            }
+            .reduce(into: [String: SchemeConfiguration](), { dict, entry in
+                let (scheme, project, sdks) = entry
+                guard let relativePath = project.fileURL.pathRelativeTo(directoryURL) else {
+                    fatalError("Expected path of project to be relative to directoryURL")
+                }
+                dict[scheme.name] = SchemeConfiguration(project: relativePath, workspace: nil, sdks: sdks)
+            })
+            .map { dict -> ProjectCartfile in
+                return ProjectCartfile(schemeConfigurations: dict)
+            }
+    }
 
     /// Finds schemes of projects or workspaces, which Carthage should build, found
     /// within the given directory.
@@ -180,6 +201,10 @@ public final class Xcode {
                 }
         }
         
+        return discoverBuildableSchemes(directoryURL: directoryURL, configuration: configuration, platforms: platforms)
+    }
+    
+    private static func discoverBuildableSchemes(directoryURL: URL, configuration: String, platforms: Set<Platform>) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
         let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
         let locator = ProjectLocator
             .locate(in: directoryURL)
@@ -227,7 +252,7 @@ public final class Xcode {
                             return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
                                 .filter { $0 }
                                 .map { _ in project }
-
+                            
                         default:
                             return .empty
                         }
@@ -687,20 +712,7 @@ public final class Xcode {
                 return SignalProducer(sdks)
             }
         } else {
-            sdkProducer = SDKsForScheme(scheme, inProject: project)
-            .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
-                var argsForLoading = buildArgs
-                argsForLoading.sdk = sdk
-
-                return loadBuildSettings(with: argsForLoading)
-                    .filter { settings in
-                        // Filter out SDKs that require bitcode when bitcode is disabled in
-                        // project settings. This is necessary for testing frameworks, which
-                        // must add a User-Defined setting of ENABLE_BITCODE=NO.
-                        return settings.bitcodeEnabled.value == true || ![.tvOS, .watchOS].contains(sdk)
-                    }
-                    .map { _ in sdk }
-            }
+            sdkProducer = discoverSDKs(scheme: scheme, project: project, buildArgs: buildArgs)
         }
         
         return sdkProducer
@@ -817,6 +829,23 @@ public final class Xcode {
         case .failure(let error):
             return SignalProducer(error: error)
         }
+    }
+    
+    private static func discoverSDKs(scheme: Scheme, project: ProjectLocator, buildArgs: BuildArguments) -> SignalProducer<SDK, CarthageError> {
+        return SDKsForScheme(scheme, inProject: project)
+            .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
+                var argsForLoading = buildArgs
+                argsForLoading.sdk = sdk
+                
+                return loadBuildSettings(with: argsForLoading)
+                    .filter { settings in
+                        // Filter out SDKs that require bitcode when bitcode is disabled in
+                        // project settings. This is necessary for testing frameworks, which
+                        // must add a User-Defined setting of ENABLE_BITCODE=NO.
+                        return settings.bitcodeEnabled.value == true || ![.tvOS, .watchOS].contains(sdk)
+                    }
+                    .map { _ in sdk }
+            }
     }
     
     // If SDK is the iOS simulator, then also find and set a valid destination.
