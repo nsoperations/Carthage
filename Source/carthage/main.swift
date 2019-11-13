@@ -39,8 +39,8 @@ registry.register(GenerateProjectFileCommand())
 let start = Date()
 Task.debugEvents.observeValues { event in
     switch event {
-    case let .cacheHit(task):
-        printErr("Task #\(task.identifier) cache hit: \(task)")
+    case let .cacheHit(task, duration):
+        printErr(String(format: "Task #\(task.identifier) cache hit in %.2fs: \(task)", duration))
     case let .duplicate(task):
         printErr("Task #\(task.identifier) has been executed before, consider caching: \(task)")
     case let .launch(task):
@@ -48,7 +48,7 @@ Task.debugEvents.observeValues { event in
     case let .launchFailure(task, error):
         printErr("Task #\(task.identifier) launch failed: \(error)")
     case let .success(task, duration, _):
-        printErr(String(format: "Task #\(task.identifier) finished successfully in %.2fs.", duration))
+        printErr(String(format: "Task #\(task.identifier) finished successfully in %.2fs", duration))
     case let .failure(task, duration, terminationStatus, error):
         printErr(String(format: "Task #\(task.identifier) failed with exit code \(terminationStatus) in %.2fs" + (error.map {": " + $0} ?? ""), duration))
     }

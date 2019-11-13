@@ -387,7 +387,7 @@ extension Signal where Value: TaskEventType {
 
 #if DEBUG
 public enum TaskDebugEvent {
-    case cacheHit(Task)
+    case cacheHit(Task, TimeInterval)
     case duplicate(Task)
     case launch(Task)
     case launchFailure(Task, Error)
@@ -465,6 +465,8 @@ extension Task {
         shouldBeTerminatedOnParentExit: Bool = false
         ) -> SignalProducer<TaskEvent<Data>, TaskError> {
         
+        var launchDate: Date!
+        
         if self.useCache {
             if let cachedResult = Task.taskCache.modify ({ dict -> TaskResult? in
                 if let cachedResult = dict[self] {
@@ -475,9 +477,11 @@ extension Task {
                 }
             }) {
                 return SignalProducer { observer, _ in
+                    launchDate = Date()
                     cachedResult.waitForResult { result in
                         #if DEBUG
-                        Task.debugEventsObserver.send(value: .cacheHit(self))
+                        let duration = Date().timeIntervalSince(launchDate)
+                        Task.debugEventsObserver.send(value: .cacheHit(self, duration))
                         #endif
                         switch result {
                         case let .success(data):
@@ -496,8 +500,6 @@ extension Task {
             Task.debugEventsObserver.send(value: .duplicate(self))
         }
         #endif
-        
-        var launchDate: Date!
         
         return SignalProducer { observer, lifetime in
             let queue = DispatchQueue(label: self.description, attributes: [])
