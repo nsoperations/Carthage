@@ -25,4 +25,17 @@ extension Atomic where Value: Cache {
             }
         }
     }
+    
+    public func getValue(_ key: Value.Key, default constructor: (Value.Key) -> Value.Value) -> Value.Value {
+        return self.modify { cache -> Value.Value in
+            
+            if let existingValue = cache[key] {
+                return existingValue
+            }
+            
+            let value = constructor(key)
+            cache[key] = value
+            return value
+        }
+    }
 }

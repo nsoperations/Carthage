@@ -33,10 +33,26 @@ registry.register(ValidateCommand())
 registry.register(VersionCommand())
 registry.register(DiagnoseCommand())
 registry.register(SwiftVersionCommand())
+registry.register(GenerateProjectFileCommand())
 
 #if DEBUG
-Task.debugLoggingEnabled = true
 let start = Date()
+Task.debugEvents.observeValues { event in
+    switch event {
+    case let .cacheHit(task):
+        printErr("Task #\(task.identifier) cache hit: \(task)")
+    case let .duplicate(task):
+        printErr("Task #\(task.identifier) has been executed before, consider caching: \(task)")
+    case let .launch(task):
+        printErr("Task #\(task.identifier) launched: \(task)")
+    case let .launchFailure(task, error):
+        printErr("Task #\(task.identifier) launch failed: \(error)")
+    case let .success(task, duration, _):
+        printErr(String(format: "Task #\(task.identifier) finished successfully in %.2fs.", duration))
+    case let .failure(task, duration, terminationStatus, error):
+        printErr(String(format: "Task #\(task.identifier) failed with exit code \(terminationStatus) in %.2fs" + (error.map {": " + $0} ?? ""), duration))
+    }
+}
 #endif
 
 let helpCommand = HelpCommand(registry: registry)

@@ -4,9 +4,9 @@ import Result
 /// A struct including all constants.
 public struct Constants {
     
-    public static let concurrencyLimit: UInt = {
+    public static var concurrencyLimit: UInt {
         return UInt(ProcessInfo.processInfo.activeProcessorCount)
-    }()
+    }
 
     /// Carthage's bundle identifier.
     public static let bundleIdentifier: String = "org.carthage.CarthageKit"

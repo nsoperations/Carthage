@@ -15,7 +15,7 @@ public final class Archive {
         }
 
         var effectiveDependencyName: String? = dependencyName
-        let configuration = "Release"
+        let configuration = Xcode.defaultBuildConfiguration
         let frameworks: SignalProducer<[String], CarthageError>
         if !frameworkNames.isEmpty {
             frameworks = .init(value: frameworkNames.map {

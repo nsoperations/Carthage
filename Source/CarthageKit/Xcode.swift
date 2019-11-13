@@ -17,6 +17,8 @@ public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configu
 
 public final class Xcode {
     
+    public static let defaultBuildConfiguration = "Release"
+    
     /// Attempts to build the dependency, then places its build product into the
     /// root directory given.
     ///
@@ -159,11 +161,19 @@ public final class Xcode {
             })
     }
     
-    static func generateProjectCartfile(directoryURL: URL) -> SignalProducer<ProjectCartfile, CarthageError> {
-        return discoverBuildableSchemes(directoryURL: directoryURL, configuration: "Debug", platforms: Set())
+    public static func generateProjectCartfile(directoryURL: URL) -> SignalProducer<ProjectCartfile, CarthageError> {
+        let configuration = Xcode.defaultBuildConfiguration
+        return discoverBuildableSchemes(directoryURL: directoryURL, configuration: configuration, platforms: Set())
             .flatMap(.concat) { entry -> SignalProducer<(Scheme, ProjectLocator, [SDK]), CarthageError> in
                 let (scheme, project) = entry
-                let sdkResult = SDKsForScheme(scheme, inProject: project).collect().single()!
+                
+                let buildArgs = BuildArguments(
+                    project: project,
+                    scheme: scheme,
+                    configuration: configuration
+                )
+                
+                let sdkResult = discoverSDKs(buildArgs: buildArgs).collect().single()!
                 return SignalProducer(result: sdkResult).map {
                     (scheme, project, $0)
                 }
@@ -173,7 +183,7 @@ public final class Xcode {
                 guard let relativePath = project.fileURL.pathRelativeTo(directoryURL) else {
                     fatalError("Expected path of project to be relative to directoryURL")
                 }
-                dict[scheme.name] = SchemeConfiguration(project: relativePath, workspace: nil, sdks: sdks)
+                dict[scheme.name] = SchemeConfiguration(project: relativePath, sdks: sdks)
             })
             .map { dict -> ProjectCartfile in
                 return ProjectCartfile(schemeConfigurations: dict)
@@ -194,13 +204,17 @@ public final class Xcode {
         if projectCartfileURL.isExistingFile {
             return SignalProducer<ProjectCartfile, CarthageError>(result: ProjectCartfile.from(fileURL: projectCartfileURL))
                 .flatMap(.merge) { projectCartfile -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
-                    let projectSchemes: [(Scheme, ProjectLocator)] = projectCartfile.schemeConfigurations.map { entry in
-                        return (Scheme(entry.key), entry.value.projectLocator(in: directoryURL))
-                    }
-                    return SignalProducer(projectSchemes)
+                    let projectSchemes = Result<[(Scheme, ProjectLocator)], CarthageError>.init(catching: {
+                        return try projectCartfile.schemeConfigurations.map { entry in
+                            guard let project = entry.value.projectLocator(in: directoryURL) else {
+                                throw CarthageError.internalError(description: "Invalid Cartfile.project: a project should have an extension of .xcodeproj or .xcworkspace, but found: \(entry.value.project)")
+                            }
+                            return (Scheme(entry.key), project)
+                        }
+                    })
+                    return SignalProducer(result: projectSchemes).flatten()
                 }
         }
-        
         return discoverBuildableSchemes(directoryURL: directoryURL, configuration: configuration, platforms: platforms)
     }
     
@@ -221,7 +235,6 @@ public final class Xcode {
                     }
                     .map { (project, $0) }
             }
-            .replayLazily(upTo: Int.max)
         return locator
             .collect()
             // Allow dependencies which have no projects, not to error out with
@@ -712,7 +725,7 @@ public final class Xcode {
                 return SignalProducer(sdks)
             }
         } else {
-            sdkProducer = discoverSDKs(scheme: scheme, project: project, buildArgs: buildArgs)
+            sdkProducer = discoverSDKs(buildArgs: buildArgs)
         }
         
         return sdkProducer
@@ -761,7 +774,7 @@ public final class Xcode {
                     }
                     
                     return SignalProducer(sdks)
-                        .flatMap(.concurrent(limit: 2)) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
+                        .flatMap(.concat) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
                             return build(sdk: sdk, with: buildArgs, in: workingDirectoryURL).map { event in
                                 return event.map { (sdk, $0) }
                             }
@@ -831,8 +844,15 @@ public final class Xcode {
         }
     }
     
-    private static func discoverSDKs(scheme: Scheme, project: ProjectLocator, buildArgs: BuildArguments) -> SignalProducer<SDK, CarthageError> {
-        return SDKsForScheme(scheme, inProject: project)
+    private static func discoverSDKs(buildArgs: BuildArguments) -> SignalProducer<SDK, CarthageError> {
+        assert(buildArgs.scheme != nil, "Expected scheme to be supplied")
+        let project = buildArgs.project
+        guard let scheme = buildArgs.scheme else {
+            return SignalProducer(error: CarthageError.internalError(description: "Scheme was not supplied which is required for discovery of compatible SDKs"))
+        }
+        return loadBuildSettings(with: BuildArguments(project: project, scheme: scheme))
+            .take(first: 1)
+            .flatMap(.merge) { $0.buildSDKs }
             .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
                 var argsForLoading = buildArgs
                 argsForLoading.sdk = sdk
@@ -1033,16 +1053,6 @@ public final class Xcode {
         return codesignTask.launch()
             .mapError(CarthageError.taskError)
             .then(SignalProducer<(), CarthageError>.empty)
-    }
-
-    /// Determines which SDKs the given scheme builds for, by default.
-    ///
-    /// If an SDK is unrecognized or could not be determined, an error will be
-    /// sent on the returned signal.
-    private static func SDKsForScheme(_ scheme: Scheme, inProject project: ProjectLocator) -> SignalProducer<SDK, CarthageError> {
-        return loadBuildSettings(with: BuildArguments(project: project, scheme: scheme))
-            .take(first: 1)
-            .flatMap(.merge) { $0.buildSDKs }
     }
 }
 

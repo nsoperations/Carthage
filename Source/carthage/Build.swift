@@ -16,7 +16,7 @@ extension BuildOptions: OptionsProtocol {
         var platformUsage = "the platforms to build for (one of 'all', 'macOS', 'iOS', 'watchOS', 'tvOS', or comma-separated values of the formers except for 'all')"
         platformUsage += addendum
 
-        let option1 = Option(key: "configuration", defaultValue: "Release", usage: "the Xcode configuration to build" + addendum)
+        let option1 = Option(key: "configuration", defaultValue: Xcode.defaultBuildConfiguration, usage: "the Xcode configuration to build" + addendum)
         let option2 = Option<String?>(key: "toolchain", defaultValue: nil, usage: "the toolchain to build with")
         let option3 = Option<String?>(key: "derived-data", defaultValue: nil, usage: "path to the custom derived data folder")
         let option4 = Option(key: "cache-builds", defaultValue: false, usage: "use cached builds when possible")

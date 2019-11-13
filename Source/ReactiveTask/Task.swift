@@ -385,19 +385,39 @@ extension Signal where Value: TaskEventType {
     }
 }
 
+#if DEBUG
+public enum TaskDebugEvent {
+    case cacheHit(Task)
+    case duplicate(Task)
+    case launch(Task)
+    case launchFailure(Task, Error)
+    case success(Task, TimeInterval, Data)
+    case failure(Task, TimeInterval, Int32, String?)
+}
+#endif
+
 extension Task {
     
     private static let taskCache = Atomic(Dictionary<Task, Data>())
     
     #if DEBUG
+    private static let debugEventsPipe = Signal<TaskDebugEvent, NoError>.pipe()
+    
+    /// Sends each event that occurs to a project underneath the receiver (or
+    /// the receiver itself).
+    public static var debugEvents: Signal<TaskDebugEvent, NoError> {
+        return debugEventsPipe.output
+    }
+    private static var debugEventsObserver: Signal<TaskDebugEvent, NoError>.Observer {
+        return debugEventsPipe.input
+    }
+    
     private static let taskHistory = Atomic(Dictionary<Task, TimeInterval>())
     
     public static var history: [Task: TimeInterval] {
         return taskHistory.value
     }
     #endif
-    
-    public static var debugLoggingEnabled = false
     
     /// Launches a new shell task.
     ///
@@ -415,17 +435,15 @@ extension Task {
         ) -> SignalProducer<TaskEvent<Data>, TaskError> {
         
         if self.useCache, let cachedData = Task.taskCache[self] {
-            if Task.debugLoggingEnabled {
-                print("Task #\(self.identifier) cache hit: \(self)")
-            }
+            #if DEBUG
+            Task.debugEventsObserver.send(value: .cacheHit(self))
+            #endif
             return SignalProducer<TaskEvent<Data>, TaskError>(values: .launch(self), .standardOutput(cachedData), .success(cachedData))
         }
         
         #if DEBUG
-        if Task.debugLoggingEnabled {
-            if Task.taskHistory[self] != nil {
-                print("Task #\(self.identifier) has been executed before, consider caching")
-            }
+        if Task.taskHistory[self] != nil {
+            Task.debugEventsObserver.send(value: .duplicate(self))
         }
         #endif
         
@@ -468,9 +486,6 @@ extension Task {
                     })
                     
                 case let .failure(error):
-                    if Task.debugLoggingEnabled {
-                        print("Task #\(self.identifier) failed: \(error)")
-                    }
                     observer.send(error: error)
                     return
                 }
@@ -544,32 +559,32 @@ extension Task {
                             if terminationStatus == EXIT_SUCCESS {
                                 // Wait for stderr to finish, then pass
                                 // through stdout.
-                                
-                                if Task.debugLoggingEnabled {
-                                    print(String(format: "Task #\(self.identifier) finished successfully in %.2fs.", duration))
-                                }
-                                
                                 lifetime += stderrAggregated
                                     .then(stdoutAggregated)
                                     .map { data in
                                         if self.useCache {
                                             Task.taskCache[self] = data
                                         }
+                                        
+                                        #if DEBUG
+                                        Task.debugEventsObserver.send(value: .success(self, duration, data))
+                                        #endif
+                                        
                                         return TaskEvent.success(data)
                                     }
                                     .start(observer)
                             } else {
-                                
-                                if Task.debugLoggingEnabled {
-                                    print(String(format: "Task #\(self.identifier) failed with exit code \(terminationStatus) in %.2fs.", duration))
-                                }
                                 // Wait for stdout to finish, then pass
                                 // through stderr.
                                 lifetime += stdoutAggregated
                                     .then(stderrAggregated)
                                     .flatMap(.concat) { data -> SignalProducer<TaskEvent<Data>, TaskError> in
                                         let errorString = (data.isEmpty ? nil : String(data: data, encoding: .utf8))
-                                        return SignalProducer(error: .shellTaskFailed(self, exitCode: terminationStatus, standardError: errorString))
+                                        let taskError = TaskError.shellTaskFailed(self, exitCode: terminationStatus, standardError: errorString)
+                                        #if DEBUG
+                                        Task.debugEventsObserver.send(value: .failure(self, duration, terminationStatus, errorString))
+                                        #endif
+                                        return SignalProducer(error: taskError)
                                     }
                                     .start(observer)
                             }
@@ -577,10 +592,9 @@ extension Task {
                         }
                         
                         launchDate = Date()
-                        if Task.debugLoggingEnabled {
-                            print("Task #\(self.identifier) launched: \(self)")
-                        }
-                        
+                        #if DEBUG
+                        Task.debugEventsObserver.send(value: .launch(self))
+                        #endif
                         observer.send(value: .launch(self))
                         
                         if #available(macOS 10.13, *) {
@@ -591,10 +605,11 @@ extension Task {
                                 }
                                 try process.run()
                             } catch {
-                                if Task.debugLoggingEnabled {
-                                    print("Task #\(self.identifier) launch failed: \(error.localizedDescription)")
-                                }
-                                observer.send(error: TaskError.launchFailed(self, reason: error.localizedDescription))
+                                let launchError = TaskError.launchFailed(self, reason: error.localizedDescription)
+                                #if DEBUG
+                                Task.debugEventsObserver.send(value: .launchFailure(self, error))
+                                #endif
+                                observer.send(error: launchError)
                                 return
                             }
                         } else {

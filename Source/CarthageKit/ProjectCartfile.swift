@@ -9,15 +9,11 @@ public struct ProjectCartfile {
 
 public struct SchemeConfiguration: Codable {
     public let project: String
-    public let workspace: String?
     public let sdks: [SDK]
     
-    public func projectLocator(in directoryURL: URL) -> ProjectLocator {
-        if let workspace = self.workspace {
-            return ProjectLocator.workspace(directoryURL.appendingPathComponent(workspace))
-        } else {
-            return ProjectLocator.projectFile(directoryURL.appendingPathComponent(self.project))
-        }
+    public func projectLocator(in directoryURL: URL) -> ProjectLocator? {
+        let fullURL = directoryURL.appendingPathComponent(project)
+        return ProjectLocator.from(url: fullURL)
     }
 }
 

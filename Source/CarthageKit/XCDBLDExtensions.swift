@@ -28,19 +28,21 @@ extension Platform {
 }
 
 extension ProjectLocator {
+    
+    private static let projectCache = Atomic([URL: Result<[ProjectLocator], CarthageError>]())
+    
     /// Attempts to locate projects and workspaces within the given directory.
     ///
     /// Sends all matches in preferential order.
     public static func locate(in directoryURL: URL) -> SignalProducer<ProjectLocator, CarthageError> {
-        let enumerationOptions: FileManager.DirectoryEnumerationOptions = [ .skipsHiddenFiles, .skipsPackageDescendants ]
-
-        return Git.gitmodulesEntriesInRepository(directoryURL, revision: nil)
+        let result = projectCache.getValue(directoryURL) { directoryURL -> Result<[ProjectLocator], CarthageError> in
+            return Git.gitmodulesEntriesInRepository(directoryURL, revision: nil)
             .map { directoryURL.appendingPathComponent($0.path) }
             .concat(value: directoryURL.appendingPathComponent(Constants.checkoutsPath))
             .collect()
             .flatMap(.merge) { directoriesToSkip -> SignalProducer<URL, CarthageError> in
                 return FileManager.default.reactive
-                    .enumerator(at: directoryURL.resolvingSymlinksInPath(), includingPropertiesForKeys: [ .typeIdentifierKey ], options: enumerationOptions, catchErrors: true)
+                    .enumerator(at: directoryURL.resolvingSymlinksInPath(), includingPropertiesForKeys: [.typeIdentifierKey], options: [.skipsHiddenFiles, .skipsPackageDescendants], catchErrors: true)
                     .map { _, url in url }
                     .filter { url in
                         return !directoriesToSkip.contains { $0.hasSubdirectory(url) }
@@ -58,7 +60,9 @@ extension ProjectLocator {
             }
             .collect()
             .map { $0.sorted() }
-            .flatMap(.merge) { SignalProducer<ProjectLocator, CarthageError>($0) }
+            .first()!
+        }
+        return SignalProducer(result: result).flatten()
     }
 
     /// Sends each scheme found in the receiver.
