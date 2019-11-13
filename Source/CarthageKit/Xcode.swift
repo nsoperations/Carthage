@@ -183,7 +183,7 @@ public final class Xcode {
                 guard let relativePath = project.fileURL.pathRelativeTo(directoryURL) else {
                     fatalError("Expected path of project to be relative to directoryURL")
                 }
-                dict[scheme.name] = SchemeConfiguration(project: relativePath, sdks: sdks)
+                dict[scheme.name] = SchemeConfiguration(project: relativePath, sdks: sdks.unique())
             })
             .map { dict -> ProjectCartfile in
                 return ProjectCartfile(schemeConfigurations: dict)
