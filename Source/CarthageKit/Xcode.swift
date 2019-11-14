@@ -170,7 +170,8 @@ public final class Xcode {
                 let buildArgs = BuildArguments(
                     project: project,
                     scheme: scheme,
-                    configuration: configuration
+                    configuration: configuration,
+                    derivedDataPath: Constants.Dependency.derivedDataURL.path
                 )
                 
                 let sdkResult = discoverSDKs(buildArgs: buildArgs).collect().single()!
