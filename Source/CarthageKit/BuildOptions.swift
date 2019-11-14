@@ -25,7 +25,7 @@ public struct BuildOptions {
         configuration: String,
         platforms: Set<Platform> = [],
         toolchain: String? = nil,
-        derivedDataPath: String,
+        derivedDataPath: String = Constants.Dependency.derivedDataURL.path,
         cacheBuilds: Bool = true,
         useBinaries: Bool = true,
         customCacheCommand: String? = nil,

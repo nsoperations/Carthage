@@ -28,8 +28,7 @@ class CartfileProjectTests: XCTestCase {
             return
         }
         
-        XCTAssertEqual("SomeProject.xcproject", scheme1.project)
-        XCTAssertEqual("SomeWorkspace.xcworkspace", scheme1.workspace)
+        XCTAssertEqual("SomeWorkspace.xcworkspace", scheme1.project)
         XCTAssertEqual([SDK.iPhoneOS, SDK.iPhoneSimulator], scheme1.sdks)
         
         let baseURL = URL(fileURLWithPath: "/tmp")
@@ -42,7 +41,6 @@ class CartfileProjectTests: XCTestCase {
         }
         
         XCTAssertEqual("SomeProject.xcproject", scheme2.project)
-        XCTAssertNil(scheme2.workspace)
         XCTAssertEqual([SDK.watchOS, SDK.watchSimulator], scheme2.sdks)
         
         XCTAssertEqual(ProjectLocator.projectFile(baseURL.appendingPathComponent("SomeProject.xcproject")), scheme2.projectLocator(in: baseURL))

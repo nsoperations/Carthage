@@ -1,7 +1,6 @@
 
 SomeiOSScheme:
-  project: SomeProject.xcproject
-  workspace: SomeWorkspace.xcworkspace
+  project: SomeWorkspace.xcworkspace
   sdks:
     - iphoneos
     - iphonesimulator
