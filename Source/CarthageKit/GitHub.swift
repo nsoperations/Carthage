@@ -3,17 +3,10 @@ import Result
 import ReactiveSwift
 import Tentacle
 
-/// The User-Agent to use for GitHub requests.
-private func gitHubUserAgent() -> String {
-    let identifier = Constants.bundleIdentifier
-    let version = CarthageKitVersion.current.value
-    return "\(identifier)/\(version)"
-}
-
 extension Server {
     /// The URL that should be used for cloning the given repository over HTTPS.
     public func httpsURL(for repository: Repository) -> GitURL {
-        let auth = Environment.gitHubToken(forServer: self).map { "\($0)@" } ?? ""
+        let auth = Client.gitHubToken(forServer: self).map { "\($0)@" } ?? ""
         let scheme = url.scheme!
 
         return GitURL("\(scheme)://\(auth)\(url.host!)/\(repository.owner)/\(repository.name).git")
@@ -88,14 +81,14 @@ extension Client {
 
     convenience init(server: Server, isAuthenticated: Bool = true) {
         if Client.userAgent == nil {
-            Client.userAgent = gitHubUserAgent()
+            Client.userAgent = Client.gitHubUserAgent()
         }
 
         let urlSession = URLSession.proxiedSession
 
         if !isAuthenticated {
             self.init(server, urlSession: urlSession)
-        } else if let token = Environment.gitHubToken(forServer: server) {
+        } else if let token = Client.gitHubToken(forServer: server) {
             self.init(server, token: token, urlSession: urlSession)
         } else if let (username, password) = Client.credentialsFromGit(forServer: server) {
             self.init(server, username: username, password: password, urlSession: urlSession)
@@ -134,9 +127,13 @@ extension Client {
                 .value ?? nil // swiftlint:disable:this redundant_nil_coalescing
         }
     }
-}
 
-fileprivate enum Environment {
+    /// The User-Agent to use for GitHub requests.
+    fileprivate static func gitHubUserAgent() -> String {
+        let identifier = Constants.bundleIdentifier
+        let version = CarthageKitVersion.current.value
+        return "\(identifier)/\(version)"
+    }
 
     fileprivate static func gitHubToken(forServer server: Server) -> String? {
         let environment = ProcessInfo.processInfo.environment
