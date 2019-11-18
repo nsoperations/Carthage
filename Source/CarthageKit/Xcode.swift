@@ -914,10 +914,6 @@ public final class Xcode {
             .flatMap(.concat) { destination -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                 if let destination = destination {
                     argsForBuilding.destination = destination
-                    // Also set the destination lookup timeout. Since we're building
-                    // for the simulator the lookup shouldn't take more than a
-                    // fraction of a second, but we set to 10 just to be safe.
-                    argsForBuilding.destinationTimeout = 10
                 }
 
                 // Use `archive` action when building device SDKs to disable LLVM Instrumentation.
