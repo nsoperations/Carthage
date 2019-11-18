@@ -63,6 +63,22 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.41.0+nsoperations
+
+- Added support for Cartfile.project, a yml-file describing the Xcode project/workspace, schemes and sdks to build which speeds up the pre-build project introspection very significantly
+- Improved build performance by building same level dependencies in parallel
+- Improved build performance by building multiple sdks for same scheme in parallel
+- Ensure compilation mode wholemodule is always use to avoid waste of CPU resources
+- Ensured parallel tasks is dynamically determined based on the number of available CPU cores
+- Added caching for a lot of read-only Swift, Git and Xcodebuild commands, thereby improving performance a lot
+- Fixed bug where fetch for remote dependencies would not always take place on update/bootstrap.
+- Removed -destinationTimeout override for xcodebuild, will now just use the default.
+
+### 0.40.2+nsoperations
+
+- Ignored all .xcscheme files from source hash calculation because of Xcode touching those files when viewing the scheme list
+- Improved performance by caching some commonly used read-only shell commands
+
 ### 0.40.1+nsoperations
 
 - Fixed bug where checkout (or bootstrap/update) would not properly clean left over files from a previous checkout leading to unexpected results
