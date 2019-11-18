@@ -17,6 +17,8 @@ public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configu
 
 public final class Xcode {
     
+    public static let defaultBuildConfiguration = "Release"
+    
     /// Attempts to build the dependency, then places its build product into the
     /// root directory given.
     ///
@@ -71,19 +73,14 @@ public final class Xcode {
         precondition(directoryURL.isFileURL)
 
         var lock: Lock?
-        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath ?? Constants.Dependency.derivedDataURL.path), timeout: lockTimeout)
+        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath), timeout: lockTimeout)
             .flatMap(.merge) { urlLock -> BuildSchemeProducer in
                 lock = urlLock
 
-                let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
-
                 return BuildSchemeProducer { observer, lifetime in
-                    // Use SignalProducer.replayLazily to avoid enumerating the given directory
-                    // multiple times.
                     buildableSchemesInDirectory(directoryURL,
                                                 withConfiguration: options.configuration,
-                                                forPlatforms: options.platforms,
-                                                schemeMatcher: schemeMatcher
+                                                forPlatforms: options.platforms
                         )
                         .flatMap(.concat) { (scheme: Scheme, project: ProjectLocator) -> SignalProducer<TaskEvent<URL>, CarthageError> in
                             let initialValue = (project, scheme)
@@ -163,16 +160,67 @@ public final class Xcode {
                 lock?.unlock()
             })
     }
+    
+    public static func generateProjectCartfile(directoryURL: URL) -> SignalProducer<ProjectCartfile, CarthageError> {
+        let configuration = Xcode.defaultBuildConfiguration
+        return discoverBuildableSchemes(directoryURL: directoryURL, configuration: configuration, platforms: Set())
+            .flatMap(.concat) { entry -> SignalProducer<(Scheme, ProjectLocator, [SDK]), CarthageError> in
+                let (scheme, project) = entry
+                
+                let buildArgs = BuildArguments(
+                    project: project,
+                    scheme: scheme,
+                    configuration: configuration,
+                    derivedDataPath: Constants.Dependency.derivedDataURL.path
+                )
+                
+                let sdkResult = discoverSDKs(buildArgs: buildArgs).collect().single()!
+                return SignalProducer(result: sdkResult).map {
+                    (scheme, project, $0)
+                }
+            }
+            .reduce(into: [String: SchemeConfiguration](), { dict, entry in
+                let (scheme, project, sdks) = entry
+                guard let relativePath = project.fileURL.pathRelativeTo(directoryURL) else {
+                    fatalError("Expected path of project to be relative to directoryURL")
+                }
+                dict[scheme.name] = SchemeConfiguration(project: relativePath, sdks: sdks.unique())
+            })
+            .map { dict -> ProjectCartfile in
+                return ProjectCartfile(schemeConfigurations: dict)
+            }
+    }
 
     /// Finds schemes of projects or workspaces, which Carthage should build, found
     /// within the given directory.
     static func buildableSchemesInDirectory( // swiftlint:disable:this static function_body_length
         _ directoryURL: URL,
         withConfiguration configuration: String,
-        forPlatforms platforms: Set<Platform> = [],
-        schemeMatcher: SchemeMatcher?
+        forPlatforms platforms: Set<Platform> = []
         ) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
         precondition(directoryURL.isFileURL)
+        
+        // Try to read the Cartfile.project. If it exists use that, otherwise revert to the old (slow!!!) way of auto-discovery
+        let projectCartfileURL = ProjectCartfile.url(in: directoryURL)
+        if projectCartfileURL.isExistingFile {
+            return SignalProducer<ProjectCartfile, CarthageError>(result: ProjectCartfile.from(fileURL: projectCartfileURL))
+                .flatMap(.merge) { projectCartfile -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+                    let projectSchemes = Result<[(Scheme, ProjectLocator)], CarthageError>.init(catching: {
+                        return try projectCartfile.schemeConfigurations.map { entry in
+                            guard let project = entry.value.projectLocator(in: directoryURL) else {
+                                throw CarthageError.internalError(description: "Invalid Cartfile.project: a project should have an extension of .xcodeproj or .xcworkspace, but found: \(entry.value.project)")
+                            }
+                            return (Scheme(entry.key), project)
+                        }
+                    })
+                    return SignalProducer(result: projectSchemes).flatten()
+                }
+        }
+        return discoverBuildableSchemes(directoryURL: directoryURL, configuration: configuration, platforms: platforms)
+    }
+    
+    private static func discoverBuildableSchemes(directoryURL: URL, configuration: String, platforms: Set<Platform>) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> {
+        let schemeMatcher = SchemeCartfile.from(directoryURL: directoryURL).value?.matcher
         let locator = ProjectLocator
             .locate(in: directoryURL)
             .flatMap(.concat) { project -> SignalProducer<(ProjectLocator, [Scheme]), CarthageError> in
@@ -188,7 +236,6 @@ public final class Xcode {
                     }
                     .map { (project, $0) }
             }
-            .replayLazily(upTo: Int.max)
         return locator
             .collect()
             // Allow dependencies which have no projects, not to error out with
@@ -197,7 +244,7 @@ public final class Xcode {
             .flatMap(.merge) { (projects: [(ProjectLocator, [Scheme])]) -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
                 return schemesInProjects(projects).flatten()
             }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
                 /// Check whether we should the scheme by checking against the project. If we're building
                 /// from a workspace, then it might include additional targets that would trigger our
                 /// check.
@@ -206,7 +253,7 @@ public final class Xcode {
                     .filter { $0 }
                     .map { _ in (scheme, project) }
             }
-            .flatMap(.concurrent(limit: 4)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
                 return locator
                     // This scheduler hop is required to avoid disallowed recursive signals.
                     // See https://github.com/ReactiveCocoa/ReactiveCocoa/pull/2042.
@@ -219,7 +266,7 @@ public final class Xcode {
                             return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
                                 .filter { $0 }
                                 .map { _ in project }
-
+                            
                         default:
                             return .empty
                         }
@@ -665,21 +712,24 @@ public final class Xcode {
             derivedDataPath: options.derivedDataPath,
             toolchain: options.toolchain
         )
-
-        return SDKsForScheme(scheme, inProject: project)
-            .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
-                var argsForLoading = buildArgs
-                argsForLoading.sdk = sdk
-
-                return loadBuildSettings(with: argsForLoading)
-                    .filter { settings in
-                        // Filter out SDKs that require bitcode when bitcode is disabled in
-                        // project settings. This is necessary for testing frameworks, which
-                        // must add a User-Defined setting of ENABLE_BITCODE=NO.
-                        return settings.bitcodeEnabled.value == true || ![.tvOS, .watchOS].contains(sdk)
-                    }
-                    .map { _ in sdk }
+        
+        // If the Cartfile.project exists use that instead of trying to auto-discover the SDKs based on the build settings
+        let sdkProducer: SignalProducer<SDK, CarthageError>
+        
+        let projectCartfileURL = ProjectCartfile.url(in: workingDirectoryURL)
+        if projectCartfileURL.isExistingFile {
+            sdkProducer = SignalProducer<ProjectCartfile, CarthageError>(result: ProjectCartfile.from(fileURL: projectCartfileURL))
+            .flatMap(.merge) { projectCartfile -> SignalProducer<SDK, CarthageError> in
+                guard let sdks = projectCartfile.schemeConfigurations[scheme.name]?.sdks else {
+                    return SignalProducer(error: CarthageError.internalError(description: "No definition found in Cartfile.project for scheme: \(scheme.name)"))
+                }
+                return SignalProducer(sdks)
             }
+        } else {
+            sdkProducer = discoverSDKs(buildArgs: buildArgs)
+        }
+        
+        return sdkProducer
             .reduce(into: [:]) { (sdksByPlatform: inout [Platform: Set<SDK>], sdk: SDK) in
                 let platform = sdk.platform
 
@@ -692,7 +742,7 @@ public final class Xcode {
             }
             .flatMap(.concat) { sdksByPlatform -> SignalProducer<(Platform, [SDK]), CarthageError> in
                 if sdksByPlatform.isEmpty {
-                    fatalError("No SDKs found for scheme \(scheme)")
+                    return SignalProducer(error: CarthageError.internalError(description: "No SDKs found for scheme \(scheme)"))
                 }
 
                 let values = sdksByPlatform.map { ($0, Array($1)) }
@@ -717,61 +767,50 @@ public final class Xcode {
 
                 case 2:
                     let (simulatorSDKs, deviceSDKs) = SDK.splitSDKs(sdks)
-                    guard let deviceSDK = deviceSDKs.first else {
-                        fatalError("Could not find device SDK in \(sdks)")
+                    guard deviceSDKs.first != nil else {
+                        return SignalProducer(error: CarthageError.internalError(description: "Could not find device SDK in \(sdks)"))
                     }
-                    guard let simulatorSDK = simulatorSDKs.first else {
-                        fatalError("Could not find simulator SDK in \(sdks)")
+                    guard simulatorSDKs.first != nil else {
+                        return SignalProducer(error: CarthageError.internalError(description: "Could not find simulator SDK in \(sdks)"))
                     }
-
-                    return settingsByTarget(build(sdk: deviceSDK, with: buildArgs, in: workingDirectoryURL))
-                        .flatMap(.concat) { settingsEvent -> SignalProducer<TaskEvent<(BuildSettings, BuildSettings)>, CarthageError> in
-                            switch settingsEvent {
-                            case let .launch(task):
-                                return SignalProducer(value: .launch(task))
-
-                            case let .standardOutput(data):
-                                return SignalProducer(value: .standardOutput(data))
-
-                            case let .standardError(data):
-                                return SignalProducer(value: .standardError(data))
-
-                            case let .success(deviceSettingsByTarget):
-                                return settingsByTarget(build(sdk: simulatorSDK, with: buildArgs, in: workingDirectoryURL))
-                                    .flatMapTaskEvents(.concat) { (simulatorSettingsByTarget: [String: BuildSettings]) -> SignalProducer<(BuildSettings, BuildSettings), CarthageError> in
-                                        assert(
-                                            deviceSettingsByTarget.count == simulatorSettingsByTarget.count,
-                                            "Number of targets built for \(deviceSDK) (\(deviceSettingsByTarget.count)) does not match "
-                                                + "number of targets built for \(simulatorSDK) (\(simulatorSettingsByTarget.count))"
-                                        )
-
-                                        return SignalProducer { observer, lifetime in
-                                            for (target, deviceSettings) in deviceSettingsByTarget {
-                                                if lifetime.hasEnded {
-                                                    break
-                                                }
-
-                                                let simulatorSettings = simulatorSettingsByTarget[target]
-                                                assert(simulatorSettings != nil, "No \(simulatorSDK) build settings found for target \"\(target)\"")
-
-                                                observer.send(value: (deviceSettings, simulatorSettings!))
-                                            }
-
-                                            observer.sendCompleted()
-                                        }
-                                }
+                    
+                    return SignalProducer(sdks)
+                        .flatMap(.concat) { sdk -> SignalProducer<TaskEvent<(sdk: SDK, settings: BuildSettings)>, CarthageError> in
+                            return build(sdk: sdk, with: buildArgs, in: workingDirectoryURL).map { event in
+                                return event.map { (sdk, $0) }
                             }
                         }
+                        .collectTaskEvents()
+                        .flatMapTaskEvents(.concat) { allSettings -> SignalProducer<(BuildSettings, BuildSettings), CarthageError> in
+                            var deviceSettingsByTarget = [String: BuildSettings]()
+                            var simulatorSettingsByTarget = [String: BuildSettings]()
+                            for settings in allSettings {
+                                if settings.sdk.isDevice {
+                                    deviceSettingsByTarget[settings.settings.target] = settings.settings
+                                } else if settings.sdk.isSimulator {
+                                    simulatorSettingsByTarget[settings.settings.target] = settings.settings
+                                }
+                            }
+                            
+                            var settingsTuples = [(BuildSettings, BuildSettings)]()
+                            for entry in deviceSettingsByTarget {
+                                let deviceSettings = entry.value
+                                guard let simulatorSettings = simulatorSettingsByTarget[entry.key] else {
+                                    return SignalProducer(error: CarthageError.internalError(description: "No simulator build settings found for target \"\(entry.key)\""))
+                                }
+                                settingsTuples.append((deviceSettings, simulatorSettings))
+                            }
+                            return SignalProducer(settingsTuples)
+                        }
                         .flatMapTaskEvents(.concat) { deviceSettings, simulatorSettings in
-                            return mergeBuildProducts(
-                                deviceBuildSettings: deviceSettings,
-                                simulatorBuildSettings: simulatorSettings,
-                                into: deviceSettings.productDestinationPath(in: folderURL)
-                            )
-                    }
-
+                                return mergeBuildProducts(
+                                    deviceBuildSettings: deviceSettings,
+                                    simulatorBuildSettings: simulatorSettings,
+                                    into: deviceSettings.productDestinationPath(in: folderURL)
+                                )
+                        }
                 default:
-                    fatalError("SDK count \(sdks.count) in scheme \(scheme) is not supported")
+                    return SignalProducer(error: CarthageError.internalError(description: "SDK count \(sdks.count) in scheme \(scheme) is not supported"))
                 }
             }
             .flatMapTaskEvents(.concat) { builtProductURL -> SignalProducer<URL, CarthageError> in
@@ -804,6 +843,32 @@ public final class Xcode {
         case .failure(let error):
             return SignalProducer(error: error)
         }
+    }
+    
+    private static func discoverSDKs(buildArgs: BuildArguments) -> SignalProducer<SDK, CarthageError> {
+        assert(buildArgs.scheme != nil, "Expected scheme to be supplied")
+        let project = buildArgs.project
+        guard let scheme = buildArgs.scheme else {
+            return SignalProducer(error: CarthageError.internalError(description: "Scheme was not supplied which is required for discovery of compatible SDKs"))
+        }
+        return loadBuildSettings(with: BuildArguments(project: project, scheme: scheme))
+            .take(first: 1)
+            .flatMap(.merge) { $0.buildSDKs }
+            .flatMap(.concat) { sdk -> SignalProducer<SDK, CarthageError> in
+                var argsForLoading = buildArgs
+                argsForLoading.sdk = sdk
+                precondition(argsForLoading.derivedDataPath != nil)
+                argsForLoading.derivedDataPath = argsForLoading.derivedDataPath!.appendingPathComponent(sdk.rawValue)
+                
+                return loadBuildSettings(with: argsForLoading)
+                    .filter { settings in
+                        // Filter out SDKs that require bitcode when bitcode is disabled in
+                        // project settings. This is necessary for testing frameworks, which
+                        // must add a User-Defined setting of ENABLE_BITCODE=NO.
+                        return settings.bitcodeEnabled.value == true || ![.tvOS, .watchOS].contains(sdk)
+                    }
+                    .map { _ in sdk }
+            }
     }
     
     // If SDK is the iOS simulator, then also find and set a valid destination.
@@ -839,6 +904,8 @@ public final class Xcode {
     private static func build(sdk: SDK, with buildArgs: BuildArguments, in workingDirectoryURL: URL) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> {
         var argsForLoading = buildArgs
         argsForLoading.sdk = sdk
+        precondition(argsForLoading.derivedDataPath != nil)
+        argsForLoading.derivedDataPath = argsForLoading.derivedDataPath!.appendingPathComponent(sdk.rawValue)
 
         var argsForBuilding = argsForLoading
         argsForBuilding.onlyActiveArchitecture = false
@@ -847,10 +914,6 @@ public final class Xcode {
             .flatMap(.concat) { destination -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                 if let destination = destination {
                     argsForBuilding.destination = destination
-                    // Also set the destination lookup timeout. Since we're building
-                    // for the simulator the lookup shouldn't take more than a
-                    // fraction of a second, but we set to 10 just to be safe.
-                    argsForBuilding.destinationTimeout = 10
                 }
 
                 // Use `archive` action when building device SDKs to disable LLVM Instrumentation.
@@ -870,12 +933,11 @@ public final class Xcode {
                         let dependencyCheckoutDir = workingDirectoryURL.appendingPathComponent(Constants.checkoutsPath, isDirectory: true)
                         return !dependencyCheckoutDir.hasSubdirectory(projectURL)
                     }
-                    .flatMap(.concat) { settings in resolveSameTargetName(for: settings) }
+                    .flatMap(.concat) { settings -> SignalProducer<BuildSettings, CarthageError> in resolveSameTargetName(for: settings) }
                     .collect()
-                    .flatMap(.concat) { settings -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
+                    .flatMap(.concat) { (settings: [BuildSettings]) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                         let actions: [String] = {
                             var result: [String] = [xcodebuildAction.rawValue]
-
                             if xcodebuildAction == .archive {
                                 result += [
                                     // Prevent generating unnecessary empty `.xcarchive`
@@ -900,11 +962,9 @@ public final class Xcode {
                                     // Disable the "Strip Linked Product" build
                                     // setting so we can later generate a dSYM
                                     "STRIP_INSTALLED_PRODUCT=NO",
-
-                                    // Enabled whole module compilation since we are not interested in incremental mode
-                                    "SWIFT_COMPILATION_MODE=wholemodule",
                                 ]
                             }
+                            result.append("SWIFT_COMPILATION_MODE=wholemodule")
 
                             return result
                         }()
@@ -913,7 +973,7 @@ public final class Xcode {
                         return buildScheme.launch()
                             .flatMapTaskEvents(.concat) { _ in SignalProducer(settings) }
                             .mapError(CarthageError.taskError)
-                }
+                    }
         }
     }
 
@@ -994,16 +1054,6 @@ public final class Xcode {
         return codesignTask.launch()
             .mapError(CarthageError.taskError)
             .then(SignalProducer<(), CarthageError>.empty)
-    }
-
-    /// Determines which SDKs the given scheme builds for, by default.
-    ///
-    /// If an SDK is unrecognized or could not be determined, an error will be
-    /// sent on the returned signal.
-    private static func SDKsForScheme(_ scheme: Scheme, inProject project: ProjectLocator) -> SignalProducer<SDK, CarthageError> {
-        return loadBuildSettings(with: BuildArguments(project: project, scheme: scheme))
-            .take(first: 1)
-            .flatMap(.merge) { $0.buildSDKs }
     }
 }
 

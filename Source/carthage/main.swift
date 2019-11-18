@@ -33,10 +33,14 @@ registry.register(ValidateCommand())
 registry.register(VersionCommand())
 registry.register(DiagnoseCommand())
 registry.register(SwiftVersionCommand())
+registry.register(GenerateProjectFileCommand())
 
 #if DEBUG
-Task.debugLoggingEnabled = true
 let start = Date()
+let debugEventLogger = TaskDebugEventLogger { printErr($0) }
+Task.debugEvents.observeValues { event in
+    debugEventLogger.logEvent(event)
+}
 #endif
 
 let helpCommand = HelpCommand(registry: registry)

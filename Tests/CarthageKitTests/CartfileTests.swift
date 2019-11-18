@@ -143,7 +143,7 @@ class CartfileTests: XCTestCase {
 		}
 		expect(cartfile2.dependencies.count) == 3
 		
-		let dupes = duplicateDependenciesIn(cartfile, cartfile2).sorted { $0.description < $1.description }
+        let dupes = cartfile.duplicateDependencies(from: cartfile2).sorted { $0.description < $1.description }
 		expect(dupes.count) == 3
 		
 		let dupe1 = dupes[0]

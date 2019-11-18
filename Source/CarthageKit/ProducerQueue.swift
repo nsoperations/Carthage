@@ -69,10 +69,10 @@ internal final class ConcurrentProducerQueue: ProducerQueue {
 
     /// Initializes a queue with the given debug name and a limit indicating the
     /// maximum number of producers that can be executing concurrently.
-    init(name: String, limit: Int = 1) {
+    init(name: String, limit: UInt) {
         operationQueue = OperationQueue()
         operationQueue.name = name
-        operationQueue.maxConcurrentOperationCount = limit
+        operationQueue.maxConcurrentOperationCount = Int(limit)
     }
 
     /// Creates a SignalProducer that will enqueue the given producer when

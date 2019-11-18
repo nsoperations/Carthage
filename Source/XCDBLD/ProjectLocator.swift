@@ -29,6 +29,17 @@ public enum ProjectLocator {
     public var level: Int {
         return fileURL.pathComponents.count - 1
     }
+    
+    public static func from(url: URL) -> ProjectLocator? {
+        switch url.pathExtension {
+        case "xcworkspace":
+            return workspace(url)
+        case "xcodeproj":
+            return projectFile(url)
+        default:
+            return nil
+        }
+    }
 }
 
 extension ProjectLocator: Comparable {

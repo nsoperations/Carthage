@@ -1,6 +1,21 @@
+import Foundation
+import Result
+
 enum TopologicalSortError<Node: Comparable>: Error {
     case cycle(nodes: [Node])
     case missing(node: Node)
+}
+
+struct NodeLevel<Node: Comparable>: Comparable {
+    static func < (lhs: NodeLevel<Node>, rhs: NodeLevel<Node>) -> Bool {
+        guard lhs.level == rhs.level else {
+            return lhs.level < rhs.level
+        }
+        return lhs.node < rhs.node
+    }
+    
+    public let level: Int
+    public let node: Node
 }
 
 final class Algorithms {
@@ -65,6 +80,51 @@ final class Algorithms {
         }
         return workingGraph.isEmpty ? .success(sorted) : .failure(sortError(graph: workingGraph))
     }
+    
+    static func topologicalSortWithLevel<Node>(_ graph: [Node: Set<Node>]) -> Result<[NodeLevel<Node>], TopologicalSortError<Node>> {
+        // Maintain a list of nodes with no incoming edges (sources).
+        
+        var workingGraph = Dictionary<Node, MutableSet<Node>>(minimumCapacity: graph.count)
+        let sources = LinkedList<NodeLevel<Node>>()
+        var totalCount = 0
+        
+        for (node, incomingEdges) in graph {
+            if incomingEdges.isEmpty {
+                sources.append(NodeLevel(level: 0, node: node))
+            } else {
+                workingGraph[node] = MutableSet(incomingEdges)
+            }
+            totalCount += 1
+        }
+        
+        var sorted: [NodeLevel<Node>] = []
+        sorted.reserveCapacity(totalCount)
+        
+        while true {
+            guard let firstSource = sources.popFirst() else {
+                break
+            }
+            sorted.append(firstSource)
+            
+            for (node, incomingEdges) in workingGraph {
+                if incomingEdges.remove(firstSource.node) != nil {
+                    if incomingEdges.isEmpty {
+                        sources.append(NodeLevel(level: firstSource.level + 1, node: node))
+                        workingGraph.removeValue(forKey: node)
+                    }
+                }
+            }
+        }
+        
+        if workingGraph.isEmpty {
+            return .success(sorted.sorted())
+        } else {
+            let remainingGraph = workingGraph.reduce(into: [Node: Set<Node>]()) { dict, entry in
+                dict[entry.key] = entry.value.set
+            }
+            return .failure(sortError(graph: remainingGraph))
+        }
+    }
 
     private static func sortError<Node>(graph: [Node: Set<Node>]) -> TopologicalSortError<Node> {
 
@@ -120,6 +180,27 @@ final class Algorithms {
 
         return .success(sorted.filter { node in relevantNodes.contains(node) })
     }
+    
+    static func topologicalSortWithLevel<Node: Comparable>(_ graph: [Node: Set<Node>], nodes: Set<Node>?) -> Result<[NodeLevel<Node>], TopologicalSortError<Node>> {
+        guard let includeNodes = nodes else {
+            return Algorithms.topologicalSortWithLevel(graph)
+        }
+
+        precondition(includeNodes.isSubset(of: Set(graph.keys)))
+
+        // Ensure that the graph has no cycles, otherwise determining the set of
+        // transitive incoming nodes could infinitely recurse.
+        let result = Algorithms.topologicalSortWithLevel(graph)
+        guard let sorted = try? result.get() else {
+            return result
+        }
+
+        let relevantNodes = Set(includeNodes.flatMap { (node: Node) -> Set<Node> in
+            Set([node]).union(Algorithms.transitiveIncomingNodes(graph, node: node))
+        })
+
+        return .success(sorted.filter { nodeLevel in relevantNodes.contains(nodeLevel.node) })
+    }
 
     /// Returns the set of nodes that the given node in the provided graph has as
     /// its incoming nodes, both directly and transitively.
@@ -133,4 +214,21 @@ final class Algorithms {
         return nodes.union(incomingNodes)
     }
 
+}
+
+private final class MutableSet<Element: Hashable> {
+    
+    public private(set) var set: Set<Element>
+    
+    init(_ set: Set<Element>) {
+        self.set = set
+    }
+    
+    var isEmpty: Bool {
+        return set.isEmpty
+    }
+    
+    func remove(_ element: Element) -> Element? {
+        return set.remove(element)
+    }
 }

@@ -459,7 +459,7 @@ class ProjectGitOperationsTests: XCTestCase {
         return CarthageKit.ProjectDependencyRetriever.cloneOrFetch(dependency: dependency, preferHTTPS: false, destinationURL: cacheDirectoryURL, commitish: commitish)
     }
 
-    func assertProjectEvent(commitish: String? = nil, clearFetchTime: Bool = true, action: @escaping (ProjectEvent?) -> Void) {
+    func assertProjectEvent(commitish: String? = nil, clearFetchTime: Bool = true, file: String = #file, line: Int = #line, action: @escaping (ProjectEvent?) -> Void) {
         waitUntil { done in
             if clearFetchTime {
                 Git.FetchCache.clearFetchTimes()
@@ -473,6 +473,7 @@ class ProjectGitOperationsTests: XCTestCase {
 
     override func setUp() {
         // https://github.com/Carthage/Carthage/issues/1191
+        //Task.isCachingEnabled = false
         temporaryPath = (NSTemporaryDirectory() as NSString).appendingPathComponent(ProcessInfo.processInfo.globallyUniqueString)
         temporaryURL = URL(fileURLWithPath: temporaryPath, isDirectory: true)
         repositoryURL = temporaryURL.appendingPathComponent("carthage1191", isDirectory: true)
@@ -517,14 +518,14 @@ class ProjectGitOperationsTests: XCTestCase {
         assertProjectEvent(commitish: "master") { expect($0?.isFetching) == true }
     }
 
-    func testShouldNotFetchAProjectIfTheGivenCommitishExistsButThatIsNotAReference() {
+    func testShouldFetchAProjectIfTheGivenCommitishExistsButThatIsNotAReference() {
         // Clone first
         let commitish = addCommit()
         expect(self.cloneOrFetch().wait().error).to(beNil())
 
         addCommit()
 
-        assertProjectEvent(commitish: commitish) { expect($0).to(beNil()) }
+        assertProjectEvent(commitish: commitish) { expect($0?.isFetching) == true }
     }
 
     func testShouldNotFetchTwiceInARowEvenIfNoCommitishIsGiven() {

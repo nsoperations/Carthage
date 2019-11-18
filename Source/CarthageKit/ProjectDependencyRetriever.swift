@@ -64,7 +64,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
     /// Limits the number of concurrent clones/fetches to the number of active
     /// processors.
-    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: ProcessInfo.processInfo.activeProcessorCount)
+    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: Constants.concurrencyLimit)
 
     public init(directoryURL: URL, projectEventsObserver: Signal<ProjectEvent, NoError>.Observer? = nil) {
         self.directoryURL = directoryURL
@@ -526,35 +526,15 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 return Git.isGitRepository(repositoryURL)
                     .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                         if isRepository {
-                            let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
-                                guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
-                                    return SignalProducer(value: (nil, urlLock))
-                                }
-
-                                return SignalProducer(value: (.fetching(dependency), urlLock))
-                                    .concat(
-                                        Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
-                                            .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
-                                )
+                            guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
+                                return SignalProducer(value: (nil, urlLock))
                             }
 
-                            // If we've already cloned the repo, check for the revision, possibly skipping an unnecessary fetch
-                            if let commitish = commitish {
-                                return SignalProducer.zip(
-                                    Git.branchExistsInRepository(repositoryURL, pattern: commitish),
-                                    Git.commitExistsInRepository(repositoryURL, revision: commitish)
-                                    )
-                                    .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
-                                        // If the given commitish is a branch, we should fetch.
-                                        if branchExists || !commitExists {
-                                            return fetchProducer()
-                                        } else {
-                                            return SignalProducer(value: (nil, urlLock))
-                                        }
-                                }
-                            } else {
-                                return fetchProducer()
-                            }
+                            return SignalProducer(value: (.fetching(dependency), urlLock))
+                                .concat(
+                                    Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
+                                        .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
+                            )
                         } else {
                             // Either the directory didn't exist or it did but wasn't a git repository
                             // (Could happen if the process is killed during a previous directory creation)

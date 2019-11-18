@@ -270,7 +270,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 .zip(with: submodulesSignal)
                 .flatMap(.merge) { dependencies, submodulesByPath -> SignalProducer<(), CarthageError> in
                     return SignalProducer<(Dependency, PinnedVersion), CarthageError>(dependencies)
-                        .flatMap(.concurrent(limit: 4)) { dependency, version -> SignalProducer<(), CarthageError> in
+                        .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(), CarthageError> in
                             switch dependency {
                             case .git, .gitHub:
                                 return self.dependencyRetriever.checkoutOrCloneDependency(dependency, version: version, submodulesByPath: submodulesByPath, resolvedCartfile: cartfile)
@@ -482,7 +482,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             .attemptMap { cartfile, privateCartfile -> Result<Cartfile, CarthageError> in
                 var cartfile = cartfile
 
-                let duplicateDeps = duplicateDependenciesIn(cartfile, privateCartfile).map { dependency in
+                let duplicateDeps = cartfile.duplicateDependencies(from: privateCartfile).map { dependency in
                     return DuplicateDependency(
                         dependency: dependency,
                         locations: ["\(Constants.Project.cartfilePath)", "\(Constants.Project.privateCartfilePath)"]
@@ -547,7 +547,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         let effectiveDependencyRetriever = dependencyRetriever ?? self.dependencyRetriever
 
         return SignalProducer(resolvedCartfile.dependencies)
-            .flatMap(.concurrent(limit: 4)) { arg -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { arg -> SignalProducer<(Dependency, (Dependency, VersionSpecifier)), CarthageError> in
                 let (dependency, pinnedVersion) = arg
                 return effectiveDependencyRetriever.dependencies(for: dependency, version: pinnedVersion, tryCheckoutDirectory: tryCheckoutDirectory)
                     .map { (dependency, $0) }
@@ -604,7 +604,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     func buildOrderForResolvedCartfile(
         _ cartfile: ResolvedCartfile,
         dependenciesToInclude: [String]? = nil
-        ) -> SignalProducer<(Dependency, PinnedVersion), CarthageError> {
+        ) -> SignalProducer<(Dependency, PinnedVersion, Int), CarthageError> {
         // swiftlint:disable:next nesting
         typealias DependencyGraph = [Dependency: Set<Dependency>]
 
@@ -627,7 +627,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     working.updateValue(value, forKey: key)
                 }
             }
-            .flatMap(.latest) { (graph: DependencyGraph) -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+            .flatMap(.latest) { (graph: DependencyGraph) -> SignalProducer<(Dependency, PinnedVersion, Int), CarthageError> in
                 var filteredDependencies: Set<Dependency>?
                 if let dependenciesToInclude = dependenciesToInclude {
                     filteredDependencies = Set(graph
@@ -635,8 +635,8 @@ public final class Project { // swiftlint:disable:this type_body_length
                         .filter { dependency in dependenciesToInclude.contains(dependency.name) })
                 }
 
-                let sortedDependencies: [Dependency]
-                switch Algorithms.topologicalSort(graph, nodes: filteredDependencies) {
+                let sortedDependencies: [NodeLevel<Dependency>]
+                switch Algorithms.topologicalSortWithLevel(graph, nodes: filteredDependencies) {
                 case let .failure(error):
                     switch error {
                     case let .cycle(nodes):
@@ -647,12 +647,12 @@ public final class Project { // swiftlint:disable:this type_body_length
                 case let .success(deps):
                     sortedDependencies = deps
                 }
-
-                let sortedPinnedDependencies = cartfile.dependencies.keys
-                    .filter { dependency in sortedDependencies.contains(dependency) }
-                    .sorted { left, right in sortedDependencies.index(of: left)! < sortedDependencies.index(of: right)! }
-                    .map { ($0, cartfile.dependencies[$0]!) }
-
+                
+                let sortedPinnedDependencies: [(Dependency, PinnedVersion, Int)] = sortedDependencies.reduce(into: []) { array, level in
+                    if let pinnedVersion = cartfile.dependencies[level.node] {
+                        array.append((level.node, pinnedVersion, level.level))
+                    }
+                }
                 return SignalProducer(sortedPinnedDependencies)
         }
     }
@@ -669,14 +669,16 @@ public final class Project { // swiftlint:disable:this type_body_length
         sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) }
         ) -> BuildSchemeProducer {
 
-        let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
-        
         var cartfile: ResolvedCartfile!
+        var levelLookupDict = [Dependency: Int]()
         
         return loadResolvedCartfile()
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                 cartfile = resolvedCartfile
-                return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild)
+                return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild).map { entry in
+                    levelLookupDict[entry.0] = entry.2
+                    return (entry.0, entry.1)
+                }
             }
             .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, VersionStatus), CarthageError> in
                 let (dependency, version) = arg
@@ -709,9 +711,9 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return dependenciesIncludingNext
                 }
             }
-            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
                 return SignalProducer(dependencies)
-                    .flatMap(.concurrent(limit: 4)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                    .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         switch dependency {
                         case .git, .gitHub:
                             guard options.useBinaries else {
@@ -759,9 +761,39 @@ public final class Project { // swiftlint:disable:this type_body_length
                             !installedDependencies.contains { $0 == dependency }
                         }
                     }
-                    .flatten()
+                    .flatMap(.merge) { dependencies -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+                        var leveledDependencies: [[(Dependency, PinnedVersion)]] = []
+                        var currentLevel = -1
+                        for versionedDependency in dependencies {
+                            if let level = levelLookupDict[versionedDependency.0] {
+                                assert(level >= 0)
+                                if level != currentLevel {
+                                    assert(level > currentLevel)
+                                    currentLevel = level
+                                    leveledDependencies.append([(Dependency, PinnedVersion)]())
+                                }
+                                leveledDependencies[leveledDependencies.count - 1].append(versionedDependency)
+                            } else {
+                                return SignalProducer(error: CarthageError.internalError(description: "Could not find dependency \(versionedDependency.0) in build list"))
+                            }
+                        }
+                        return SignalProducer(leveledDependencies)
+                    }
             }
-            .flatMap(.concat) { dependency, version -> BuildSchemeProducer in
+            .flatMap(.concat) { (sameLevelDependencies: [(Dependency, PinnedVersion)]) -> BuildSchemeProducer in
+                return self.buildSameLevelDependencies(sameLevelDependencies: sameLevelDependencies, options: options, cartfile: cartfile, sdkFilter: sdkFilter)
+            }
+    }
+
+    // MARK: - Private
+
+    private func buildSameLevelDependencies(sameLevelDependencies: [(Dependency, PinnedVersion)], options: BuildOptions, cartfile: ResolvedCartfile, sdkFilter: @escaping SDKFilterCallback) -> BuildSchemeProducer {
+        
+        let concurrencyLimit: UInt = min(UInt(sameLevelDependencies.count), Constants.concurrencyLimit)
+        let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
+        
+        return SignalProducer(sameLevelDependencies)
+            .flatMap(.concurrent(limit: concurrencyLimit)) { dependency, version -> BuildSchemeProducer in
                 let dependencyPath = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true).path
                 if !FileManager.default.fileExists(atPath: dependencyPath) {
                     self.projectEventsObserver.send(value: .warning("No checkout found for \(dependency.name), skipping build"))
@@ -769,7 +801,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
 
                 var options = options
-                let baseURL = options.derivedDataPath.flatMap(URL.init(string:)) ?? Constants.Dependency.derivedDataURL
+                let baseURL = URL(fileURLWithPath: options.derivedDataPath)
                 let derivedDataPerSwiftVersion = baseURL.appendingPathComponent(swiftVersion, isDirectory: true)
                 let derivedDataPerDependency = derivedDataPerSwiftVersion.appendingPathComponent(dependency.name, isDirectory: true)
                 let derivedDataVersioned = derivedDataPerDependency.appendingPathComponent(version.commitish, isDirectory: true)
@@ -812,12 +844,10 @@ public final class Project { // swiftlint:disable:this type_body_length
                         default:
                             return SignalProducer(error: error)
                         }
-                }
+            }
         }
     }
-
-    // MARK: - Private
-
+    
     private func checkDependencies(dependenciesProducer: SignalProducer<[Dependency], CarthageError>, dependenciesToCheck: [String]?) -> SignalProducer<(), CarthageError> {
 
         let checkDependencies: SignalProducer<(), CarthageError>

@@ -3,6 +3,10 @@ import Result
 
 /// A struct including all constants.
 public struct Constants {
+    
+    public static var concurrencyLimit: UInt {
+        return UInt(ProcessInfo.processInfo.activeProcessorCount)
+    }
 
     /// Carthage's bundle identifier.
     public static let bundleIdentifier: String = "org.carthage.CarthageKit"
@@ -98,6 +102,9 @@ public struct Constants {
 
         /// The relative path to a project's Cartfile.schemes.
         public static let schemesCartfilePath = "Cartfile.schemes"
+        
+        /// The relative path to the Cartfile.project
+        public static let projectCartfilePath = "Cartfile.project"
 
         /// The text that needs to exist in a GitHub Release asset's name, for it to be
         /// tried as a binary framework.
