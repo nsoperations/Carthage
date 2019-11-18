@@ -35,31 +35,23 @@ public final class Git {
     static func strippingGitSuffix(_ string: String) -> String {
         return string.stripping(suffix: ".git")
     }
-
+    
     /// Struct to encapsulate global fetch interval cache
     struct FetchCache {
-        /// Amount of time before a git repository is fetched again. Defaults to 1 minute
-        static var fetchCacheInterval: TimeInterval = 60000000.0
-
-        private static var lastFetchTimes: [GitURL: TimeInterval] = [:]
-
+        
+        static private let cache = Atomic(Dictionary<GitURL, Bool>())
+        
         static func clearFetchTimes() {
-            lastFetchTimes.removeAll()
+            cache.clear()
         }
 
         static func needsFetch(forURL url: GitURL) -> Bool {
-            guard let lastFetch = lastFetchTimes[url] else {
-                return true
-            }
-
-            let difference = Date().timeIntervalSince1970 - lastFetch
-
-            return !(0...fetchCacheInterval).contains(difference)
+            return cache[url] == nil
         }
 
         fileprivate static func updateLastFetchTime(forURL url: GitURL?) {
             if let url = url {
-                lastFetchTimes[url] = Date().timeIntervalSince1970
+                cache[url] = true
             }
         }
     }

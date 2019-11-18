@@ -1,17 +1,20 @@
 import Foundation
 import ReactiveSwift
 
-public protocol Cache {
+public protocol CacheStorage {
     associatedtype Key: Hashable
     associatedtype Value
     subscript(_ key: Key) -> Value? { get set }
+    mutating func clear()
 }
 
-extension Dictionary: Cache {
-    
+extension Dictionary: CacheStorage {
+    public mutating func clear() {
+        self.removeAll()
+    }
 }
 
-extension Atomic where Value: Cache {
+extension Atomic where Value: CacheStorage {
     public subscript(_ key: Value.Key) -> Value.Value? {
         get {
             return self.withValue { map -> Value.Value? in
@@ -36,6 +39,12 @@ extension Atomic where Value: Cache {
             let value = constructor(key)
             cache[key] = value
             return value
+        }
+    }
+    
+    public func clear() {
+        self.modify { cache -> Void in
+            cache.clear()
         }
     }
 }

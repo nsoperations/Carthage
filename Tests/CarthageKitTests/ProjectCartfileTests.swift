@@ -40,10 +40,10 @@ class CartfileProjectTests: XCTestCase {
             return
         }
         
-        XCTAssertEqual("SomeProject.xcproject", scheme2.project)
+        XCTAssertEqual("SomeProject.xcodeproj", scheme2.project)
         XCTAssertEqual([SDK.watchOS, SDK.watchSimulator], scheme2.sdks)
         
-        XCTAssertEqual(ProjectLocator.projectFile(baseURL.appendingPathComponent("SomeProject.xcproject")), scheme2.projectLocator(in: baseURL))
+        XCTAssertEqual(ProjectLocator.projectFile(baseURL.appendingPathComponent("SomeProject.xcodeproj")), scheme2.projectLocator(in: baseURL))
     }
 }
 

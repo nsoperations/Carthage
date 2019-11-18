@@ -6,7 +6,7 @@ SomeiOSScheme:
     - iphonesimulator
 
 SomeWatchScheme:
-  project: SomeProject.xcproject
+  project: SomeProject.xcodeproj
   sdks:
     - watchos
     - watchsimulator

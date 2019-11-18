@@ -29,7 +29,7 @@ public struct Task {
         self.arguments = arguments
         self.workingDirectoryPath = workingDirectoryPath
         self.environment = environment
-        self.useCache = useCache
+        self.useCache = useCache && Task.isCachingEnabled
         self.identifier = Task.counter.modify { c in
             c += 1
             return c
@@ -387,7 +387,7 @@ extension Signal where Value: TaskEventType {
 
 #if DEBUG
 public enum TaskDebugEvent {
-    case cacheHit(Task, TimeInterval)
+    case cacheHit(Task)
     case duplicate(Task)
     case launch(Task)
     case launchFailure(Task, Error)
@@ -398,38 +398,8 @@ public enum TaskDebugEvent {
 
 extension Task {
     
-    private final class TaskResult {
-        
-        static let queue = DispatchQueue(label: "TaskResultQueue", attributes: .concurrent)
-        
-        private var _result: Result<Data, TaskError>?
-        private let condition = NSCondition()
-        
-        func setResult(_ result: Result<Data, TaskError>) {
-            condition.lock()
-            _result = result
-            condition.broadcast()
-            condition.unlock()
-        }
-        
-        func waitForResult(completion: @escaping (Result<Data, TaskError>) -> Void) {
-            TaskResult.queue.async {
-                var validResult: Result<Data, TaskError>!
-                self.condition.lock()
-                while true {
-                    validResult = self._result
-                    if validResult != nil {
-                        break
-                    }
-                    self.condition.wait()
-                }
-                self.condition.unlock()
-                completion(validResult)
-            }
-        }
-    }
-    
-    private static let taskCache = Atomic(Dictionary<Task, TaskResult>())
+    private static let taskCache = Atomic(Dictionary<Task, Data>())
+    public static var isCachingEnabled = true
     
     #if DEBUG
     private static let debugEventsPipe = Signal<TaskDebugEvent, NoError>.pipe()
@@ -465,34 +435,16 @@ extension Task {
         shouldBeTerminatedOnParentExit: Bool = false
         ) -> SignalProducer<TaskEvent<Data>, TaskError> {
         
+        #if DEBUG
         var launchDate: Date!
-        
-        if self.useCache {
-            if let cachedResult = Task.taskCache.modify ({ dict -> TaskResult? in
-                if let cachedResult = dict[self] {
-                    return cachedResult
-                } else {
-                    dict[self] = TaskResult()
-                    return nil
-                }
-            }) {
-                return SignalProducer { observer, _ in
-                    launchDate = Date()
-                    cachedResult.waitForResult { result in
-                        #if DEBUG
-                        let duration = Date().timeIntervalSince(launchDate)
-                        Task.debugEventsObserver.send(value: .cacheHit(self, duration))
-                        #endif
-                        switch result {
-                        case let .success(data):
-                            observer.send(value: .success(data))
-                            observer.sendCompleted()
-                        case let .failure(error):
-                            observer.send(error: error)
-                        }
-                    }
-                }
-            }
+        #endif
+                
+        if self.useCache, let cachedData = Task.taskCache[self] {
+            return SignalProducer<TaskEvent<Data>, TaskError>(values: .launch(self), .standardOutput(cachedData), .success(cachedData)).on(completed: {
+                #if DEBUG
+                Task.debugEventsObserver.send(value: .cacheHit(self))
+                #endif
+            })
         }
         
         #if DEBUG
@@ -602,9 +554,9 @@ extension Task {
                         group.enter()
                         process.terminationHandler = { process in
                             let terminationStatus = process.terminationStatus
-                            let duration = Date().timeIntervalSince(launchDate)
                             
                             #if DEBUG
+                            let duration = Date().timeIntervalSince(launchDate)
                             Task.taskHistory[self] = duration
                             #endif
                             
@@ -615,7 +567,7 @@ extension Task {
                                     .then(stdoutAggregated)
                                     .map { data in
                                         if self.useCache {
-                                            Task.taskCache[self]?.setResult(.success(data))
+                                            Task.taskCache[self] = data
                                         }
                                         
                                         #if DEBUG
@@ -633,10 +585,6 @@ extension Task {
                                     .flatMap(.concat) { data -> SignalProducer<TaskEvent<Data>, TaskError> in
                                         let errorString = (data.isEmpty ? nil : String(data: data, encoding: .utf8))
                                         let taskError = TaskError.shellTaskFailed(self, exitCode: terminationStatus, standardError: errorString)
-                                        
-                                        if self.useCache {
-                                            Task.taskCache[self]?.setResult(.failure(taskError))
-                                        }
                                         #if DEBUG
                                         Task.debugEventsObserver.send(value: .failure(self, duration, terminationStatus, errorString))
                                         #endif
@@ -647,8 +595,8 @@ extension Task {
                             group.leave()
                         }
                         
-                        launchDate = Date()
                         #if DEBUG
+                        launchDate = Date()
                         Task.debugEventsObserver.send(value: .launch(self))
                         #endif
                         observer.send(value: .launch(self))
@@ -662,10 +610,6 @@ extension Task {
                                 try process.run()
                             } catch {
                                 let launchError = TaskError.launchFailed(self, reason: error.localizedDescription)
-                                
-                                if self.useCache {
-                                    Task.taskCache[self]?.setResult(.failure(launchError))
-                                }
                                 #if DEBUG
                                 Task.debugEventsObserver.send(value: .launchFailure(self, error))
                                 #endif
