@@ -66,6 +66,7 @@ See [Installing Carthage](#installing-carthage)
 ### 0.41.0+nsoperations
 
 - Added support for Cartfile.project, a yml-file describing the Xcode project/workspace, schemes and sdks to build which speeds up the pre-build project introspection very significantly
+- Added `generate-projectfile` command to auto-generate a project file from the current state of the project tree using the old auto-discovery method.
 - Improved build performance by building same level dependencies in parallel
 - Improved build performance by building multiple sdks for same scheme in parallel
 - Ensure compilation mode wholemodule is always use to avoid waste of CPU resources
