@@ -518,14 +518,14 @@ class ProjectGitOperationsTests: XCTestCase {
         assertProjectEvent(commitish: "master") { expect($0?.isFetching) == true }
     }
 
-    func testShouldNotFetchAProjectIfTheGivenCommitishExistsButThatIsNotAReference() {
+    func testShouldFetchAProjectIfTheGivenCommitishExistsButThatIsNotAReference() {
         // Clone first
         let commitish = addCommit()
         expect(self.cloneOrFetch().wait().error).to(beNil())
 
         addCommit()
 
-        assertProjectEvent(commitish: commitish) { expect($0).to(beNil()) }
+        assertProjectEvent(commitish: commitish) { expect($0?.isFetching) == true }
     }
 
     func testShouldNotFetchTwiceInARowEvenIfNoCommitishIsGiven() {
@@ -752,14 +752,14 @@ class ProjectMiscTests: XCTestCase {
 }
 
 extension ProjectEvent {
-    var isCloning: Bool {
+    fileprivate var isCloning: Bool {
         if case .cloning = self {
             return true
         }
         return false
     }
 
-    var isFetching: Bool {
+    fileprivate var isFetching: Bool {
         if case .fetching = self {
             return true
         }
