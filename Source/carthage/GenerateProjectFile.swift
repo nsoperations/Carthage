@@ -25,7 +25,7 @@ public struct GenerateProjectFileCommand: CommandProtocol {
     }
     
     public let verb = "generate-project-file"
-    public let function = "Generates a Cartfile.project which describes the schemes, project/workspace and sdks to be built to avoid slow auto-discovery"
+    public let function = "Generates a \(Constants.Project.projectCartfilePath) which describes the schemes, project/workspace and sdks to be built to avoid slow auto-discovery"
 
     public func run(_ options: GenerateProjectFileCommand.Options) -> Result<(), CarthageError> {
         let formatting = options.colorOptions.formatting
