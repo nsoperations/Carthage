@@ -63,6 +63,12 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### Next release
+
+Auto generate Cartfile.project on `generate-project-file`
+Renamed `generate-projectfile` to `generate-project-file`
+Added warning when not using a Carthage.project file while building with Carthage
+
 ### 0.41.0+nsoperations
 
 - Added support for Cartfile.project, a yml-file describing the Xcode project/workspace, schemes and sdks to build which speeds up the pre-build project introspection very significantly

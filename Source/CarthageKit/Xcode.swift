@@ -15,6 +15,8 @@ public typealias BuildSchemeProducer = SignalProducer<TaskEvent<(ProjectLocator,
 /// A callback static function used to determine whether or not an SDK should be built
 public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configuration: String, _ project: ProjectLocator) -> Result<[SDK], CarthageError>
 
+public typealias ProjectBuildConfiguration = (scheme: Scheme, project: ProjectLocator, sdks: [SDK])
+
 public final class Xcode {
     
     public static let defaultBuildConfiguration = "Release"
@@ -161,10 +163,10 @@ public final class Xcode {
             })
     }
     
-    public static func generateProjectCartfile(directoryURL: URL) -> SignalProducer<ProjectCartfile, CarthageError> {
+    public static func generateProjectCartfile(directoryURL: URL, observer: ((ProjectBuildConfiguration) -> Void)? = nil) -> SignalProducer<ProjectCartfile, CarthageError> {
         let configuration = Xcode.defaultBuildConfiguration
         return discoverBuildableSchemes(directoryURL: directoryURL, configuration: configuration, platforms: Set())
-            .flatMap(.concat) { entry -> SignalProducer<(Scheme, ProjectLocator, [SDK]), CarthageError> in
+            .flatMap(.concat) { entry -> SignalProducer<ProjectBuildConfiguration, CarthageError> in
                 let (scheme, project) = entry
                 
                 let buildArgs = BuildArguments(
@@ -176,7 +178,9 @@ public final class Xcode {
                 
                 let sdkResult = discoverSDKs(buildArgs: buildArgs).collect().single()!
                 return SignalProducer(result: sdkResult).map {
-                    (scheme, project, $0)
+                    let config = (scheme, project, $0)
+                    observer?(config)
+                    return config
                 }
             }
             .reduce(into: [String: SchemeConfiguration](), { dict, entry in
@@ -208,7 +212,7 @@ public final class Xcode {
                     let projectSchemes = Result<[(Scheme, ProjectLocator)], CarthageError>.init(catching: {
                         return try projectCartfile.schemeConfigurations.map { entry in
                             guard let project = entry.value.projectLocator(in: directoryURL) else {
-                                throw CarthageError.internalError(description: "Invalid Cartfile.project: a project should have an extension of .xcodeproj or .xcworkspace, but found: \(entry.value.project)")
+                                throw CarthageError.internalError(description: "Invalid \(Constants.Project.projectCartfilePath): a project should have an extension of .xcodeproj or .xcworkspace, but found: \(entry.value.project)")
                             }
                             return (Scheme(entry.key), project)
                         }
@@ -721,7 +725,7 @@ public final class Xcode {
             sdkProducer = SignalProducer<ProjectCartfile, CarthageError>(result: ProjectCartfile.from(fileURL: projectCartfileURL))
             .flatMap(.merge) { projectCartfile -> SignalProducer<SDK, CarthageError> in
                 guard let sdks = projectCartfile.schemeConfigurations[scheme.name]?.sdks else {
-                    return SignalProducer(error: CarthageError.internalError(description: "No definition found in Cartfile.project for scheme: \(scheme.name)"))
+                    return SignalProducer(error: CarthageError.internalError(description: "No definition found in \(Constants.Project.projectCartfilePath) for scheme: \(scheme.name)"))
                 }
                 return SignalProducer(sdks)
             }
