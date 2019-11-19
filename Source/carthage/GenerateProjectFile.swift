@@ -21,14 +21,16 @@ public struct GenerateProjectFileCommand: CommandProtocol {
         }
     }
     
-    public let verb = "generate-projectfile"
+    public let verb = "generate-project-file"
     public let function = "Generates a Cartfile.project which describes the schemes, project/workspace and sdks to be built to avoid slow auto-discovery"
 
     public func run(_ options: GenerateProjectFileCommand.Options) -> Result<(), CarthageError> {
         return Xcode.generateProjectCartfile(directoryURL: URL(fileURLWithPath: options.directoryPath))
-            .on(value: { projectFile in
-                carthage.printOut(projectFile.description)
-            })
-            .waitOnCommand()
+            .attemptMap { projectCartfile -> Result<(), CarthageError> in
+                carthage.printOut(projectCartfile.description)
+                let projectCartfileURL = URL(fileURLWithPath: options.directoryPath).appendingPathComponent(Constants.Project.projectCartfilePath)
+                // Write file
+                return Result(catching: { try projectCartfile.description.write(to: projectCartfileURL, atomically: true, encoding: .utf8) })
+            }.waitOnCommand()
     }
 }

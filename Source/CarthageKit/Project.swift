@@ -794,10 +794,15 @@ public final class Project { // swiftlint:disable:this type_body_length
         
         return SignalProducer(sameLevelDependencies)
             .flatMap(.concurrent(limit: concurrencyLimit)) { dependency, version -> BuildSchemeProducer in
-                let dependencyPath = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true).path
-                if !FileManager.default.fileExists(atPath: dependencyPath) {
+                let dependencyURL = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
+                if !FileManager.default.fileExists(atPath: dependencyURL.path) {
                     self.projectEventsObserver.send(value: .warning("No checkout found for \(dependency.name), skipping build"))
                     return .empty
+                }
+                
+                let projectCartfileURL = ProjectCartfile.url(in: dependencyURL)
+                if !projectCartfileURL.isExistingFile {
+                    self.projectEventsObserver.send(value: .warning("No Cartfile.project for \(dependency.name), generate one using `carthage generate-project-file` to decrease build time with Carthage"))
                 }
 
                 var options = options
