@@ -212,7 +212,7 @@ public final class Xcode {
                     let projectSchemes = Result<[(Scheme, ProjectLocator)], CarthageError>.init(catching: {
                         return try projectCartfile.schemeConfigurations.map { entry in
                             guard let project = entry.value.projectLocator(in: directoryURL) else {
-                                throw CarthageError.internalError(description: "Invalid Cartfile.project: a project should have an extension of .xcodeproj or .xcworkspace, but found: \(entry.value.project)")
+                                throw CarthageError.internalError(description: "Invalid \(Constants.Project.projectCartfilePath): a project should have an extension of .xcodeproj or .xcworkspace, but found: \(entry.value.project)")
                             }
                             return (Scheme(entry.key), project)
                         }
@@ -725,7 +725,7 @@ public final class Xcode {
             sdkProducer = SignalProducer<ProjectCartfile, CarthageError>(result: ProjectCartfile.from(fileURL: projectCartfileURL))
             .flatMap(.merge) { projectCartfile -> SignalProducer<SDK, CarthageError> in
                 guard let sdks = projectCartfile.schemeConfigurations[scheme.name]?.sdks else {
-                    return SignalProducer(error: CarthageError.internalError(description: "No definition found in Cartfile.project for scheme: \(scheme.name)"))
+                    return SignalProducer(error: CarthageError.internalError(description: "No definition found in \(Constants.Project.projectCartfilePath) for scheme: \(scheme.name)"))
                 }
                 return SignalProducer(sdks)
             }

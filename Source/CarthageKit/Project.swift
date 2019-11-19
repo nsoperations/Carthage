@@ -802,7 +802,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 
                 let projectCartfileURL = ProjectCartfile.url(in: dependencyURL)
                 if !projectCartfileURL.isExistingFile {
-                    self.projectEventsObserver.send(value: .warning("No \(Constants.Project.projectCartfilePath) found for \(dependency.name), generate one using `carthage generate-project-file` to decrease build"))
+                    self.projectEventsObserver.send(value: .warning("No \(Constants.Project.projectCartfilePath) found for \(dependency.name), generate one using `carthage generate-project-file` to decrease build time"))
                 }
 
                 var options = options
