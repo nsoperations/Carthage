@@ -15,6 +15,8 @@ public typealias BuildSchemeProducer = SignalProducer<TaskEvent<(ProjectLocator,
 /// A callback static function used to determine whether or not an SDK should be built
 public typealias SDKFilterCallback = (_ sdks: [SDK], _ scheme: Scheme, _ configuration: String, _ project: ProjectLocator) -> Result<[SDK], CarthageError>
 
+public typealias ProjectBuildConfiguration = (scheme: Scheme, project: ProjectLocator, sdks: [SDK])
+
 public final class Xcode {
     
     public static let defaultBuildConfiguration = "Release"
@@ -161,10 +163,10 @@ public final class Xcode {
             })
     }
     
-    public static func generateProjectCartfile(directoryURL: URL) -> SignalProducer<ProjectCartfile, CarthageError> {
+    public static func generateProjectCartfile(directoryURL: URL, observer: ((ProjectBuildConfiguration) -> Void)? = nil) -> SignalProducer<ProjectCartfile, CarthageError> {
         let configuration = Xcode.defaultBuildConfiguration
         return discoverBuildableSchemes(directoryURL: directoryURL, configuration: configuration, platforms: Set())
-            .flatMap(.concat) { entry -> SignalProducer<(Scheme, ProjectLocator, [SDK]), CarthageError> in
+            .flatMap(.concat) { entry -> SignalProducer<ProjectBuildConfiguration, CarthageError> in
                 let (scheme, project) = entry
                 
                 let buildArgs = BuildArguments(
@@ -176,7 +178,9 @@ public final class Xcode {
                 
                 let sdkResult = discoverSDKs(buildArgs: buildArgs).collect().single()!
                 return SignalProducer(result: sdkResult).map {
-                    (scheme, project, $0)
+                    let config = (scheme, project, $0)
+                    observer?(config)
+                    return config
                 }
             }
             .reduce(into: [String: SchemeConfiguration](), { dict, entry in
