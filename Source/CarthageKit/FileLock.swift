@@ -185,9 +185,9 @@ final class URLLock: Lock {
 extension URLLock {
     static var globalWaitHandler: ((URLLock) -> Void)?
 
-    static func lockReactive(url: URL, timeout: Int? = nil, onWait: ((URLLock) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
+    static func lockReactive(url: URL, timeout: Int? = nil, recursive: Bool = true, onWait: ((URLLock) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
         return SignalProducer({ () -> Result<URLLock, CarthageError> in
-            let lock = URLLock(url: url)
+            let lock = URLLock(url: url, isRecursive: recursive)
             lock.onWait = onWait
             guard lock.lock(timeout: timeout == nil ? TimeInterval(Int.max) : TimeInterval(timeout!)) else {
                 return .failure(CarthageError.lockError(url: url, timeout: timeout))
