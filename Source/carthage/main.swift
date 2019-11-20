@@ -36,10 +36,19 @@ registry.register(SwiftVersionCommand())
 registry.register(GenerateProjectFileCommand())
 
 #if DEBUG
+var logTasks = false
+
+if let index = CommandLine.arguments.firstIndex(of: "--log-tasks") {
+    logTasks = true
+    CommandLine.arguments.remove(at: index)
+}
+
 let start = Date()
 let debugEventLogger = TaskDebugEventLogger { printErr($0) }
 Task.debugEvents.observeValues { event in
-    //debugEventLogger.logEvent(event)
+    if logTasks {
+        debugEventLogger.logEvent(event)
+    }
 }
 #endif
 
@@ -49,33 +58,35 @@ registry.register(helpCommand)
 registry.main(defaultVerb: helpCommand.verb, successHandler: {
     
     #if DEBUG
-    let totalDuration = Date().timeIntervalSince(start)
-    
-    printErr("-------------------------------------------------------------------------------")
-    printErr("")
-    printErr(String(format: "Total duration: %.2fs.", totalDuration))
-    printErr("")
-    
-    let taskHistory: [Task: TimeInterval] = Task.history
-    
-    let totalTaskDuration: TimeInterval = taskHistory.values.reduce(0.0) { $0 + $1 }
-    
-    printErr(String(format: "Total duration of tasks: %.2fs.", totalTaskDuration))
-    
-    printErr("")
-    printErr("Ordered tasks by duration:")
-    printErr("")
-    
-    let orderedTasks: [(key: Task, value: TimeInterval)] = taskHistory.sorted {
-        $0.value > $1.value
+    if logTasks {
+        let totalDuration = Date().timeIntervalSince(start)
+        
+        printErr("-------------------------------------------------------------------------------")
+        printErr("")
+        printErr(String(format: "Total duration: %.2fs.", totalDuration))
+        printErr("")
+        
+        let taskHistory: [Task: TimeInterval] = Task.history
+        
+        let totalTaskDuration: TimeInterval = taskHistory.values.reduce(0.0) { $0 + $1 }
+        
+        printErr(String(format: "Total duration of tasks: %.2fs.", totalTaskDuration))
+        
+        printErr("")
+        printErr("Ordered tasks by duration:")
+        printErr("")
+        
+        let orderedTasks: [(key: Task, value: TimeInterval)] = taskHistory.sorted {
+            $0.value > $1.value
+        }
+        
+        for entry in orderedTasks {
+            printErr(String(format: "Task #\(entry.key.identifier) took %.2fs: \(entry.key)", entry.value))
+        }
+        
+        printErr("")
+        printErr("-------------------------------------------------------------------------------")
     }
-    
-    for entry in orderedTasks {
-        printErr(String(format: "Task #\(entry.key.identifier) took %.2fs: \(entry.key)", entry.value))
-    }
-    
-    printErr("")
-    printErr("-------------------------------------------------------------------------------")
     
     #endif
     

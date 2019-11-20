@@ -49,7 +49,7 @@ final class FileLock: Lock {
     let isRecursive: Bool
     var onWait: ((FileLock) -> Void)?
 
-    init(lockFileURL: URL, isRecursive: Bool = true) {
+    init(lockFileURL: URL, isRecursive: Bool = false) {
         self.lockFileURL = lockFileURL
         self.isRecursive = isRecursive
     }
@@ -57,7 +57,7 @@ final class FileLock: Lock {
     deinit {
         unlock()
     }
-
+    
     /// Tries a lock with an optional timeoutDate. If the lock was acquired before the timeout date true will be returned, false otherwise.
     func lock(timeoutDate: Date?) -> Bool {
         var waiting = false
@@ -121,6 +121,7 @@ final class FileLock: Lock {
         guard wasLocked else {
             return false
         }
+        wasLocked = false
         do {
             try FileManager.default.removeItem(at: self.lockFileURL)
             return true
@@ -155,11 +156,11 @@ final class URLLock: Lock {
         }
     }
 
-    convenience init(url: URL, isRecursive: Bool = true, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
+    convenience init(url: URL, isRecursive: Bool = false, lockFileNamingStrategy: (URL) -> URL = URLLock.defaultLockFileNamingStrategy) {
         self.init(url: url, lockFileURL: lockFileNamingStrategy(url), isRecursive: isRecursive)
     }
 
-    convenience init(url: URL, lockFileURL: URL, isRecursive: Bool = true) {
+    convenience init(url: URL, lockFileURL: URL, isRecursive: Bool = false) {
         self.init(url: url, fileLock: FileLock(lockFileURL: lockFileURL, isRecursive: isRecursive))
     }
 
@@ -185,7 +186,7 @@ final class URLLock: Lock {
 extension URLLock {
     static var globalWaitHandler: ((URLLock) -> Void)?
 
-    static func lockReactive(url: URL, timeout: Int? = nil, recursive: Bool = true, onWait: ((URLLock) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
+    static func lockReactive(url: URL, timeout: Int? = nil, recursive: Bool = false, onWait: ((URLLock) -> Void)? = URLLock.globalWaitHandler) -> SignalProducer<URLLock, CarthageError> {
         return SignalProducer({ () -> Result<URLLock, CarthageError> in
             let lock = URLLock(url: url, isRecursive: recursive)
             lock.onWait = onWait

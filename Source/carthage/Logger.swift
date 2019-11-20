@@ -48,7 +48,7 @@ final class ProjectEventLogger {
 
         case let .skippedInstallingBinaries(dependency, error):
             let errorString: String = error.map { String(describing: $0) } ?? "No matching binary found"
-            let output: String = formatting.bullets + "Skipped installing\(formatting.projectName(dependency.name)).framework binary: " + errorString
+            let output: String = formatting.bullets + "Skipped installing \(formatting.projectName(dependency.name)).framework binary: " + errorString
             carthage.printOut(output)
 
         case let .skippedBuilding(dependency, message):

@@ -512,7 +512,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         let repositoryURL = Dependencies.repositoryFileURL(for: dependency, baseURL: destinationURL)
         var lock: URLLock?
 
-        return URLLock.lockReactive(url: repositoryURL, timeout: lockTimeout, recursive: false, onWait: { _ in })
+        return URLLock.lockReactive(url: repositoryURL, timeout: lockTimeout, onWait: { _ in })
             .map { urlLock in
                 lock = urlLock
                 return dependency.gitURL(preferHTTPS: preferHTTPS)!

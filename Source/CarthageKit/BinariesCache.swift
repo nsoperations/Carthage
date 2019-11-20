@@ -27,7 +27,7 @@ extension BinariesCache {
     static func storeFile(at fileURL: URL, for dependency: Dependency, version: PinnedVersion, configuration: String, swiftVersion: PinnedVersion, lockTimeout: Int?, deleteSource: Bool = false) -> SignalProducer<URL, CarthageError> {
         let destinationURL = AbstractBinariesCache.fileURL(for: dependency, version: version, configuration: configuration, swiftVersion: swiftVersion)
         var lock: URLLock?
-        return URLLock.lockReactive(url: destinationURL, timeout: lockTimeout, recursive: false)
+        return URLLock.lockReactive(url: destinationURL, timeout: lockTimeout)
             .flatMap(.merge) { urlLock -> SignalProducer<URL, CarthageError> in
                 lock = urlLock
                 return deleteSource ? Files.moveFile(from: fileURL, to: urlLock.url) : Files.copyFile(from: fileURL, to: urlLock.url)
@@ -85,7 +85,7 @@ class AbstractBinariesCache: BinariesCache {
 
         let fileURL = AbstractBinariesCache.fileURL(for: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion)
 
-        return URLLock.lockReactive(url: fileURL, timeout: lockTimeout, recursive: false)
+        return URLLock.lockReactive(url: fileURL, timeout: lockTimeout)
             .flatMap(.merge) { (urlLock: URLLock) -> SignalProducer<URLLock?, CarthageError> in
                 if self.isFileValid(fileURL, dependency: dependency, platforms: platforms) {
                     return SignalProducer(value: urlLock)

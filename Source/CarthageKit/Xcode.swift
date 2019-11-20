@@ -75,7 +75,7 @@ public final class Xcode {
         precondition(directoryURL.isFileURL)
 
         var lock: Lock?
-        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath), timeout: lockTimeout)
+        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath), timeout: lockTimeout, recursive: true)
             .flatMap(.merge) { urlLock -> BuildSchemeProducer in
                 lock = urlLock
 

@@ -23,7 +23,7 @@ public final class CopyFramework {
         )
         var lock: Lock?
         var tempDirectoryURL: URL?
-        return URLLock.lockReactive(url: frameworkURL, timeout: lockTimeout, recursive: false, onWait: { urlLock in waitHandler?(urlLock.url) })
+        return URLLock.lockReactive(url: frameworkURL, timeout: lockTimeout, onWait: { urlLock in waitHandler?(urlLock.url) })
             .flatMap(.merge) { urlLock -> SignalProducer<URL, CarthageError> in
                 lock = urlLock
                 // Create temp directory
