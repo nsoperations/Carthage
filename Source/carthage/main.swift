@@ -39,7 +39,7 @@ registry.register(GenerateProjectFileCommand())
 let start = Date()
 let debugEventLogger = TaskDebugEventLogger { printErr($0) }
 Task.debugEvents.observeValues { event in
-    debugEventLogger.logEvent(event)
+    //debugEventLogger.logEvent(event)
 }
 #endif
 
@@ -80,5 +80,7 @@ registry.main(defaultVerb: helpCommand.verb, successHandler: {
     #endif
     
 }, errorHandler: { error in
-    printErr(error.description + "\n")
+    printErr("")
+    printErr("error: " + error.description)
+    printErr("")
 })

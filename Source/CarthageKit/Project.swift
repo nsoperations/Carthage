@@ -532,7 +532,11 @@ public final class Project { // swiftlint:disable:this type_body_length
     /// Writes the given Cartfile.resolved out to the project's directory.
     func writeResolvedCartfile(_ resolvedCartfile: ResolvedCartfile) -> Result<(), CarthageError> {
         return Result(at: resolvedCartfileURL, attempt: {
-            try resolvedCartfile.description.write(to: $0, atomically: true, encoding: .utf8)
+            do {
+                try resolvedCartfile.description.write(to: $0, atomically: true, encoding: .utf8)
+            } catch {
+                throw CarthageError.writeFailed($0, error as NSError)
+            }
         })
     }
 
