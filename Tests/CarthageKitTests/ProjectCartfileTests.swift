@@ -45,5 +45,21 @@ class CartfileProjectTests: XCTestCase {
         
         XCTAssertEqual(ProjectLocator.projectFile(baseURL.appendingPathComponent("SomeProject.xcodeproj")), scheme2.projectLocator(in: baseURL))
     }
+    
+    func testShouldParseEmptyProjectCartfile() {
+        switch ProjectCartfile.from(string: "") {
+        case let .failure(error):
+            XCTFail("Unexpected error occured: \(error)")
+        case let .success(projectCartfile):
+            XCTAssertTrue(projectCartfile.schemeConfigurations.isEmpty)
+        }
+        
+        switch ProjectCartfile.from(string: "{}") {
+        case let .failure(error):
+            XCTFail("Unexpected error occured: \(error)")
+        case let .success(projectCartfile):
+            XCTAssertTrue(projectCartfile.schemeConfigurations.isEmpty)
+        }
+    }
 }
 

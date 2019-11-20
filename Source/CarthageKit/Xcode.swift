@@ -193,6 +193,14 @@ public final class Xcode {
             .map { dict -> ProjectCartfile in
                 return ProjectCartfile(schemeConfigurations: dict)
             }
+            .flatMapError { error -> SignalProducer<ProjectCartfile, CarthageError> in
+                switch error {
+                case .noSharedFrameworkSchemes, .noSharedSchemes:
+                    return SignalProducer(result: ProjectCartfile.from(string: ""))
+                default:
+                    return SignalProducer(error: error)
+                }
+            }
     }
 
     /// Finds schemes of projects or workspaces, which Carthage should build, found
