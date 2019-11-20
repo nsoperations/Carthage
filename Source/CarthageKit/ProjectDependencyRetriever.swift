@@ -62,9 +62,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     var netrc: Netrc? = nil
     let directoryURL: URL
 
-    /// Limits the number of concurrent clones/fetches to the number of active
-    /// processors.
-    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: Constants.concurrencyLimit)
+    /// Limits the number of concurrent clones/fetches
+    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: 4)
 
     public init(directoryURL: URL, projectEventsObserver: Signal<ProjectEvent, NoError>.Observer? = nil) {
         self.directoryURL = directoryURL
@@ -553,7 +552,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         if isRepository {
                             return fetchProducer()
                                 .flatMapError { error -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
-                                    return SignalProducer(value: (.warning("fetch of \(dependency.name) failed with error, performing a clean clone instead"), urlLock)).concat(cloneProducer())
+                                    return SignalProducer(value: (.warning("Fetch of \(dependency.name) failed, performing a clean clone instead. Error was:\n\(error)"), urlLock)).concat(cloneProducer())
                                 }
                         } else {
                             return cloneProducer()
