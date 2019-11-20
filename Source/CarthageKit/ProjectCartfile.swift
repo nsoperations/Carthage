@@ -35,11 +35,27 @@ extension ProjectCartfile: CartfileProtocol {
                 let dict = try decoder.decode([String: SchemeConfiguration].self, from: string)
                 return ProjectCartfile(schemeConfigurations: dict)
             } catch {
+                if isEmptyYML(string) {
+                    return ProjectCartfile(schemeConfigurations: [:])
+                }
+                
                 throw CarthageError.parseError(
                     description: "Could not decode Cartfile.project: \(error)"
                 )
             }
         })
+    }
+    
+    private static func isEmptyYML(_ string: String) -> Bool {
+        let components = string.components(separatedBy: .newlines)
+        for component in components {
+            let trimmedLine = component.trimmingCharacters(in: .whitespaces)
+            if trimmedLine.isEmpty || trimmedLine.hasPrefix("#") {
+                continue
+            }
+            return false
+        }
+        return true
     }
 }
 

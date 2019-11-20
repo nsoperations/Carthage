@@ -36,7 +36,7 @@ final class ProjectEventLogger {
 
         case let .skippedDownloadingBinaries(dependency, message):
             carthage.printOut(formatting.bullets + "Skipped downloading " + formatting.projectName(dependency.name)
-                + " binary due to the error:\n\t" + formatting.quote(message))
+                + " binary: " + message)
 
         case let .installingBinaries(dependency, release):
             carthage.printOut(formatting.bullets + "Installing " + formatting.projectName(dependency.name)
@@ -47,15 +47,12 @@ final class ProjectEventLogger {
                 + " binary at " + formatting.quote(release))
 
         case let .skippedInstallingBinaries(dependency, error):
-            let output = """
-            \(formatting.bullets)Skipped installing \(formatting.projectName(dependency.name)).framework binary:
-            \(error.map { formatting.quote(String(describing: $0)) } ?? "No matching binary found")
-            Falling back to building from the source
-            """
+            let errorString: String = error.map { String(describing: $0) } ?? "No matching binary found"
+            let output: String = formatting.bullets + "Skipped installing \(formatting.projectName(dependency.name)).framework binary: " + errorString
             carthage.printOut(output)
 
         case let .skippedBuilding(dependency, message):
-            carthage.printOut(formatting.bullets + "Skipped building " + formatting.projectName(dependency.name) + " due to the error:\n" + message)
+            carthage.printOut(formatting.bullets + "Skipped building " + formatting.projectName(dependency.name) + ": " + message)
 
         case let .skippedBuildingCached(dependency):
             carthage.printOut(formatting.bullets + "Valid cache found for " + formatting.projectName(dependency.name) + ", skipping build")
@@ -76,7 +73,7 @@ final class ProjectEventLogger {
             carthage.printOut(formatting.bullets + "Waiting for lock on " + url.path)
             
         case let .warning(message):
-            carthage.printOut(formatting.bullets + "Warning: " + message)
+            carthage.printOut(formatting.warning("warning: ") + message)
         }
     }
 }

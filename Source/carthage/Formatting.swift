@@ -55,6 +55,8 @@ public struct ColorOptions: OptionsProtocol {
         let url: Wrap
         let projectName: Wrap
         let path: Wrap
+        let warning: Wrap
+        let error: Wrap
 
         /// Wraps a string with terminal colors and formatting or passes it through.
         typealias Wrap = (_ string: String) -> String // swiftlint:disable:this nesting
@@ -66,6 +68,8 @@ public struct ColorOptions: OptionsProtocol {
             url = wrap(isColorful, wrap: Color.Wrap(styles: .underlined))
             projectName = wrap(isColorful, wrap: Color.Wrap(styles: .bold))
             path = wrap(isColorful, wrap: Color.Wrap(foreground: .yellow))
+            warning = wrap(isColorful, wrap: Color.Wrap(foreground: .yellow, style: .bold))
+            error = wrap(isColorful, wrap: Color.Wrap(foreground: .red, style: .bold))
         }
 
         /// Wraps a string in bullets, one space of padding, and formatting.

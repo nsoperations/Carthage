@@ -29,18 +29,18 @@ public struct GenerateProjectFileCommand: CommandProtocol {
 
     public func run(_ options: GenerateProjectFileCommand.Options) -> Result<(), CarthageError> {
         let formatting = options.colorOptions.formatting
-        carthage.printOut("Generating \(Constants.Project.projectCartfilePath), this may take a few minutes")
+        carthage.printOut(formatting.bullets + "Generating \(Constants.Project.projectCartfilePath), this may take a few minutes")
         let observer: (ProjectBuildConfiguration) -> Void = { config in
             carthage.printOut(formatting.bullets + "Found \(config.scheme) in \(config.project) with skds: \(config.sdks)")
         }
         return Xcode.generateProjectCartfile(directoryURL: URL(fileURLWithPath: options.directoryPath), observer: observer)
             .attemptMap { projectCartfile -> Result<(), CarthageError> in
-                carthage.printOut("Successfully generated \(Constants.Project.projectCartfilePath)")
                 let projectCartfileURL = URL(fileURLWithPath: options.directoryPath).appendingPathComponent(Constants.Project.projectCartfilePath)
                 // Write file
                 return Result(catching: {
                     do {
                         try projectCartfile.description.write(to: projectCartfileURL, atomically: true, encoding: .utf8)
+                        carthage.printOut(formatting.bullets + "Successfully generated \(Constants.Project.projectCartfilePath)")
                     } catch {
                         throw CarthageError.writeFailed(projectCartfileURL, error as NSError)
                     }

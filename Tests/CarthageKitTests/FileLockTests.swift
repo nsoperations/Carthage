@@ -35,7 +35,7 @@ class FileLockTests: XCTestCase {
 
     func testLockUnlockRecursive() {
 
-        fileLock = FileLock(lockFileURL: lockFileURL)
+        fileLock = FileLock(lockFileURL: lockFileURL, isRecursive: true)
         
         XCTAssertFalse(fileLock.isLocked)
         

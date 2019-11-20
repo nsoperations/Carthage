@@ -50,7 +50,6 @@ public struct OutdatedCommand: CommandProtocol {
     public struct Options: OptionsProtocol {
         public let useSSH: Bool
         public let isVerbose: Bool
-        public let outputXcodeWarnings: Bool
         public let useNetrc: Bool
         public let colorOptions: ColorOptions
         public let directoryPath: String
@@ -65,7 +64,6 @@ public struct OutdatedCommand: CommandProtocol {
             return curry(self.init)
                 <*> mode <| Option(key: "use-ssh", defaultValue: false, usage: "use SSH for downloading GitHub repositories")
                 <*> mode <| Option(key: "verbose", defaultValue: false, usage: "include nested dependencies")
-                <*> mode <| Option(key: "xcode-warnings", defaultValue: false, usage: "output Xcode compatible warning messages")
                 <*> mode <| SharedOptions.netrcOption
                 <*> ColorOptions.evaluate(mode, additionalUsage: UpdateType.legend)
                 <*> mode <| projectDirectoryOption
@@ -95,17 +93,8 @@ public struct OutdatedCommand: CommandProtocol {
                 let formatting = options.colorOptions.formatting
 
                 if !outdatedDependencies.isEmpty {
-                    carthage.printOut(formatting.path("The following dependencies are outdated:"))
-
                     for (project, current, applicable, latest) in outdatedDependencies {
-                        if options.outputXcodeWarnings {
-                            carthage.printOut("warning: \(formatting.projectName(project.name)) is out of date (\(current) -> \(applicable)) (Latest: \(latest))")
-                        } else {
-                            let update = UpdateType(currentVersion: current, applicableVersion: applicable, latestVersion: latest)
-                            let style = formatting[update]
-                            let versionSummary = "\(style(current.description)) -> \(style(applicable.description)) (Latest: \(latest))"
-                            carthage.printOut(formatting.projectName(project.name) + " " + versionSummary)
-                        }
+                        carthage.printOut(formatting.warning("warning: ") + "\(formatting.projectName(project.name)) is out of date (\(current) -> \(applicable)) (Latest: \(latest))")
                     }
                 } else {
                     carthage.printOut("All dependencies are up to date.")

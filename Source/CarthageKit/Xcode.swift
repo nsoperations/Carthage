@@ -75,7 +75,7 @@ public final class Xcode {
         precondition(directoryURL.isFileURL)
 
         var lock: Lock?
-        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath), timeout: lockTimeout)
+        return URLLock.lockReactive(url: URL(fileURLWithPath: options.derivedDataPath), timeout: lockTimeout, recursive: true)
             .flatMap(.merge) { urlLock -> BuildSchemeProducer in
                 lock = urlLock
 
@@ -192,6 +192,14 @@ public final class Xcode {
             })
             .map { dict -> ProjectCartfile in
                 return ProjectCartfile(schemeConfigurations: dict)
+            }
+            .flatMapError { error -> SignalProducer<ProjectCartfile, CarthageError> in
+                switch error {
+                case .noSharedFrameworkSchemes, .noSharedSchemes:
+                    return SignalProducer(result: ProjectCartfile.from(string: ""))
+                default:
+                    return SignalProducer(error: error)
+                }
             }
     }
 

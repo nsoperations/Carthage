@@ -62,9 +62,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     var netrc: Netrc? = nil
     let directoryURL: URL
 
-    /// Limits the number of concurrent clones/fetches to the number of active
-    /// processors.
-    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: Constants.concurrencyLimit)
+    /// Limits the number of concurrent clones/fetches
+    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: 4)
 
     public init(directoryURL: URL, projectEventsObserver: Signal<ProjectEvent, NoError>.Observer? = nil) {
         self.directoryURL = directoryURL
@@ -525,17 +524,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
                 return Git.isGitRepository(repositoryURL)
                     .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
-                        if isRepository {
-                            guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
-                                return SignalProducer(value: (nil, urlLock))
-                            }
-
-                            return SignalProducer(value: (.fetching(dependency), urlLock))
-                                .concat(
-                                    Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
-                                        .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
-                            )
-                        } else {
+                        
+                        let cloneProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
                             // Either the directory didn't exist or it did but wasn't a git repository
                             // (Could happen if the process is killed during a previous directory creation)
                             // So we remove it, then clone
@@ -546,12 +536,29 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                                         .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
                             )
                         }
+                        
+                        let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
+                            guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
+                                return SignalProducer(value: (nil, urlLock))
+                            }
+
+                            return SignalProducer(value: (.fetching(dependency), urlLock))
+                                .concat(
+                                    Git.fetchRepository(repositoryURL, remoteURL: remoteURL, refspec: "+refs/heads/*:refs/heads/*")
+                                        .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
+                            )
+                        }
+                        
+                        if isRepository {
+                            return fetchProducer()
+                                .flatMapError { error -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+                                    return SignalProducer(value: (.warning("Fetch of \(dependency.name) failed, performing a clean clone instead. Error was:\n\(error)"), urlLock)).concat(cloneProducer())
+                                }
+                        } else {
+                            return cloneProducer()
+                        }
                 }
-            }.on(failed: { _ in
-                lock?.unlock()
-            }, interrupted: {
-                lock?.unlock()
-            })
+            }
     }
 
     /// Effective binaries cache
