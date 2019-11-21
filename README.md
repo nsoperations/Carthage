@@ -63,11 +63,17 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
-### Next release
+### 0.41.1+nsoperations
 
-Auto generate Cartfile.project on `generate-project-file`
-Renamed `generate-projectfile` to `generate-project-file`
-Added warning when not using a Carthage.project file while building with Carthage
+- Fixed bug where concurrent git fetches on `bootstrap` could corrupt the local git cache
+- Fixes issue where an empty Cartfile.project was not properly recognized
+- Ensured that after a failed fetch a clean git clone is tried to recover from any locally corrupted state
+- Improved log output
+- Added a warning which is logged if no Cartfile.project is present for a project to be built with `carthage build`
+- Renamed the command `generate-projectfile` to `generate-project-file`
+- Ensured `generate-project-file` writes to Cartfile.project instead of echoing to stdout.
+- Removed the --xcode-warnings flag from the `outdated` command, output now always is compatible with Xcode.
+- Ensured that warnings and errors show up in the Xcode log if they occur
 
 ### 0.41.0+nsoperations
 
