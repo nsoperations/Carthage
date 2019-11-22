@@ -368,10 +368,11 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         dependency: Dependency,
         preferHTTPS: Bool,
         lockTimeout: Int? = nil,
+        destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URL), CarthageError> {
         var lock: Lock?
-        return cloneOrFetchLocked(dependency: dependency, preferHTTPS: preferHTTPS, lockTimeout: lockTimeout, commitish: commitish)
+        return cloneOrFetchLocked(dependency: dependency, preferHTTPS: preferHTTPS, lockTimeout: lockTimeout, destinationURL: destinationURL, commitish: commitish)
             .map { projectEvent, urlLock in
                 lock = urlLock
                 return (projectEvent, urlLock.url) }
@@ -498,9 +499,9 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         dependency: Dependency,
         preferHTTPS: Bool,
         lockTimeout: Int?,
+        destinationURL: URL = Constants.Dependency.repositoriesURL,
         commitish: String? = nil
         ) -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> {
-        let destinationURL: URL = Constants.Dependency.repositoriesURL
         let fileManager = FileManager.default
         let repositoryURL = Dependencies.repositoryFileURL(for: dependency, baseURL: destinationURL)
         var lock: URLLock?
