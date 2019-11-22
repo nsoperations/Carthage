@@ -157,6 +157,8 @@ public final class Project { // swiftlint:disable:this type_body_length
     private let projectEventsObserver: Signal<ProjectEvent, NoError>.Observer
 
     let dependencyRetriever: ProjectDependencyRetriever
+    
+    private let cachedResolvedCartfile = Atomic<ResolvedCartfile?>(nil)
 
     // MARK: - Public
 
@@ -217,41 +219,14 @@ public final class Project { // swiftlint:disable:this type_body_length
                 submodulesByPath[submodule.path] = submodule
         }
 
-        let dependenciesProducer = self.loadResolvedCartfile().map { Array($0.dependencies.keys) }
+        let dependenciesProducer = self.loadResolvedCartfile(useCache: true).map { Array($0.dependencies.keys) }
 
         // List all the directories in the checkout dir
 
-        var allDependencyNames: Set<String>?
-        let removeNonExistingDependencyDirectories = SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
-            guard let foundDependencies = allDependencyNames else {
-                return .success(())
-            }
-            return Result<(), CarthageError>(catching: { () -> () in
-                let checkoutsFolder = self.directoryURL.appendingPathComponent(Constants.checkoutsPath)
-                let urls: [URL]
-                do {
-                    if checkoutsFolder.isExistingDirectory {
-                        urls = try FileManager.default.contentsOfDirectory(at: checkoutsFolder, includingPropertiesForKeys: nil, options: [])
-                    } else {
-                        urls = [URL]()
-                    }
-                } catch {
-                    throw CarthageError.readFailed(checkoutsFolder, error as NSError)
-                }
-                for url in urls where !foundDependencies.contains(url.lastPathComponent) {
-                    do {
-                        try FileManager.default.removeItem(at: url)
-                    } catch {
-                        throw CarthageError.internalError(description: "Could not remove directory at URL: \(url)")
-                    }
-                }
-            })
-        }
-        
         var cartfile: ResolvedCartfile!
 
         return self.checkDependencies(dependenciesProducer: dependenciesProducer, dependenciesToCheck: dependenciesToCheckout)
-            .then(self.loadResolvedCartfile()
+            .then(self.loadResolvedCartfile(useCache: true)
                 .flatMap(.latest) { resolvedCartfile -> SignalProducer<(Set<String>?, ResolvedCartfile), CarthageError> in
                     cartfile = resolvedCartfile
                     guard let dependenciesToCheckout = dependenciesToCheckout else {
@@ -263,28 +238,39 @@ public final class Project { // swiftlint:disable:this type_body_length
                         .map { (Set(dependenciesToCheckout + $0), resolvedCartfile) }
                 }
                 .map { dependenciesToCheckout, resolvedCartfile -> [(Dependency, PinnedVersion)] in
-                    allDependencyNames = Set(resolvedCartfile.dependencies.keys.map { $0.name })
                     return resolvedCartfile.dependencies
                         .filter { dep, _ in dependenciesToCheckout?.contains(dep.name) ?? true }
                 }
                 .zip(with: submodulesSignal)
                 .flatMap(.merge) { dependencies, submodulesByPath -> SignalProducer<(), CarthageError> in
                     return SignalProducer<(Dependency, PinnedVersion), CarthageError>(dependencies)
-                        .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(), CarthageError> in
+                        .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                             switch dependency {
                             case .git, .gitHub:
                                 return self.dependencyRetriever.checkoutOrCloneDependency(dependency, version: version, submodulesByPath: submodulesByPath, resolvedCartfile: cartfile)
+                                    .then(SignalProducer(value: (dependency, version)))
                             case .binary:
                                 return .empty
                             }
-                    }
+                        }
+                        .collect()
+                        .flatMap(.concat) { pinnedDependencies -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                            let dependencyNames = pinnedDependencies.map { $0.0.name }
+                            return self.buildOrderForResolvedCartfile(cartfile, dependenciesToInclude: dependencyNames).map {
+                                return ($0.0, $0.1)
+                            }
+                        }
+                        .flatMap(.concat) { dependency, version -> SignalProducer<(), CarthageError> in
+                           // symlink the checkout paths for every dependency
+                           return self.symlinkCheckoutPaths(for: dependency, version: version, resolvedCartfile: cartfile)
+                        }
             })
-            .then(removeNonExistingDependencyDirectories)
+            .then(self.removeNonExistingDependencyDirectories())
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
     public func build(includingSelf: Bool, dependenciesToBuild: [String]?, buildOptions: BuildOptions, customProjectName: String?, customCommitish: String?) -> BuildSchemeProducer {
-        let buildProducer = self.loadResolvedCartfile()
+        let buildProducer = self.loadResolvedCartfile(useCache: true)
             .map { _ in self }
             .flatMapError { error -> SignalProducer<Project, CarthageError> in
                 if !includingSelf {
@@ -335,7 +321,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         let outdatedDependencies = SignalProducer
             .combineLatest(
-                loadResolvedCartfile(),
+                loadResolvedCartfile(useCache: true),
                 updatedResolvedCartfile(resolver: resolver),
                 latestDependencies(resolver: resolver)
             )
@@ -375,7 +361,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     public func validate(dependencyRetriever: DependencyRetrieverProtocol? = nil) -> SignalProducer<(), CarthageError> {
 
         return SignalProducer
-            .combineLatest(loadCombinedCartfile(), loadResolvedCartfile())
+            .combineLatest(loadCombinedCartfile(), loadResolvedCartfile(useCache: true))
             .flatMap(.merge) { cartfile, resolvedCartfile in
                 return self.validate(cartfile: cartfile, resolvedCartfile: resolvedCartfile, dependencyRetriever: dependencyRetriever)
             }
@@ -407,7 +393,7 @@ public final class Project { // swiftlint:disable:this type_body_length
             crawler.events.observeValues(observer)
         }
 
-        let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile()
+        let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile(useCache: true)
             .map(Optional.init)
             .flatMapError { _ in .init(value: nil) }
 
@@ -521,11 +507,18 @@ public final class Project { // swiftlint:disable:this type_body_length
     }
 
     /// Reads the project's Cartfile.resolved.
-    func loadResolvedCartfile() -> SignalProducer<ResolvedCartfile, CarthageError> {
+    func loadResolvedCartfile(useCache: Bool = false) -> SignalProducer<ResolvedCartfile, CarthageError> {
+        if useCache, let cached = cachedResolvedCartfile.value {
+            return SignalProducer(value: cached)
+        }
         return SignalProducer {
             Result(catching: { try String(contentsOf: self.resolvedCartfileURL, encoding: .utf8) })
                 .mapError { .readFailed(self.resolvedCartfileURL, $0) }
                 .flatMap(ResolvedCartfile.from)
+                .map { resolvedCartfile -> ResolvedCartfile in
+                    self.cachedResolvedCartfile.value = resolvedCartfile
+                    return resolvedCartfile
+                }
         }
     }
 
@@ -533,6 +526,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     func writeResolvedCartfile(_ resolvedCartfile: ResolvedCartfile) -> Result<(), CarthageError> {
         return Result(at: resolvedCartfileURL, attempt: {
             do {
+                self.cachedResolvedCartfile.value = nil
                 try resolvedCartfile.description.write(to: $0, atomically: true, encoding: .utf8)
             } catch {
                 throw CarthageError.writeFailed($0, error as NSError)
@@ -589,7 +583,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     /// This will fetch dependency repositories as necessary, but will not check
     /// them out into the project's working directory.
     func updatedResolvedCartfile(_ dependenciesToUpdate: [String]? = nil, resolver: ResolverProtocol) -> SignalProducer<ResolvedCartfile, CarthageError> {
-        let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile()
+        let resolvedCartfile: SignalProducer<ResolvedCartfile?, CarthageError> = loadResolvedCartfile(useCache: true)
             .map(Optional.init)
             .flatMapError { _ in .init(value: nil) }
 
@@ -676,7 +670,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         var cartfile: ResolvedCartfile!
         var levelLookupDict = [Dependency: Int]()
         
-        return loadResolvedCartfile()
+        return loadResolvedCartfile(useCache: true)
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                 cartfile = resolvedCartfile
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild).map { entry in
@@ -790,6 +784,35 @@ public final class Project { // swiftlint:disable:this type_body_length
     }
 
     // MARK: - Private
+    
+    private func removeNonExistingDependencyDirectories() -> SignalProducer<(), CarthageError> {
+        return SignalProducer { () -> Result<(), CarthageError> in
+            return Result<(), CarthageError>(catching: { () -> () in
+                
+                let resolvedCartfile = try self.loadResolvedCartfile(useCache: true).single()!.get()
+                let foundDependencies = Set(resolvedCartfile.dependencies.keys.map { $0.name })
+                
+                let checkoutsFolder = self.directoryURL.appendingPathComponent(Constants.checkoutsPath)
+                let urls: [URL]
+                do {
+                    if checkoutsFolder.isExistingDirectory {
+                        urls = try FileManager.default.contentsOfDirectory(at: checkoutsFolder, includingPropertiesForKeys: nil, options: [])
+                    } else {
+                        urls = [URL]()
+                    }
+                } catch {
+                    throw CarthageError.readFailed(checkoutsFolder, error as NSError)
+                }
+                for url in urls where !foundDependencies.contains(url.lastPathComponent) {
+                    do {
+                        try FileManager.default.removeItem(at: url)
+                    } catch {
+                        throw CarthageError.internalError(description: "Could not remove directory at URL: \(url)")
+                    }
+                }
+            })
+        }
+    }
 
     private func buildSameLevelDependencies(sameLevelDependencies: [(Dependency, PinnedVersion)], options: BuildOptions, cartfile: ResolvedCartfile, sdkFilter: @escaping SDKFilterCallback) -> BuildSchemeProducer {
         
@@ -928,6 +951,87 @@ public final class Project { // swiftlint:disable:this type_body_length
             }
         }
     }
+    
+    /// Creates symlink between the dependency checkouts and the root checkouts
+    private func symlinkCheckoutPaths(
+        for dependency: Dependency,
+        version: PinnedVersion,
+        resolvedCartfile: ResolvedCartfile
+        ) -> SignalProducer<(), CarthageError> {
+        
+        let rootDirectoryURL = self.directoryURL
+        let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
+        let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
+        let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(Constants.checkoutsPath, isDirectory: true).resolvingSymlinksInPath()
+        let repositoryURL = Dependencies.repositoryFileURL(for: dependency, baseURL: Constants.Dependency.repositoriesURL)
+        let fileManager = FileManager.default
+
+        return self.dependencyRetriever.recursiveDependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile)
+            // file system objects which might conflict with symlinks
+            .zip(with: Git.list(treeish: version.commitish, atPath: Constants.checkoutsPath, inRepository: repositoryURL)
+                .map { (path: String) in (path as NSString).lastPathComponent }
+                .collect()
+            )
+            .attemptMap { (dependencies: Set<Dependency>, components: [String]) -> Result<(), CarthageError> in
+                let names = dependencies
+                    .filter { dependency in
+                        // Filter out dependencies with names matching (case-insensitively) file system objects from git in `CarthageProjectCheckoutsPath`.
+                        // Edge case warning on file system case-sensitivity. If a differently-cased file system object exists in git
+                        // and is stored on a case-sensitive file system (like the Sierra preview of APFS), we currently preempt
+                        // the non-conflicting symlink. Probably, nobody actually desires or needs the opposite behavior.
+                        !components.contains {
+                            dependency.name.caseInsensitiveCompare($0) == .orderedSame
+                        }
+                    }
+                    .map { $0.name }
+
+                // If no `CarthageProjectCheckoutsPath`-housed symlinks are needed,
+                // return early after potentially adding submodules
+                // (which could be outside `CarthageProjectCheckoutsPath`).
+                if names.isEmpty { return .success(()) } // swiftlint:disable:this single_line_return
+
+                do {
+                    try fileManager.createDirectory(at: dependencyCheckoutsURL, withIntermediateDirectories: true)
+                } catch let error as NSError {
+                    if !(error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError) {
+                        return .failure(.writeFailed(dependencyCheckoutsURL, error))
+                    }
+                }
+
+                for name in names {
+                    let dependencyCheckoutURL = dependencyCheckoutsURL.appendingPathComponent(name)
+                    let subdirectoryPath = (Constants.checkoutsPath as NSString).appendingPathComponent(name)
+                    let linkDestinationPath = Dependencies.relativeLinkDestination(for: dependency, subdirectory: subdirectoryPath)
+
+                    let dependencyCheckoutURLResource = try? dependencyCheckoutURL.resourceValues(forKeys: [
+                        .isSymbolicLinkKey,
+                        .isDirectoryKey,
+                        ])
+
+                    if dependencyCheckoutURLResource?.isSymbolicLink == true {
+                        _ = dependencyCheckoutURL.path.withCString(Darwin.unlink)
+                    } else if dependencyCheckoutURLResource?.isDirectory == true {
+                        // older version of carthage wrote this directory?
+                        // user wrote this directory, unaware of the precedent not to circumvent carthage’s management?
+                        // directory exists as the result of rogue process or gamma ray?
+
+                        // swiftlint:disable:next todo
+                        // TODO: explore possibility of messaging user, informing that deleting said directory will result
+                        // in symlink creation with carthage versions greater than 0.20.0, maybe with more broad advice on
+                        // “from scratch” reproducability.
+                        continue
+                    }
+
+                    if let error = Result(at: dependencyCheckoutURL, attempt: {
+                        try fileManager.createSymbolicLink(atPath: $0.path, withDestinationPath: linkDestinationPath)
+                    }).error {
+                        return .failure(error)
+                    }
+                }
+
+                return .success(())
+        }
+    }
 
     /// Attempts to determine the latest version (whether satisfiable or not)
     /// of the project's Carthage dependencies.
@@ -937,7 +1041,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     private func latestDependencies(resolver: ResolverProtocol) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
         func resolve(prefersGitReference: Bool) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
             return SignalProducer
-                .combineLatest(loadCombinedCartfile(), loadResolvedCartfile())
+                .combineLatest(loadCombinedCartfile(), loadResolvedCartfile(useCache: true))
                 .map { cartfile, resolvedCartfile in
                     resolvedCartfile
                         .dependencies
