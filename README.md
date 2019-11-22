@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.41.2+nsoperations
+
+- Fixed bug where removing transitive dependencies (remove dependencies from Cartfile) could lead to an error when running `carthage update`
+
 ### 0.41.1+nsoperations
 
 - Fixed bug where concurrent git fetches on `bootstrap` could corrupt the local git cache
