@@ -335,18 +335,13 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     submodule = nil
                 }
 
-                let symlinkCheckoutPaths = self.symlinkCheckoutPaths(for: dependency, version: version, withRepository: repositoryURL, atRootDirectory: self.directoryURL, resolvedCartfile: resolvedCartfile)
-
                 if let submodule = submodule {
                     // In the presence of `submodule` for `dependency` — before symlinking, (not after) — add submodule and its submodules:
                     // `dependency`, subdependencies that are submodules, and non-Carthage-housed submodules.
                     return Git.addSubmoduleToRepository(self.directoryURL, submodule, GitURL(repositoryURL.path))
                         .startOnQueue(self.gitOperationQueue)
-                        .then(symlinkCheckoutPaths)
                 } else {
                     return Git.checkoutRepositoryToDirectory(repositoryURL, workingDirectoryURL, revision: revision)
-                        // For checkouts of “ideally bare” repositories of `dependency`, we add its submodules by cloning ourselves, after symlinking.
-                        .then(symlinkCheckoutPaths)
                         .then(
                             Git.submodulesInRepository(repositoryURL, revision: revision)
                                 .flatMap(.merge) {
@@ -625,86 +620,6 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     return .failure(CarthageError.internalError(description: "Could not download binary file for dependency \(dependency.name) version \(pinnedVersion)"))
                 }
             })
-    }
-
-    /// Creates symlink between the dependency checkouts and the root checkouts
-    private func symlinkCheckoutPaths(
-        for dependency: Dependency,
-        version: PinnedVersion,
-        withRepository repositoryURL: URL,
-        atRootDirectory rootDirectoryURL: URL,
-        resolvedCartfile: ResolvedCartfile
-        ) -> SignalProducer<(), CarthageError> {
-        let rawDependencyURL = rootDirectoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
-        let dependencyURL = rawDependencyURL.resolvingSymlinksInPath()
-        let dependencyCheckoutsURL = dependencyURL.appendingPathComponent(Constants.checkoutsPath, isDirectory: true).resolvingSymlinksInPath()
-        let fileManager = FileManager.default
-
-        return self.recursiveDependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile)
-            // file system objects which might conflict with symlinks
-            .zip(with: Git.list(treeish: version.commitish, atPath: Constants.checkoutsPath, inRepository: repositoryURL)
-                .map { (path: String) in (path as NSString).lastPathComponent }
-                .collect()
-            )
-            .attemptMap { (dependencies: Set<Dependency>, components: [String]) -> Result<(), CarthageError> in
-                let names = dependencies
-                    .filter { dependency in
-                        // Filter out dependencies with names matching (case-insensitively) file system objects from git in `CarthageProjectCheckoutsPath`.
-                        // Edge case warning on file system case-sensitivity. If a differently-cased file system object exists in git
-                        // and is stored on a case-sensitive file system (like the Sierra preview of APFS), we currently preempt
-                        // the non-conflicting symlink. Probably, nobody actually desires or needs the opposite behavior.
-                        !components.contains {
-                            dependency.name.caseInsensitiveCompare($0) == .orderedSame
-                        }
-                    }
-                    .map { $0.name }
-
-                // If no `CarthageProjectCheckoutsPath`-housed symlinks are needed,
-                // return early after potentially adding submodules
-                // (which could be outside `CarthageProjectCheckoutsPath`).
-                if names.isEmpty { return .success(()) } // swiftlint:disable:this single_line_return
-
-                do {
-                    try fileManager.createDirectory(at: dependencyCheckoutsURL, withIntermediateDirectories: true)
-                } catch let error as NSError {
-                    if !(error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError) {
-                        return .failure(.writeFailed(dependencyCheckoutsURL, error))
-                    }
-                }
-
-                for name in names {
-                    let dependencyCheckoutURL = dependencyCheckoutsURL.appendingPathComponent(name)
-                    let subdirectoryPath = (Constants.checkoutsPath as NSString).appendingPathComponent(name)
-                    let linkDestinationPath = Dependencies.relativeLinkDestination(for: dependency, subdirectory: subdirectoryPath)
-
-                    let dependencyCheckoutURLResource = try? dependencyCheckoutURL.resourceValues(forKeys: [
-                        .isSymbolicLinkKey,
-                        .isDirectoryKey,
-                        ])
-
-                    if dependencyCheckoutURLResource?.isSymbolicLink == true {
-                        _ = dependencyCheckoutURL.path.withCString(Darwin.unlink)
-                    } else if dependencyCheckoutURLResource?.isDirectory == true {
-                        // older version of carthage wrote this directory?
-                        // user wrote this directory, unaware of the precedent not to circumvent carthage’s management?
-                        // directory exists as the result of rogue process or gamma ray?
-
-                        // swiftlint:disable:next todo
-                        // TODO: explore possibility of messaging user, informing that deleting said directory will result
-                        // in symlink creation with carthage versions greater than 0.20.0, maybe with more broad advice on
-                        // “from scratch” reproducability.
-                        continue
-                    }
-
-                    if let error = Result(at: dependencyCheckoutURL, attempt: {
-                        try fileManager.createSymbolicLink(atPath: $0.path, withDestinationPath: linkDestinationPath)
-                    }).error {
-                        return .failure(error)
-                    }
-                }
-
-                return .success(())
-        }
     }
 
     /// Unzips the file at the given URL and copies the frameworks, DSYM and
