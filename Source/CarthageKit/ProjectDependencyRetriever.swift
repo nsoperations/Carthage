@@ -181,6 +181,23 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             return .empty
         }
     }
+    
+    public func prefetchDependencies(resolvedCartfile: ResolvedCartfile, includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
+        return SignalProducer(value: resolvedCartfile)
+            .map { resolvedCartfile -> [Dependency] in
+                return resolvedCartfile.dependencies.compactMap { dependency, _ -> Dependency? in
+                    if includedDependencyNames?.contains(dependency.name) ?? true {
+                        return dependency
+                    }
+                    return nil
+                }
+            }
+            .flatten()
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency in
+                return self.cloneOrFetchDependency(dependency)
+            }
+            .then(SignalProducer<(), CarthageError>.empty)
+    }
 
     /// Finds all the transitive dependencies for the dependencies to checkout.
     public func transitiveDependencies(
@@ -544,11 +561,32 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                             )
                         }
                         
-                        if isRepository {
+                        let fetchOrCloneProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
                             return fetchProducer()
                                 .flatMapError { error -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
-                                    return SignalProducer(value: (.warning("Fetch of \(dependency.name) failed, performing a clean clone instead. Error was:\n\(error)"), urlLock)).concat(cloneProducer())
+                                    let errorDescription = error.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let event: (ProjectEvent?, URLLock) = (.warning("Fetch of \(dependency.name) failed, performing a clean clone instead. Error was:\n\(errorDescription)"), urlLock)
+                                    return SignalProducer(value: event).concat(cloneProducer())
+                            }
+                        }
+                        
+                        if isRepository {
+                            if let commitish = commitish {
+                                return SignalProducer.zip(
+                                    Git.branchExistsInRepository(repositoryURL, pattern: commitish),
+                                    Git.commitExistsInRepository(repositoryURL, revision: commitish)
+                                    )
+                                    .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+                                        // If the given commitish is a branch, we should fetch.
+                                        if branchExists || !commitExists {
+                                            return fetchOrCloneProducer()
+                                        } else {
+                                            return SignalProducer(value: (nil, urlLock))
+                                        }
                                 }
+                            } else {
+                                return fetchOrCloneProducer()
+                            }
                         } else {
                             return cloneProducer()
                         }
