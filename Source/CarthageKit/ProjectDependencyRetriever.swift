@@ -193,11 +193,42 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 }
             }
             .flatten()
-            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency -> SignalProducer<URL, CarthageError> in
                 return self.cloneOrFetchDependency(dependency)
             }
             .then(SignalProducer<(), CarthageError>.empty)
     }
+
+//    public func prefetchDependencies(cartfile: Cartfile, includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
+//
+//        var dependenciesToFetch = Set<Dependency>(cartfile.dependencies.keys)
+//
+//        while !dependenciesToFetch.isEmpty {
+//
+//            // fetch dependency concurrent, block until a thread becomes available
+//
+//            // When fetch completes: determine newest version which satisfies the versionSpecifier, read that Cartfile and add the transitive dependencies which have not yet been processed to the dependenciesToFetch
+//
+//            // Continue until dependenciesToFetch is empty
+//        }
+//
+//
+//
+//        return SignalProducer(value: cartfile)
+//            .map { cartfile -> [Dependency] in
+//                return cartfile.dependencies.compactMap { dependency, _ -> Dependency? in
+//                    if includedDependencyNames?.contains(dependency.name) ?? true {
+//                        return dependency
+//                    }
+//                    return nil
+//                }
+//            }
+//            .flatten()
+//            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency -> SignalProducer<URL, CarthageError> in
+//                return self.cloneOrFetchDependency(dependency)
+//            }
+//            .then(SignalProducer<(), CarthageError>.empty)
+//    }
 
     /// Finds all the transitive dependencies for the dependencies to checkout.
     public func transitiveDependencies(
@@ -536,20 +567,23 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
                 return Git.isGitRepository(repositoryURL)
                     .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
-                        
-                        let cloneProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
-                            // Either the directory didn't exist or it did but wasn't a git repository
-                            // (Could happen if the process is killed during a previous directory creation)
-                            // So we remove it, then clone
-                            _ = try? fileManager.removeItem(at: repositoryURL)
-                            return SignalProducer(value: (.cloning(dependency), urlLock))
-                                .concat(
-                                    Git.cloneRepository(remoteURL, repositoryURL)
+
+                        // Either the directory didn't exist or it did but wasn't a git repository
+                        // (Could happen if the process is killed during a previous directory creation)
+                        // So we remove it, then clone
+                        let cloneProducer = SignalProducer { () -> Result<(), CarthageError> in
+                                _ = try? fileManager.removeItem(at: repositoryURL)
+                                return .success(())
+                            }
+                            .flatMap(.concat) {
+                                return SignalProducer(value: (.cloning(dependency), urlLock))
+                                    .concat(Git.cloneRepository(remoteURL, repositoryURL)
                                         .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
-                            )
-                        }
+                                )
+                            }
                         
                         let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
+
                             guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
                                 return SignalProducer(value: (nil, urlLock))
                             }
@@ -566,7 +600,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                                 .flatMapError { error -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
                                     let errorDescription = error.description.trimmingCharacters(in: .whitespacesAndNewlines)
                                     let event: (ProjectEvent?, URLLock) = (.warning("Fetch of \(dependency.name) failed, performing a clean clone instead. Error was:\n\(errorDescription)"), urlLock)
-                                    return SignalProducer(value: event).concat(cloneProducer())
+                                    return SignalProducer(value: event).concat(cloneProducer)
                             }
                         }
                         
@@ -588,7 +622,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                                 return fetchOrCloneProducer()
                             }
                         } else {
-                            return cloneProducer()
+                            return cloneProducer
                         }
                 }
             }

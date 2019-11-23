@@ -590,20 +590,18 @@ public final class Project { // swiftlint:disable:this type_body_length
         return SignalProducer
             .zip(loadCombinedCartfile(), resolvedCartfile)
             .flatMap(.merge) { cartfile, resolvedCartfile -> SignalProducer<[Dependency: PinnedVersion], CarthageError> in
-                
-                let resolve: () -> SignalProducer<[Dependency: PinnedVersion], CarthageError> = {
-                    resolver.resolve(
-                        dependencies: cartfile.dependencies,
-                        lastResolved: resolvedCartfile?.dependencies,
-                        dependenciesToUpdate: dependenciesToUpdate
-                    )
-                }
-                
+
+                let resolve = resolver.resolve(
+                    dependencies: cartfile.dependencies,
+                    lastResolved: resolvedCartfile?.dependencies,
+                    dependenciesToUpdate: dependenciesToUpdate
+                )
+
                 if let existingResolvedCartfile = resolvedCartfile {
                     return self.dependencyRetriever.prefetchDependencies(resolvedCartfile: existingResolvedCartfile, includedDependencyNames: dependenciesToUpdate)
-                        .then(resolve())
+                        .then(resolve)
                 } else {
-                    return resolve()
+                    return resolve
                 }
             }
             .map(ResolvedCartfile.init)
