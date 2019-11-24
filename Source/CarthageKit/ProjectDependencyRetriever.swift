@@ -201,32 +201,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
                     handledDependencies.insert(dependency)
 
-                    let versions: [ConcreteVersion]
-
-                    switch versionSpecifier {
-                    case .empty:
-                        continue
-                    case let .gitReference(comittish):
-                        versions = try self.resolvedGitReference(dependency, reference: comittish).collect().first()!.get().map(ConcreteVersion.init(pinnedVersion:))
-                    default:
-                        versions = try self.versions(for: dependency).collect().first()!.get().filter {
-                            versionSpecifier.isSatisfied(by: $0)
-                            }.map(ConcreteVersion.init(pinnedVersion:))
-                    }
-
-                    guard let mostRelevantVersion = versions.sorted().first else {
-                        continue
-                    }
-
-                    let transitiveDependencies = try self.dependencies(for: dependency, version: mostRelevantVersion.pinnedVersion, tryCheckoutDirectory: false).collect().first()!.get()
-
-                    // Add the transitiveDependencies to the list
-
+                    let transitiveDependencies = try self.mostRelevantDependenciesFor(dependency: dependency, versionSpecifier: versionSpecifier).collect().first()!.get()
                     dependenciesToFetch.append(contentsOf: transitiveDependencies)
-
-                    // When fetch completes: determine newest version which satisfies the versionSpecifier, read that Cartfile and add the transitive dependencies which have not yet been processed to the dependenciesToFetch
-
-                    // Continue until dependenciesToFetch is empty
                 }
 
                 return .success(())
@@ -634,6 +610,31 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         }
                 }
             }
+    }
+
+    private func mostRelevantDependenciesFor(dependency: Dependency, versionSpecifier: VersionSpecifier) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+        return SignalProducer(value: (dependency, versionSpecifier))
+            .flatMap(.concat) { entry -> SignalProducer<PinnedVersion, CarthageError> in
+                let (dependency, versionSpecifier) = entry
+                switch versionSpecifier {
+                case .empty:
+                    return SignalProducer.empty
+                case let .gitReference(comittish):
+                    return self.resolvedGitReference(dependency, reference: comittish)
+                default:
+                    return self.versions(for: dependency).filter { versionSpecifier.isSatisfied(by: $0) }
+                }
+            }
+            .map(ConcreteVersion.init(pinnedVersion:))
+            .collect()
+            .map { $0.sorted().first?.pinnedVersion }
+            .flatMap(.concat) { mostRelevantVersion -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> in
+                if let version = mostRelevantVersion {
+                    return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
+                } else {
+                    return SignalProducer.empty
+                }
+        }
     }
 
     /// Effective binaries cache
