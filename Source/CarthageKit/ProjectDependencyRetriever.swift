@@ -183,35 +183,60 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     }
     
     public func prefetchDependencies(cartfile: Cartfile, includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
-
-        return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
-            do {
-
-                let dependenciesToFetch = LinkedList(cartfile.dependencies)
-                var handledDependencies = Set<Dependency>()
-
-                while let dependencyConstraint = dependenciesToFetch.popFirst() {
-
-                    let dependency = dependencyConstraint.key
-                    let versionSpecifier = dependencyConstraint.value
-
-                    guard !handledDependencies.contains(dependency) else {
-                        continue
+        
+        let lock = NSLock()
+        let fetchQueue = ObservableAtomic(Set<Dependency>())
+        var dependenciesToFetch = [Dependency: VersionSpecifier]()
+        var handledDependencies = Set<Dependency>()
+        
+        return SignalProducer<(Dependency, VersionSpecifier), CarthageError>.init { observer, lifetime in
+                dependenciesToFetch = cartfile.dependencies.filter({ entry -> Bool in
+                    includedDependencyNames?.contains(entry.key.name) ?? true
+                })
+                print("Prefetching dependencies")
+                while !lifetime.hasEnded {
+                    let next = lock.locked({ () -> (Dependency, VersionSpecifier)? in
+                        if let next = dependenciesToFetch.popFirst() {
+                            handledDependencies.insert(next.key)
+                            return next
+                        }
+                        return nil
+                    })
+                    
+                    if let (dependency, versionSpecifier) = next {
+                        print("Starting fetch for: \(dependency) in thread \(Thread.current)")
+                        fetchQueue.modify { $0.insert(dependency) }
+                        observer.send(value: (dependency, versionSpecifier))
+                    } else {
+                        let fetchCount = fetchQueue.value.count
+                        if fetchCount == 0 {
+                            print("All fetches have finished!")
+                            observer.sendCompleted()
+                            break
+                        } else {
+                            print("Waiting for fetch to complete in thread: \(Thread.current)")
+                            // Wait until a fetch completes
+                            fetchQueue.wait { $0.count < fetchCount }
+                        }
                     }
-
-                    handledDependencies.insert(dependency)
-
-                    let transitiveDependencies = try self.mostRelevantDependenciesFor(dependency: dependency, versionSpecifier: versionSpecifier).collect().first()!.get()
-                    dependenciesToFetch.append(contentsOf: transitiveDependencies)
                 }
-
-                return .success(())
-            } catch let error as CarthageError {
-                return .failure(error)
-            } catch {
-                return .failure(CarthageError.internalError(description: error.localizedDescription))
             }
-        }
+            .flatMap(.merge) { (dependency, versionSpecifier) -> SignalProducer<(), CarthageError> in
+                return self.mostRelevantDependenciesFor(dependency: dependency, versionSpecifier: versionSpecifier)
+                    .flatMap(.concat) { (transitiveDependency, transitiveVersionSpecifier) -> SignalProducer<(), CarthageError> in
+                        print("Received transitive dependency: \(transitiveDependency) in thread: \(Thread.current)")
+                        lock.locked {
+                            if dependenciesToFetch[transitiveDependency] == nil && !handledDependencies.contains(transitiveDependency) {
+                                dependenciesToFetch[transitiveDependency] = transitiveVersionSpecifier
+                            }
+                        }
+                        return SignalProducer.empty
+                    }
+                    .on(terminated: {
+                        print("Sending fetch complete for dependency \(dependency) in thread: \(Thread.current)")
+                        fetchQueue.modify { $0.remove(dependency) }
+                    })
+            }
     }
 
     /// Finds all the transitive dependencies for the dependencies to checkout.

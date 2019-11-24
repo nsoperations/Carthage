@@ -46,6 +46,16 @@ extension FileManager {
     }
 }
 
+extension NSLock {
+    func locked<T>(_ perform: () throws -> T) rethrows -> T {
+        self.lock()
+        defer {
+            self.unlock()
+        }
+        return try perform()
+    }
+}
+
 extension String {
 
     private static let gitSHACharacterSet = CharacterSet(charactersIn: "0123456789abcdef")

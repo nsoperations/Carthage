@@ -6,6 +6,7 @@ public protocol CacheStorage {
     associatedtype Value
     subscript(_ key: Key) -> Value? { get set }
     mutating func clear()
+    mutating func popFirst() -> (key: Key, value: Value)?
 }
 
 extension Dictionary: CacheStorage {
@@ -39,6 +40,12 @@ extension Atomic where Value: CacheStorage {
             let value = constructor(key)
             cache[key] = value
             return value
+        }
+    }
+    
+    public func popFirst() -> (key: Value.Key, value: Value.Value)? {
+        return self.modify { cache -> (key: Value.Key, value: Value.Value)? in
+            return cache.popFirst()
         }
     }
     
