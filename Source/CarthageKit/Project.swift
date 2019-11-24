@@ -597,12 +597,8 @@ public final class Project { // swiftlint:disable:this type_body_length
                     dependenciesToUpdate: dependenciesToUpdate
                 )
 
-                if let existingResolvedCartfile = resolvedCartfile {
-                    return self.dependencyRetriever.prefetchDependencies(resolvedCartfile: existingResolvedCartfile, includedDependencyNames: dependenciesToUpdate)
+                return self.dependencyRetriever.prefetchDependencies(cartfile: cartfile, includedDependencyNames: dependenciesToUpdate)
                         .then(resolve)
-                } else {
-                    return resolve
-                }
             }
             .map(ResolvedCartfile.init)
     }

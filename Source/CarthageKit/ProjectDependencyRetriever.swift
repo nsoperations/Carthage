@@ -182,53 +182,61 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         }
     }
     
-    public func prefetchDependencies(resolvedCartfile: ResolvedCartfile, includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
-        return SignalProducer(value: resolvedCartfile)
-            .map { resolvedCartfile -> [Dependency] in
-                return resolvedCartfile.dependencies.compactMap { dependency, _ -> Dependency? in
-                    if includedDependencyNames?.contains(dependency.name) ?? true {
-                        return dependency
-                    }
-                    return nil
-                }
-            }
-            .flatten()
-            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency -> SignalProducer<URL, CarthageError> in
-                return self.cloneOrFetchDependency(dependency)
-            }
-            .then(SignalProducer<(), CarthageError>.empty)
-    }
+    public func prefetchDependencies(cartfile: Cartfile, includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
 
-//    public func prefetchDependencies(cartfile: Cartfile, includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
-//
-//        var dependenciesToFetch = Set<Dependency>(cartfile.dependencies.keys)
-//
-//        while !dependenciesToFetch.isEmpty {
-//
-//            // fetch dependency concurrent, block until a thread becomes available
-//
-//            // When fetch completes: determine newest version which satisfies the versionSpecifier, read that Cartfile and add the transitive dependencies which have not yet been processed to the dependenciesToFetch
-//
-//            // Continue until dependenciesToFetch is empty
-//        }
-//
-//
-//
-//        return SignalProducer(value: cartfile)
-//            .map { cartfile -> [Dependency] in
-//                return cartfile.dependencies.compactMap { dependency, _ -> Dependency? in
-//                    if includedDependencyNames?.contains(dependency.name) ?? true {
-//                        return dependency
-//                    }
-//                    return nil
-//                }
-//            }
-//            .flatten()
-//            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency -> SignalProducer<URL, CarthageError> in
-//                return self.cloneOrFetchDependency(dependency)
-//            }
-//            .then(SignalProducer<(), CarthageError>.empty)
-//    }
+        return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
+            do {
+
+                let dependenciesToFetch = LinkedList(cartfile.dependencies)
+                var handledDependencies = Set<Dependency>()
+
+                while let dependencyConstraint = dependenciesToFetch.popFirst() {
+
+                    let dependency = dependencyConstraint.key
+                    let versionSpecifier = dependencyConstraint.value
+
+                    guard !handledDependencies.contains(dependency) else {
+                        continue
+                    }
+
+                    handledDependencies.insert(dependency)
+
+                    let versions: [ConcreteVersion]
+
+                    switch versionSpecifier {
+                    case .empty:
+                        continue
+                    case let .gitReference(comittish):
+                        versions = try self.resolvedGitReference(dependency, reference: comittish).collect().first()!.get().map(ConcreteVersion.init(pinnedVersion:))
+                    default:
+                        versions = try self.versions(for: dependency).collect().first()!.get().filter {
+                            versionSpecifier.isSatisfied(by: $0)
+                            }.map(ConcreteVersion.init(pinnedVersion:))
+                    }
+
+                    guard let mostRelevantVersion = versions.sorted().first else {
+                        continue
+                    }
+
+                    let transitiveDependencies = try self.dependencies(for: dependency, version: mostRelevantVersion.pinnedVersion, tryCheckoutDirectory: false).collect().first()!.get()
+
+                    // Add the transitiveDependencies to the list
+
+                    dependenciesToFetch.append(contentsOf: transitiveDependencies)
+
+                    // When fetch completes: determine newest version which satisfies the versionSpecifier, read that Cartfile and add the transitive dependencies which have not yet been processed to the dependenciesToFetch
+
+                    // Continue until dependenciesToFetch is empty
+                }
+
+                return .success(())
+            } catch let error as CarthageError {
+                return .failure(error)
+            } catch {
+                return .failure(CarthageError.internalError(description: error.localizedDescription))
+            }
+        }
+    }
 
     /// Finds all the transitive dependencies for the dependencies to checkout.
     public func transitiveDependencies(

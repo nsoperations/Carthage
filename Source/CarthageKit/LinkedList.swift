@@ -5,6 +5,14 @@ final class LinkedList<Element> {
     private var head: Node<Element>?
     private var tail: Node<Element>?
     public private(set) var count: Int = 0
+
+    public init() {
+
+    }
+
+    public init<S: Sequence>(_ sequence: S) where S.Element == Element {
+        self.append(contentsOf: sequence)
+    }
     
     public var isEmpty: Bool {
         return count == 0
@@ -42,6 +50,12 @@ final class LinkedList<Element> {
             currentTail.next = node
         }
         tail = node
+    }
+
+    public func append<S: Sequence>(contentsOf sequence: S) where S.Element == Element {
+        for element in sequence {
+            self.append(element)
+        }
     }
     
     public func popFirst() -> Element? {
