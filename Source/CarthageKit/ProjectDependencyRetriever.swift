@@ -504,8 +504,11 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     }
 
     public func storeBinaries(for dependency: Dependency, frameworkNames: [String], pinnedVersion: PinnedVersion, configuration: String, toolchain: String?) -> SignalProducer<URL, CarthageError> {
+        if frameworkNames.isEmpty {
+            return SignalProducer<URL, CarthageError>.empty
+        }
+        
         var tempDir: URL?
-
         return FileManager.default.reactive.createTemporaryDirectory()
             .flatMap(.merge) { tempDirectoryURL -> SignalProducer<URL, CarthageError> in
                 tempDir = tempDirectoryURL
