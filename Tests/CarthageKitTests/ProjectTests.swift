@@ -473,7 +473,6 @@ class ProjectGitOperationsTests: XCTestCase {
 
     override func setUp() {
         // https://github.com/Carthage/Carthage/issues/1191
-        //Task.isCachingEnabled = false
         temporaryPath = (NSTemporaryDirectory() as NSString).appendingPathComponent(ProcessInfo.processInfo.globallyUniqueString)
         temporaryURL = URL(fileURLWithPath: temporaryPath, isDirectory: true)
         repositoryURL = temporaryURL.appendingPathComponent("carthage1191", isDirectory: true)
@@ -518,14 +517,14 @@ class ProjectGitOperationsTests: XCTestCase {
         assertProjectEvent(commitish: "master") { expect($0?.isFetching) == true }
     }
 
-    func testShouldFetchAProjectIfTheGivenCommitishExistsButThatIsNotAReference() {
+    func testShouldNotFetchAProjectIfTheGivenCommitishExistsButThatIsNotAReference() {
         // Clone first
         let commitish = addCommit()
         expect(self.cloneOrFetch().wait().error).to(beNil())
 
         addCommit()
 
-        assertProjectEvent(commitish: commitish) { expect($0?.isFetching) == true }
+        assertProjectEvent(commitish: commitish) { expect($0).to(beNil()) }
     }
 
     func testShouldNotFetchTwiceInARowEvenIfNoCommitishIsGiven() {

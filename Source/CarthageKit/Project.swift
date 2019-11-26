@@ -589,7 +589,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         return SignalProducer
             .zip(loadCombinedCartfile(), resolvedCartfile)
-            .flatMap(.merge) { cartfile, resolvedCartfile in
+            .flatMap(.merge) { cartfile, resolvedCartfile -> SignalProducer<[Dependency: PinnedVersion], CarthageError> in
                 return resolver.resolve(
                     dependencies: cartfile.dependencies,
                     lastResolved: resolvedCartfile?.dependencies,

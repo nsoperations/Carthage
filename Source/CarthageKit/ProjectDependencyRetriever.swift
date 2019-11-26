@@ -35,6 +35,81 @@ extension DependencyRetrieverProtocol {
     public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
     }
+    
+    public func prefetch(dependencies: [Dependency: VersionSpecifier], includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
+        
+        let lock = NSLock()
+        let fetchQueue = ObservableAtomic(Set<Dependency>())
+        var handledDependencies = Set<Dependency>()
+        var dependenciesToFetch: [Dependency: VersionSpecifier] = dependencies.filter({ entry -> Bool in
+            includedDependencyNames?.contains(entry.key.name) ?? true
+        })
+        
+        return SignalProducer<(Dependency, VersionSpecifier), CarthageError> { observer, lifetime in
+                while !lifetime.hasEnded {
+                    let next = lock.locked({ () -> (Dependency, VersionSpecifier)? in
+                        if let next = dependenciesToFetch.popFirst() {
+                            handledDependencies.insert(next.key)
+                            return next
+                        }
+                        return nil
+                    })
+                    
+                    if let (dependency, versionSpecifier) = next {
+                        fetchQueue.modify { $0.insert(dependency) }
+                        observer.send(value: (dependency, versionSpecifier))
+                    } else {
+                        let fetchCount = fetchQueue.value.count
+                        if fetchCount == 0 {
+                            observer.sendCompleted()
+                            break
+                        } else {
+                            // Wait until a fetch completes
+                            fetchQueue.wait { $0.count < fetchCount }
+                        }
+                    }
+                }
+            }
+            .flatMap(.merge) { (dependency, versionSpecifier) -> SignalProducer<(), CarthageError> in
+                return self.mostRelevantDependenciesFor(dependency: dependency, versionSpecifier: versionSpecifier)
+                    .flatMap(.concat) { transitiveDependency, transitiveVersionSpecifier -> SignalProducer<(), CarthageError> in
+                        lock.locked {
+                            if dependenciesToFetch[transitiveDependency] == nil && !handledDependencies.contains(transitiveDependency) {
+                                dependenciesToFetch[transitiveDependency] = transitiveVersionSpecifier
+                            }
+                        }
+                        return SignalProducer<(), CarthageError>.empty
+                    }
+                    .on(terminated: {
+                        _ = fetchQueue.modify { $0.remove(dependency) }
+                    })
+            }
+    }
+    
+    private func mostRelevantDependenciesFor(dependency: Dependency, versionSpecifier: VersionSpecifier) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+        return SignalProducer(value: (dependency, versionSpecifier))
+            .flatMap(.concat) { entry -> SignalProducer<PinnedVersion, CarthageError> in
+                let (dependency, versionSpecifier) = entry
+                switch versionSpecifier {
+                case .empty:
+                    return SignalProducer.empty
+                case let .gitReference(comittish):
+                    return self.resolvedGitReference(dependency, reference: comittish)
+                default:
+                    return self.versions(for: dependency).filter { versionSpecifier.isSatisfied(by: $0) }
+                }
+            }
+            .map(ConcreteVersion.init(pinnedVersion:))
+            .collect()
+            .map { $0.sorted().first?.pinnedVersion }
+            .flatMap(.concat) { mostRelevantVersion -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> in
+                if let version = mostRelevantVersion {
+                    return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
+                } else {
+                    return SignalProducer.empty
+                }
+        }
+    }
 }
 
 public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
@@ -181,7 +256,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             return .empty
         }
     }
-
+    
     /// Finds all the transitive dependencies for the dependencies to checkout.
     public func transitiveDependencies(
         resolvedCartfile: ResolvedCartfile,
@@ -429,8 +504,11 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     }
 
     public func storeBinaries(for dependency: Dependency, frameworkNames: [String], pinnedVersion: PinnedVersion, configuration: String, toolchain: String?) -> SignalProducer<URL, CarthageError> {
+        if frameworkNames.isEmpty {
+            return SignalProducer<URL, CarthageError>.empty
+        }
+        
         var tempDir: URL?
-
         return FileManager.default.reactive.createTemporaryDirectory()
             .flatMap(.merge) { tempDirectoryURL -> SignalProducer<URL, CarthageError> in
                 tempDir = tempDirectoryURL
@@ -519,20 +597,23 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
                 return Git.isGitRepository(repositoryURL)
                     .flatMap(.merge) { isRepository -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
-                        
-                        let cloneProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
-                            // Either the directory didn't exist or it did but wasn't a git repository
-                            // (Could happen if the process is killed during a previous directory creation)
-                            // So we remove it, then clone
-                            _ = try? fileManager.removeItem(at: repositoryURL)
-                            return SignalProducer(value: (.cloning(dependency), urlLock))
-                                .concat(
-                                    Git.cloneRepository(remoteURL, repositoryURL)
+
+                        // Either the directory didn't exist or it did but wasn't a git repository
+                        // (Could happen if the process is killed during a previous directory creation)
+                        // So we remove it, then clone
+                        let cloneProducer = SignalProducer { () -> Result<(), CarthageError> in
+                                _ = try? fileManager.removeItem(at: repositoryURL)
+                                return .success(())
+                            }
+                            .flatMap(.concat) {
+                                return SignalProducer(value: (.cloning(dependency), urlLock))
+                                    .concat(Git.cloneRepository(remoteURL, repositoryURL)
                                         .then(SignalProducer<(ProjectEvent?, URLLock), CarthageError>.empty)
-                            )
-                        }
+                                )
+                            }
                         
                         let fetchProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
+
                             guard Git.FetchCache.needsFetch(forURL: remoteURL) else {
                                 return SignalProducer(value: (nil, urlLock))
                             }
@@ -544,13 +625,34 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                             )
                         }
                         
-                        if isRepository {
+                        let fetchOrCloneProducer: () -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> = {
                             return fetchProducer()
                                 .flatMapError { error -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
-                                    return SignalProducer(value: (.warning("Fetch of \(dependency.name) failed, performing a clean clone instead. Error was:\n\(error)"), urlLock)).concat(cloneProducer())
+                                    let errorDescription = error.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let event: (ProjectEvent?, URLLock) = (.warning("Fetch of \(dependency.name) failed, performing a clean clone instead. Error was:\n\(errorDescription)"), urlLock)
+                                    return SignalProducer(value: event).concat(cloneProducer)
+                            }
+                        }
+                        
+                        if isRepository {
+                            if let commitish = commitish {
+                                return SignalProducer.zip(
+                                    Git.branchExistsInRepository(repositoryURL, pattern: commitish),
+                                    Git.commitExistsInRepository(repositoryURL, revision: commitish)
+                                    )
+                                    .flatMap(.concat) { branchExists, commitExists -> SignalProducer<(ProjectEvent?, URLLock), CarthageError> in
+                                        // If the given commitish is a branch, we should fetch.
+                                        if branchExists || !commitExists {
+                                            return fetchOrCloneProducer()
+                                        } else {
+                                            return SignalProducer(value: (nil, urlLock))
+                                        }
                                 }
+                            } else {
+                                return fetchOrCloneProducer()
+                            }
                         } else {
-                            return cloneProducer()
+                            return cloneProducer
                         }
                 }
             }

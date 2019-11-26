@@ -55,44 +55,50 @@ public final class BackTrackingResolver: ResolverProtocol {
         lastResolved: [Dependency: PinnedVersion]? = nil,
         dependenciesToUpdate: [String]? = nil
         ) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
-        let result: Result<[Dependency: PinnedVersion], CarthageError>
+        
+        let resolve: SignalProducer<[Dependency : PinnedVersion], CarthageError> = SignalProducer { () -> Result<[Dependency : PinnedVersion], CarthageError> in
 
-        let pinnedVersions = lastResolved ?? [Dependency: PinnedVersion]()
-        let resolverContext = ResolverContext(projectDependencyRetriever: projectDependencyRetriever,
-                                              pinnedVersions: pinnedVersions)
+            let result: Result<[Dependency: PinnedVersion], CarthageError>
 
-        resolverContext.eventObserver = self.eventPublisher.send
+            let pinnedVersions = lastResolved ?? [Dependency: PinnedVersion]()
+            let resolverContext = ResolverContext(projectDependencyRetriever: self.projectDependencyRetriever,
+                                                  pinnedVersions: pinnedVersions)
 
-        let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
-        let requiredDependencies: [DependencyEntry] = Array(dependencies)
+            resolverContext.eventObserver = self.eventPublisher.send
 
-        do {
-            let dependencySet = try DependencySet(requiredDependencies: requiredDependencies,
-                                                  updatableDependencyNames: updatableDependencyNames,
-                                                  resolverContext: resolverContext)
-            let resolverResult = try backtrack(dependencySet: dependencySet, rootDependencies: requiredDependencies.map { $0.0 })
+            let updatableDependencyNames = dependenciesToUpdate.map { Set($0) } ?? Set()
+            let requiredDependencies: [DependencyEntry] = Array(dependencies)
 
-            switch resolverResult.state {
-            case .accepted:
-                try resolverResult.dependencySet.eliminateSameNamedDependencies(rootEntries: requiredDependencies)
-            case .rejected:
-                if let rejectionError = dependencySet.rejectionError {
-                    if case .unsatisfiableDependencyList(_) = rejectionError {
-                        throw CarthageError.unsatisfiableDependencyList(dependenciesToUpdate ?? [])
+            do {
+                let dependencySet = try DependencySet(requiredDependencies: requiredDependencies,
+                                                      updatableDependencyNames: updatableDependencyNames,
+                                                      resolverContext: resolverContext)
+                let resolverResult = try self.backtrack(dependencySet: dependencySet, rootDependencies: requiredDependencies.map { $0.0 })
+
+                switch resolverResult.state {
+                case .accepted:
+                    try resolverResult.dependencySet.eliminateSameNamedDependencies(rootEntries: requiredDependencies)
+                case .rejected:
+                    if let rejectionError = dependencySet.rejectionError {
+                        if case .unsatisfiableDependencyList(_) = rejectionError {
+                            throw CarthageError.unsatisfiableDependencyList(dependenciesToUpdate ?? [])
+                        }
+                        throw rejectionError
+                    } else {
+                        throw CarthageError.internalError(description: "No dependency set was resolved and no resolver error was present. This should never happen.")
                     }
-                    throw rejectionError
-                } else {
-                    throw CarthageError.internalError(description: "No dependency set was resolved and no resolver error was present. This should never happen.")
                 }
+                result = .success(resolverResult.dependencySet.resolvedDependencies)
+            } catch let carthageError as CarthageError {
+                result = .failure(carthageError)
+            } catch let error {
+                let carthageError = CarthageError.internalError(description: error.localizedDescription)
+                result = .failure(carthageError)
             }
-            result = .success(resolverResult.dependencySet.resolvedDependencies)
-        } catch let carthageError as CarthageError {
-            result = .failure(carthageError)
-        } catch let error {
-            let carthageError = CarthageError.internalError(description: error.localizedDescription)
-            result = .failure(carthageError)
+
+            return result
         }
-        return SignalProducer(result: result)
+        return self.projectDependencyRetriever.prefetch(dependencies: dependencies, includedDependencyNames: dependenciesToUpdate).then(resolve)
     }
 
     /**
