@@ -55,8 +55,8 @@ public final class BackTrackingResolver: ResolverProtocol {
         lastResolved: [Dependency: PinnedVersion]? = nil,
         dependenciesToUpdate: [String]? = nil
         ) -> SignalProducer<[Dependency: PinnedVersion], CarthageError> {
-
-        return SignalProducer { () -> Result<[Dependency : PinnedVersion], CarthageError> in
+        
+        let resolve: SignalProducer<[Dependency : PinnedVersion], CarthageError> = SignalProducer { () -> Result<[Dependency : PinnedVersion], CarthageError> in
 
             let result: Result<[Dependency: PinnedVersion], CarthageError>
 
@@ -98,6 +98,7 @@ public final class BackTrackingResolver: ResolverProtocol {
 
             return result
         }
+        return self.projectDependencyRetriever.prefetch(dependencies: dependencies, includedDependencyNames: dependenciesToUpdate).then(resolve)
     }
 
     /**

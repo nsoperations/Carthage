@@ -35,6 +35,81 @@ extension DependencyRetrieverProtocol {
     public func dependencies(for dependency: Dependency, version: PinnedVersion) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
         return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
     }
+    
+    public func prefetch(dependencies: [Dependency: VersionSpecifier], includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
+        
+        let lock = NSLock()
+        let fetchQueue = ObservableAtomic(Set<Dependency>())
+        var handledDependencies = Set<Dependency>()
+        var dependenciesToFetch: [Dependency: VersionSpecifier] = dependencies.filter({ entry -> Bool in
+            includedDependencyNames?.contains(entry.key.name) ?? true
+        })
+        
+        return SignalProducer<(Dependency, VersionSpecifier), CarthageError> { observer, lifetime in
+                while !lifetime.hasEnded {
+                    let next = lock.locked({ () -> (Dependency, VersionSpecifier)? in
+                        if let next = dependenciesToFetch.popFirst() {
+                            handledDependencies.insert(next.key)
+                            return next
+                        }
+                        return nil
+                    })
+                    
+                    if let (dependency, versionSpecifier) = next {
+                        fetchQueue.modify { $0.insert(dependency) }
+                        observer.send(value: (dependency, versionSpecifier))
+                    } else {
+                        let fetchCount = fetchQueue.value.count
+                        if fetchCount == 0 {
+                            observer.sendCompleted()
+                            break
+                        } else {
+                            // Wait until a fetch completes
+                            fetchQueue.wait { $0.count < fetchCount }
+                        }
+                    }
+                }
+            }
+            .flatMap(.merge) { (dependency, versionSpecifier) -> SignalProducer<(), CarthageError> in
+                return self.mostRelevantDependenciesFor(dependency: dependency, versionSpecifier: versionSpecifier)
+                    .flatMap(.concat) { transitiveDependency, transitiveVersionSpecifier -> SignalProducer<(), CarthageError> in
+                        lock.locked {
+                            if dependenciesToFetch[transitiveDependency] == nil && !handledDependencies.contains(transitiveDependency) {
+                                dependenciesToFetch[transitiveDependency] = transitiveVersionSpecifier
+                            }
+                        }
+                        return SignalProducer<(), CarthageError>.empty
+                    }
+                    .on(terminated: {
+                        _ = fetchQueue.modify { $0.remove(dependency) }
+                    })
+            }
+    }
+    
+    private func mostRelevantDependenciesFor(dependency: Dependency, versionSpecifier: VersionSpecifier) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
+        return SignalProducer(value: (dependency, versionSpecifier))
+            .flatMap(.concat) { entry -> SignalProducer<PinnedVersion, CarthageError> in
+                let (dependency, versionSpecifier) = entry
+                switch versionSpecifier {
+                case .empty:
+                    return SignalProducer.empty
+                case let .gitReference(comittish):
+                    return self.resolvedGitReference(dependency, reference: comittish)
+                default:
+                    return self.versions(for: dependency).filter { versionSpecifier.isSatisfied(by: $0) }
+                }
+            }
+            .map(ConcreteVersion.init(pinnedVersion:))
+            .collect()
+            .map { $0.sorted().first?.pinnedVersion }
+            .flatMap(.concat) { mostRelevantVersion -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> in
+                if let version = mostRelevantVersion {
+                    return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
+                } else {
+                    return SignalProducer.empty
+                }
+        }
+    }
 }
 
 public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
@@ -182,57 +257,6 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         }
     }
     
-    public func prefetchDependencies(cartfile: Cartfile, includedDependencyNames: [String]? = nil) -> SignalProducer<(), CarthageError> {
-        
-        let lock = NSLock()
-        let fetchQueue = ObservableAtomic(Set<Dependency>())
-        var dependenciesToFetch = [Dependency: VersionSpecifier]()
-        var handledDependencies = Set<Dependency>()
-        
-        return SignalProducer<(Dependency, VersionSpecifier), CarthageError> { observer, lifetime in
-                dependenciesToFetch = cartfile.dependencies.filter({ entry -> Bool in
-                    includedDependencyNames?.contains(entry.key.name) ?? true
-                })
-                while !lifetime.hasEnded {
-                    let next = lock.locked({ () -> (Dependency, VersionSpecifier)? in
-                        if let next = dependenciesToFetch.popFirst() {
-                            handledDependencies.insert(next.key)
-                            return next
-                        }
-                        return nil
-                    })
-                    
-                    if let (dependency, versionSpecifier) = next {
-                        fetchQueue.modify { $0.insert(dependency) }
-                        observer.send(value: (dependency, versionSpecifier))
-                    } else {
-                        let fetchCount = fetchQueue.value.count
-                        if fetchCount == 0 {
-                            observer.sendCompleted()
-                            break
-                        } else {
-                            // Wait until a fetch completes
-                            fetchQueue.wait { $0.count < fetchCount }
-                        }
-                    }
-                }
-            }
-            .flatMap(.merge) { (dependency, versionSpecifier) -> SignalProducer<(), CarthageError> in
-                return self.mostRelevantDependenciesFor(dependency: dependency, versionSpecifier: versionSpecifier)
-                    .flatMap(.concat) { transitiveDependency, transitiveVersionSpecifier -> SignalProducer<(), CarthageError> in
-                        lock.locked {
-                            if dependenciesToFetch[transitiveDependency] == nil && !handledDependencies.contains(transitiveDependency) {
-                                dependenciesToFetch[transitiveDependency] = transitiveVersionSpecifier
-                            }
-                        }
-                        return SignalProducer<(), CarthageError>.empty
-                    }
-                    .on(terminated: {
-                        _ = fetchQueue.modify { $0.remove(dependency) }
-                    })
-            }
-    }
-
     /// Finds all the transitive dependencies for the dependencies to checkout.
     public func transitiveDependencies(
         resolvedCartfile: ResolvedCartfile,
@@ -629,31 +653,6 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         }
                 }
             }
-    }
-
-    private func mostRelevantDependenciesFor(dependency: Dependency, versionSpecifier: VersionSpecifier) -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> {
-        return SignalProducer(value: (dependency, versionSpecifier))
-            .flatMap(.concat) { entry -> SignalProducer<PinnedVersion, CarthageError> in
-                let (dependency, versionSpecifier) = entry
-                switch versionSpecifier {
-                case .empty:
-                    return SignalProducer.empty
-                case let .gitReference(comittish):
-                    return self.resolvedGitReference(dependency, reference: comittish)
-                default:
-                    return self.versions(for: dependency).filter { versionSpecifier.isSatisfied(by: $0) }
-                }
-            }
-            .map(ConcreteVersion.init(pinnedVersion:))
-            .collect()
-            .map { $0.sorted().first?.pinnedVersion }
-            .flatMap(.concat) { mostRelevantVersion -> SignalProducer<(Dependency, VersionSpecifier), CarthageError> in
-                if let version = mostRelevantVersion {
-                    return self.dependencies(for: dependency, version: version, tryCheckoutDirectory: false)
-                } else {
-                    return SignalProducer.empty
-                }
-        }
     }
 
     /// Effective binaries cache
