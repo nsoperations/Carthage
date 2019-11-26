@@ -63,6 +63,12 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.41.3+nsoperations
+
+- Improved performance of `update` by prefetching all required remote git dependencies in parallel
+- Improved performance of `bootstrap` by reverting an earlier change which resulted in always fetching all dependencies.
+- Fixed issue when `carthage build` with binaries enabled could fail if no frameworks had to be built.
+
 ### 0.41.2+nsoperations
 
 - Fixed bug where removing transitive dependencies (remove dependencies from Cartfile) could lead to an error when running `carthage update`
