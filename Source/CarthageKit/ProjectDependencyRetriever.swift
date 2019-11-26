@@ -189,11 +189,10 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         var dependenciesToFetch = [Dependency: VersionSpecifier]()
         var handledDependencies = Set<Dependency>()
         
-        return SignalProducer<(Dependency, VersionSpecifier), CarthageError>.init { observer, lifetime in
+        return SignalProducer<(Dependency, VersionSpecifier), CarthageError> { observer, lifetime in
                 dependenciesToFetch = cartfile.dependencies.filter({ entry -> Bool in
                     includedDependencyNames?.contains(entry.key.name) ?? true
                 })
-                print("Prefetching dependencies")
                 while !lifetime.hasEnded {
                     let next = lock.locked({ () -> (Dependency, VersionSpecifier)? in
                         if let next = dependenciesToFetch.popFirst() {
@@ -204,17 +203,14 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     })
                     
                     if let (dependency, versionSpecifier) = next {
-                        print("Starting fetch for: \(dependency) in thread \(Thread.current)")
                         fetchQueue.modify { $0.insert(dependency) }
                         observer.send(value: (dependency, versionSpecifier))
                     } else {
                         let fetchCount = fetchQueue.value.count
                         if fetchCount == 0 {
-                            print("All fetches have finished!")
                             observer.sendCompleted()
                             break
                         } else {
-                            print("Waiting for fetch to complete in thread: \(Thread.current)")
                             // Wait until a fetch completes
                             fetchQueue.wait { $0.count < fetchCount }
                         }
@@ -223,18 +219,16 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
             }
             .flatMap(.merge) { (dependency, versionSpecifier) -> SignalProducer<(), CarthageError> in
                 return self.mostRelevantDependenciesFor(dependency: dependency, versionSpecifier: versionSpecifier)
-                    .flatMap(.concat) { (transitiveDependency, transitiveVersionSpecifier) -> SignalProducer<(), CarthageError> in
-                        print("Received transitive dependency: \(transitiveDependency) in thread: \(Thread.current)")
+                    .flatMap(.concat) { transitiveDependency, transitiveVersionSpecifier -> SignalProducer<(), CarthageError> in
                         lock.locked {
                             if dependenciesToFetch[transitiveDependency] == nil && !handledDependencies.contains(transitiveDependency) {
                                 dependenciesToFetch[transitiveDependency] = transitiveVersionSpecifier
                             }
                         }
-                        return SignalProducer.empty
+                        return SignalProducer<(), CarthageError>.empty
                     }
                     .on(terminated: {
-                        print("Sending fetch complete for dependency \(dependency) in thread: \(Thread.current)")
-                        fetchQueue.modify { $0.remove(dependency) }
+                        _ = fetchQueue.modify { $0.remove(dependency) }
                     })
             }
     }
