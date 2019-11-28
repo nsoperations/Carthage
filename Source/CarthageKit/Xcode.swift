@@ -949,7 +949,7 @@ public final class Xcode {
                     .collect()
                     .flatMap(.concat) { (settings: [BuildSettings]) -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                         let actions: [String] = {
-                            var result: [String] = [xcodebuildAction.rawValue]
+                            var result: [String] = [BuildArguments.Action.clean.rawValue, xcodebuildAction.rawValue]
                             if xcodebuildAction == .archive {
                                 result += [
                                     // Prevent generating unnecessary empty `.xcarchive`
