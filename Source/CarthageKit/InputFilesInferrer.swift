@@ -16,7 +16,7 @@ public final class InputFilesInferrer {
     var builtFrameworkFilter: (URL) -> Bool = { url in
         if
             let executableURL = Bundle(url: url)?.executableURL,
-            let header = MachHeader.headers(forMachOFileAtUrl: executableURL).single()?.value
+            let header = MachHeader.headers(forMachOFileAtUrl: executableURL).collect().single()?.value?.first
         {
             return header.fileType == MH_DYLIB
         }
