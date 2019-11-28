@@ -63,6 +63,11 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.41.4+nsoperations
+
+- Fixed bug with the `copy-frameworks --auto` function where watch frameworks would not be discovered
+- Ensured `carthage build` will always perform a clean build to avoid issues with stale data in the derived data folder
+
 ### 0.41.3+nsoperations
 
 - Improved performance of `update` by prefetching all required remote git dependencies in parallel
