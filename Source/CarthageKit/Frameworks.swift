@@ -487,6 +487,52 @@ final class Frameworks {
             return nil
         }
     }
+    
+    static func stripPrivateSymbols(for executable: URL) -> Result<(), CarthageError> {
+        
+        return Result<(), CarthageError>.init(catching: { () -> Void in
+            let mangledSymbolsOutput = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executable.path]).getStdOutData().get()
+            
+            let unmangledSymbolsOutput =
+                try Task("/usr/bin/xcrun", arguments: ["swift-demangle"]).launch(standardInput: SignalProducer(value: mangledSymbolsOutput), shouldBeTerminatedOnParentExit: true).ignoreTaskData().first()!.get()
+            
+            let mangledSymbolsString = String(data: mangledSymbolsOutput, encoding: .utf8)!
+            let unmangledSymbolsString = String(data: unmangledSymbolsOutput, encoding: .utf8)!
+            
+            let regexPrivateSymbol = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([a-zA-Z])\s+(([a-zA-Z0-9]*)\s+)*(([a-zA-Z_\-]+\.))+\((.*)\).*"#, options: [])
+            let regexMangledSymbol = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([A-Z])\s+(.*)"#, options: [])
+            
+            var symbolIdentifiers = Set<String>()
+            
+            for line in unmangledSymbolsString.components(separatedBy: .newlines) {
+                guard let matches = line.matches(regex: regexPrivateSymbol) else {
+                    continue
+                }
+                symbolIdentifiers.insert(matches[1])
+            }
+            
+            var privateSymbols = [String]()
+            
+            for line in mangledSymbolsString.components(separatedBy: .newlines) {
+                guard let matches = line.matches(regex: regexMangledSymbol) else {
+                    continue
+                }
+                if symbolIdentifiers.contains(matches[1]) {
+                    privateSymbols.append(matches[3])
+                }
+            }
+            
+            let tempDir = try FileManager.default.createTemporaryDirectory().get()
+            
+            defer {
+                tempDir.removeIgnoringErrors()
+            }
+            
+            let tempFile = tempDir.appendingPathComponent("private_symbols.txt")
+
+            _ = try Task("/usr/bin/xcrun", arguments: ["strip", "-x", "-R", tempFile.path]).getStdOutData().get()
+        })
+    }
 
     // MARK: - Private methods
 
@@ -559,4 +605,28 @@ final class Frameworks {
                 }
         }
     }
+}
+
+
+fileprivate extension String {
+    
+    func matches(regex: NSRegularExpression) -> [String]? {
+        
+        let fullRange = NSRange(self.startIndex..., in: self)
+        
+        guard let match = regex.firstMatch(in: self, options: [], range: fullRange) else {
+            return nil
+        }
+        
+        var matches = [String]()
+        for i in 0..<match.numberOfRanges {
+            guard let range = Range(match.range(at: i), in: self) else {
+                fatalError("Expected range to not be nil")
+            }
+            let matchGroup = self[range]
+            matches.append(String(matchGroup))
+        }
+        return matches
+    }
+    
 }

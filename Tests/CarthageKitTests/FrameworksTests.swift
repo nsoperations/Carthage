@@ -55,6 +55,17 @@ public class FrameworksTests: XCTestCase {
         expect(result?.value) == testSwiftFrameworkURL
     }
     #endif
+    
+    func testStripPrivateSymbols() {
+        let result = Frameworks.stripPrivateSymbols(for: URL(fileURLWithPath: "/Users/werneraltewischer/Developer/ING/INGStyleKitV2/Carthage/Build/iOS/INGStyleKit.framework/INGStyleKit"))
+        
+        switch result {
+        case .success:
+            break
+        case let .failure(error):
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
 
     func testShouldDetermineWhenASwiftFrameworkIsIncompatible() {
         guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeOldSwift.framework", withExtension: nil) else {

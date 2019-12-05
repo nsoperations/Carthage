@@ -310,36 +310,46 @@ extension Reactive where Base: FileManager {
     /// The template name should adhere to the format required by the mkdtemp()
     /// function.
     public func createTemporaryDirectoryWithTemplate(_ template: String) -> SignalProducer<URL, CarthageError> {
-        return SignalProducer { [base = self.base] () -> Result<String, CarthageError> in
-            let temporaryDirectory: NSString
-            if #available(macOS 10.12, *) {
-                temporaryDirectory = base.temporaryDirectory.path as NSString
-            } else {
-                temporaryDirectory = NSTemporaryDirectory() as NSString
-            }
-
-            var temporaryDirectoryTemplate: ContiguousArray<CChar> = temporaryDirectory.appendingPathComponent(template).utf8CString
-
-            let result: UnsafeMutablePointer<Int8>? = temporaryDirectoryTemplate
-                .withUnsafeMutableBufferPointer { (template: inout UnsafeMutableBufferPointer<CChar>) -> UnsafeMutablePointer<CChar> in
-                    mkdtemp(template.baseAddress)
-            }
-
-            if result == nil {
-                return .failure(.taskError(.posixError(errno)))
-            }
-
-            let temporaryPath = temporaryDirectoryTemplate.withUnsafeBufferPointer { (ptr: UnsafeBufferPointer<CChar>) -> String in
-                return String(validatingUTF8: ptr.baseAddress!)!
-            }
-
-            return .success(temporaryPath)
-            }
-            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        return SignalProducer { [base = self.base] () -> Result<URL, CarthageError> in
+            return base.createTemporaryDirectoryWithTemplate(template)
+        }
     }
 
     public func createTemporaryDirectory() -> SignalProducer<URL, CarthageError> {
         return createTemporaryDirectoryWithTemplate(Files.tempDirTemplate)
+    }
+}
+
+extension FileManager {
+    func createTemporaryDirectory() -> Result<URL, CarthageError> {
+        return createTemporaryDirectoryWithTemplate(Files.tempDirTemplate)
+    }
+    
+    func createTemporaryDirectoryWithTemplate(_ template: String) -> Result<URL, CarthageError> {
+        
+        let temporaryDirectory: NSString
+        if #available(macOS 10.12, *) {
+            temporaryDirectory = self.temporaryDirectory.path as NSString
+        } else {
+            temporaryDirectory = NSTemporaryDirectory() as NSString
+        }
+
+        var temporaryDirectoryTemplate: ContiguousArray<CChar> = temporaryDirectory.appendingPathComponent(template).utf8CString
+
+        let result: UnsafeMutablePointer<Int8>? = temporaryDirectoryTemplate
+            .withUnsafeMutableBufferPointer { (template: inout UnsafeMutableBufferPointer<CChar>) -> UnsafeMutablePointer<CChar> in
+                mkdtemp(template.baseAddress)
+        }
+
+        if result == nil {
+            return .failure(.taskError(.posixError(errno)))
+        }
+
+        let temporaryPath = temporaryDirectoryTemplate.withUnsafeBufferPointer { (ptr: UnsafeBufferPointer<CChar>) -> String in
+            return String(validatingUTF8: ptr.baseAddress!)!
+        }
+
+        return .success(URL(fileURLWithPath: temporaryPath, isDirectory: true))
     }
 }
 

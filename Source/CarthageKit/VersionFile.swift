@@ -526,7 +526,7 @@ extension VersionFile {
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
-            .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
+            .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, commitish: commitish, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
             .flatMap(.concat) { localSwiftVersion, sourceHash -> SignalProducer<VersionStatus, CarthageError> in
                 return versionFile.satisfies(platforms: platforms,
                                              commitish: commitish,
@@ -547,7 +547,7 @@ extension VersionFile {
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
 
-        return self.sourceHash(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
+        return self.sourceHash(dependencyName: dependencyName, commitish: commitish, rootDirectoryURL: rootDirectoryURL)
             .flatMap(.merge) { sourceHash -> SignalProducer<(), CarthageError> in
                 return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
                     let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
@@ -614,7 +614,7 @@ extension VersionFile {
         return GitIgnore(string: defaultIgnoreList)
     }()
 
-    private static func sourceHash(dependencyName: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
+    private static func sourceHash(dependencyName: String, commitish: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
         return SignalProducer<String?, CarthageError> { () -> Result<String?, CarthageError> in
             let dependencyDir = rootDirectoryURL.appendingPathComponent(Dependency.relativePath(dependencyName: dependencyName))
 
@@ -622,12 +622,12 @@ extension VersionFile {
                 // No hash can be calculated if there is no source dir, this is ok, binaries don't contain sources.
                 return .success(nil)
             }
-
+            
             if let cachedHexString = VersionFile.sourceHashCache[dependencyDir] {
                 return .success(cachedHexString)
             }
                     
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, version: commitish, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }
