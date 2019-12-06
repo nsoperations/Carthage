@@ -41,8 +41,8 @@ public final class CopyFramework {
                                 } else if shouldSkip {
                                     return SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.skipped(frameworkName))
                                 } else {
-                                    let copyFrameworks = copyFramework(source, frameworksFolder: frameworksFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: false, tempFolder: tempURL)
-                                    let copyBCSymbols = true ? copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder, tempFolder: tempURL) : SignalProducer<URL, CarthageError>.empty
+                                    let copyFrameworks = copyFramework(source, frameworksFolder: frameworksFolder, validArchitectures: validArchitectures, codeSigningIdentity: codeSigningIdentity, shouldStripDebugSymbols: shouldStripDebugSymbols, tempFolder: tempURL)
+                                    let copyBCSymbols = shouldCopyBCSymbolMap ? copyBCSymbolMapsForFramework(source, symbolsFolder: symbolsFolder, tempFolder: tempURL) : SignalProducer<URL, CarthageError>.empty
                                     let copydSYMs = copyDebugSymbolsForFramework(source, symbolsFolder: symbolsFolder, validArchitectures: validArchitectures, tempFolder: tempURL)
                                     return SignalProducer.combineLatest(copyFrameworks, copyBCSymbols, copydSYMs)
                                         .then(SignalProducer<FrameworkEvent, CarthageError>(value: FrameworkEvent.copied(frameworkName)))

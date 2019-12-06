@@ -379,21 +379,21 @@ public final class Xcode {
         ) -> SignalProducer<(), CarthageError> {
 
         let stripArchitectures = stripBinary(frameworkURL, keepingArchitectures: keepingArchitectures)
-        //let stripSymbols = strippingDebugSymbols ? stripDebugSymbols(frameworkURL) : .empty
+        let stripSymbols = strippingDebugSymbols ? stripDebugSymbols(frameworkURL) : .empty
 
         // Xcode doesn't copy `Headers`, `PrivateHeaders` and `Modules` directory at
         // all.
-        // let stripHeaders = stripHeadersDirectory(frameworkURL)
-        // let stripPrivateHeaders = stripPrivateHeadersDirectory(frameworkURL)
-        // let stripModules = stripModulesDirectory(frameworkURL)
+        let stripHeaders = stripHeadersDirectory(frameworkURL)
+        let stripPrivateHeaders = stripPrivateHeadersDirectory(frameworkURL)
+        let stripModules = stripModulesDirectory(frameworkURL)
 
         let sign = codesigningIdentity.map { codesign(frameworkURL, $0) } ?? .empty
 
         return stripArchitectures
-            //.concat(stripSymbols)
-            //.concat(stripHeaders)
-            //.concat(stripPrivateHeaders)
-            //.concat(stripModules)
+            .concat(stripSymbols)
+            .concat(stripHeaders)
+            .concat(stripPrivateHeaders)
+            .concat(stripModules)
             .concat(sign)
     }
 
@@ -974,9 +974,6 @@ public final class Xcode {
                                     // Disable the "Strip Linked Product" build
                                     // setting so we can later generate a dSYM
                                     "STRIP_INSTALLED_PRODUCT=NO",
-                                    
-                                    // Disable "Copy phase strip"
-                                    "COPY_PHASE_STRIP=NO",
                                 ]
                             }
                             result.append("SWIFT_COMPILATION_MODE=wholemodule")
