@@ -221,6 +221,17 @@ extension Scanner {
                 self.string[$0]
         }
     }
+    
+    func scan(count: Int) -> String? {
+        let nsString = string as NSString
+        
+        guard scanLocation + count <= nsString.length else {
+            return nil
+        }
+        
+        let scanRange = NSRange(location: scanLocation, length: count)
+        return nsString.substring(with: scanRange)
+    }
 }
 
 extension URL {

@@ -494,7 +494,7 @@ final class Frameworks {
     static func privateSymbols(for frameworkURL: URL) -> Result<[String], CarthageError> {
         return CarthageResult.catching { () -> [String] in
             let executableURL = try binaryURL(frameworkURL).get()
-            let mangledSymbolsOutput = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutData().mapError(CarthageError.taskError).get()
+            let mangledSymbolsOutput = try Task("/usr/bin/xcrun", arguments: ["nm", executableURL.path]).getStdOutData().mapError(CarthageError.taskError).get()
             let mangledSymbolsString = String(data: mangledSymbolsOutput, encoding: .utf8) ?? ""
             let unmangledSymbolsString =
                 try Task("/usr/bin/xcrun", arguments: ["swift-demangle"]).getStdOutString(input: mangledSymbolsOutput, encoding: .utf8).mapError(CarthageError.taskError).get()
@@ -515,6 +515,7 @@ final class Frameworks {
     
     static func stripPrivateSymbols(for frameworkURL: URL) -> Result<(), CarthageError> {
         return CarthageResult.catching {
+            
             let executableURL = try binaryURL(frameworkURL).get()
             let symbols = try privateSymbols(for: frameworkURL).get()
             
@@ -527,12 +528,61 @@ final class Frameworks {
             let tempFile = tempDir.appendingPathComponent("private_symbols.txt")
             
             do {
+                print("Found private symbols: \(symbols)")
                 try symbols.joined(separator: "\n").write(to: tempFile, atomically: true, encoding: .utf8)
             } catch {
                 throw CarthageError.writeFailed(tempFile, error as NSError)
             }
                         
             _ = try Task("/usr/bin/xcrun", arguments: ["strip", "-x", "-R", tempFile.path, executableURL.path]).getStdOutData().mapError(CarthageError.taskError).get()
+        }
+    }
+    
+    // Returns a map of undefined (external) symbols where the key is the name of the dependency and the value is the symbol.
+    static func undefinedSymbols(frameworkURL: URL) -> Result<[String: Set<String>], CarthageError> {
+        return CarthageResult.catching {
+            let executableURL = try binaryURL(frameworkURL).get()
+            
+            //_$s11
+            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-u", executableURL.path]).getStdOutString().get()
+            
+            return output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
+                let scanner = Scanner(string: line)
+                var count = 0
+                if scanner.scanString("_$s", into: nil), scanner.scanInt(&count), let moduleName = scanner.scan(count: count) {
+                    map[moduleName, default: Set<String>()].insert(line)
+                }
+                
+            }
+        }
+    }
+    
+    // Returns a map of undefined (external) symbols where the key is the name of the dependency and the value is the symbol.
+    static func definedSymbols(frameworkURL: URL) -> Result<[String: Set<String>], CarthageError> {
+        return CarthageResult.catching {
+            let executableURL = try binaryURL(frameworkURL).get()
+            
+            //_$s11
+            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutString().get()
+            
+            return output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
+                let scanner = Scanner(string: line)
+                var count = 0
+                
+                /// hex, whitespace, string, whitespace, symbol
+                if scanner.scanHexInt64(nil),
+                    scanner.scanCharacters(from: .whitespaces, into: nil),
+                    scanner.scanCharacters(from: .alphanumerics, into: nil),
+                    scanner.scanCharacters(from: .whitespaces, into: nil),
+                    let symbolName = scanner.remainingSubstring.map(String.init),
+                    scanner.scanString("_$s", into: nil),
+                    scanner.scanInt(&count),
+                    let moduleName = scanner.scan(count: count) {
+                    
+                    map[moduleName, default: Set<String>()].insert(symbolName)
+                    
+                }
+            }
         }
     }
 

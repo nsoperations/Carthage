@@ -773,7 +773,7 @@ public final class Xcode {
                 switch sdks.count {
                 case 1:
                     return build(sdk: sdks[0], with: buildArgs, in: workingDirectoryURL)
-                        .flatMapTaskEvents(.merge) { settings in
+                        .flatMapTaskEvents(.concat) { settings in
                             return copyBuildProductIntoDirectory(settings.productDestinationPath(in: folderURL), settings)
                     }
 

@@ -34,6 +34,7 @@ registry.register(VersionCommand())
 registry.register(DiagnoseCommand())
 registry.register(SwiftVersionCommand())
 registry.register(GenerateProjectFileCommand())
+registry.register(StripFrameworkCommand())
 
 #if DEBUG
 var logTasks = false
