@@ -30,6 +30,7 @@ public enum VersionStatus {
     case swiftVersionNotEqual
     case binaryHashNotEqual
     case binaryHashCalculationFailed
+    case symbolsNotMatching
 }
 
 func &&(lhs: VersionStatus, rhs: VersionStatus) -> VersionStatus {
@@ -112,6 +113,15 @@ struct VersionFile: Codable {
 
     init(jsonData: Data) throws {
         self = try JSONDecoder().decode(VersionFile.self, from: jsonData)
+    }
+    
+    private func cachedFrameworkURLs(for platforms: Set<Platform>, in directoryURL: URL) -> Set<URL> {
+        return platforms.reduce(into: Set<URL>()) { frameworks, platform in
+            for cachedFramework in (self[platform] ?? []) {
+                let url = directoryURL.appendingPathComponent(platform.relativePath).appendingPathComponent("\(cachedFramework.name).framework")
+                frameworks.insert(url)
+            }
+        }
     }
 
     func frameworkURL(
@@ -487,7 +497,7 @@ extension VersionFile {
     }
 
     static func versionFileRelativePath(dependencyName: String) -> String {
-        return (Constants.binariesFolderPath as NSString).appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
+        return Constants.binariesFolderPath.appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
     }
 
     /// Returns the URL where the version file for the specified dependency should reside.
@@ -515,7 +525,8 @@ extension VersionFile {
         configuration: String,
         rootDirectoryURL: URL,
         toolchain: String?,
-        checkSourceHash: Bool
+        checkSourceHash: Bool,
+        externallyDefinedSymbols: [String: Set<String>]? = nil
         ) -> SignalProducer<VersionStatus, CarthageError> {
         let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
@@ -534,7 +545,24 @@ extension VersionFile {
                                              configuration: configuration,
                                              binariesDirectoryURL: rootBinariesURL,
                                              localSwiftVersion: localSwiftVersion)
-        }
+            }
+            .flatMap(.concat) { status -> SignalProducer<VersionStatus, CarthageError> in
+                if let externalSymbols = externallyDefinedSymbols, status == .matching {
+                    for frameworkURL in versionFile.cachedFrameworkURLs(for: platforms, in: rootDirectoryURL) {
+                        switch Frameworks.undefinedSymbols(frameworkURL: frameworkURL) {
+                        case let .success(undefinedSymbols):
+                            for (name, symbols) in undefinedSymbols {
+                                if let eSymbols = externalSymbols[name], !eSymbols.isSuperset(of: symbols) {
+                                    return SignalProducer(value: .symbolsNotMatching)
+                                }
+                            }
+                        case let .failure(error):
+                            return SignalProducer(error: error)
+                        }
+                    }
+                }
+                return SignalProducer(value: status)
+            }
     }
 
     // MARK: - Private

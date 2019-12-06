@@ -130,6 +130,8 @@ extension VersionStatus {
             return "the swift version did not match the current toolchain"
         case .versionFileNotFound:
             return "the version file was not found"
+        case .symbolsNotMatching:
+            return "the linked symbols do not match"
         }
     }
 }
