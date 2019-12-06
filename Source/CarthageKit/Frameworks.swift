@@ -488,39 +488,35 @@ final class Frameworks {
         }
     }
     
-    static func stripPrivateSymbols(for executable: URL) -> Result<(), CarthageError> {
-        
-        return Result<(), CarthageError>.init(catching: { () -> Void in
-            let mangledSymbolsOutput = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executable.path]).getStdOutData().get()
+    static let privateSymbolRegex = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([a-zA-Z])\s+(([a-zA-Z0-9]*)\s+)*(([a-zA-Z_\-]+\.))+\((.*)\).*"#, options: [])
+    static let mangledSymbolRegex = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([A-Z])\s+(.*)"#, options: [])
+    
+    static func privateSymbols(for frameworkURL: URL) -> Result<[String], CarthageError> {
+        return CarthageResult.catching { () -> [String] in
+            let executableURL = try binaryURL(frameworkURL).get()
+            let mangledSymbolsOutput = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutData().mapError(CarthageError.taskError).get()
+            let mangledSymbolsString = String(data: mangledSymbolsOutput, encoding: .utf8) ?? ""
+            let unmangledSymbolsString =
+                try Task("/usr/bin/xcrun", arguments: ["swift-demangle"]).getStdOutString(input: mangledSymbolsOutput, encoding: .utf8).mapError(CarthageError.taskError).get()
             
-            let unmangledSymbolsOutput =
-                try Task("/usr/bin/xcrun", arguments: ["swift-demangle"]).launch(standardInput: SignalProducer(value: mangledSymbolsOutput), shouldBeTerminatedOnParentExit: true).ignoreTaskData().first()!.get()
-            
-            let mangledSymbolsString = String(data: mangledSymbolsOutput, encoding: .utf8)!
-            let unmangledSymbolsString = String(data: unmangledSymbolsOutput, encoding: .utf8)!
-            
-            let regexPrivateSymbol = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([a-zA-Z])\s+(([a-zA-Z0-9]*)\s+)*(([a-zA-Z_\-]+\.))+\((.*)\).*"#, options: [])
-            let regexMangledSymbol = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([A-Z])\s+(.*)"#, options: [])
-            
-            var symbolIdentifiers = Set<String>()
-            
-            for line in unmangledSymbolsString.components(separatedBy: .newlines) {
-                guard let matches = line.matches(regex: regexPrivateSymbol) else {
-                    continue
-                }
-                symbolIdentifiers.insert(matches[1])
-            }
-            
-            var privateSymbols = [String]()
-            
-            for line in mangledSymbolsString.components(separatedBy: .newlines) {
-                guard let matches = line.matches(regex: regexMangledSymbol) else {
-                    continue
-                }
-                if symbolIdentifiers.contains(matches[1]) {
-                    privateSymbols.append(matches[3])
+            let privateSymbolIdentifiers = unmangledSymbolsString.components(separatedBy: .newlines).reduce(into: Set<String>()) { set, line in
+                if let identifier = line.firstMatchGroup(at: 1, regex: privateSymbolRegex) {
+                    set.insert(identifier)
                 }
             }
+            
+            return mangledSymbolsString.components(separatedBy: .newlines).reduce(into: [String]()) { array, line in
+                if let matches = line.firstMatchGroups(regex: mangledSymbolRegex), matches.count > 3, privateSymbolIdentifiers.contains(matches[1]) {
+                    array.append(matches[3])
+                }
+            }
+        }
+    }
+    
+    static func stripPrivateSymbols(for frameworkURL: URL) -> Result<(), CarthageError> {
+        return CarthageResult.catching {
+            let executableURL = try binaryURL(frameworkURL).get()
+            let symbols = try privateSymbols(for: frameworkURL).get()
             
             let tempDir = try FileManager.default.createTemporaryDirectory().get()
             
@@ -529,9 +525,15 @@ final class Frameworks {
             }
             
             let tempFile = tempDir.appendingPathComponent("private_symbols.txt")
-
-            _ = try Task("/usr/bin/xcrun", arguments: ["strip", "-x", "-R", tempFile.path]).getStdOutData().get()
-        })
+            
+            do {
+                try symbols.joined(separator: "\n").write(to: tempFile, atomically: true, encoding: .utf8)
+            } catch {
+                throw CarthageError.writeFailed(tempFile, error as NSError)
+            }
+                        
+            _ = try Task("/usr/bin/xcrun", arguments: ["strip", "-x", "-R", tempFile.path, executableURL.path]).getStdOutData().mapError(CarthageError.taskError).get()
+        }
     }
 
     // MARK: - Private methods
@@ -605,28 +607,4 @@ final class Frameworks {
                 }
         }
     }
-}
-
-
-fileprivate extension String {
-    
-    func matches(regex: NSRegularExpression) -> [String]? {
-        
-        let fullRange = NSRange(self.startIndex..., in: self)
-        
-        guard let match = regex.firstMatch(in: self, options: [], range: fullRange) else {
-            return nil
-        }
-        
-        var matches = [String]()
-        for i in 0..<match.numberOfRanges {
-            guard let range = Range(match.range(at: i), in: self) else {
-                fatalError("Expected range to not be nil")
-            }
-            let matchGroup = self[range]
-            matches.append(String(matchGroup))
-        }
-        return matches
-    }
-    
 }

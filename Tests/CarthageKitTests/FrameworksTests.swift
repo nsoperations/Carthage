@@ -56,17 +56,37 @@ public class FrameworksTests: XCTestCase {
     }
     #endif
     
-    func testStripPrivateSymbols() {
-        let result = Frameworks.stripPrivateSymbols(for: URL(fileURLWithPath: "/Users/werneraltewischer/Developer/ING/INGStyleKitV2/Carthage/Build/iOS/INGStyleKit.framework/INGStyleKit"))
-        
-        switch result {
-        case .success:
-            break
-        case let .failure(error):
-            XCTFail("Unexpected error: \(error)")
+    func testStripPrivateSymbols() throws {
+        guard let kingFisherFrameworkURL = Bundle(for: FrameworksTests.self).url(forResource: "Kingfisher", withExtension: "framework") else {
+            XCTFail("Could not find Kingfisher framework")
+            return
         }
+        
+        let symbols = try Frameworks.privateSymbols(for: kingFisherFrameworkURL).get()
+        XCTAssertFalse(symbols.isEmpty)
+        
+        let tempDir = try FileManager.default.createTemporaryDirectory().get()
+        
+        defer {
+            tempDir.removeIgnoringErrors()
+        }
+        
+        let targetURL = tempDir.appendingPathComponent("Kingfisher.framework")
+        
+        // Copy framework to temp dir
+        try FileManager.default.copyItem(at: kingFisherFrameworkURL, to: targetURL)
+        
+        let start = Date()
+        
+        try Frameworks.stripPrivateSymbols(for: targetURL).get()
+        
+        print("Stripping took \(Date().timeIntervalSince(start)) seconds")
+        
+        let symbolsAfterStrip = try Frameworks.privateSymbols(for: targetURL).get()
+        
+        XCTAssertTrue(symbolsAfterStrip.isEmpty)
     }
-
+    
     func testShouldDetermineWhenASwiftFrameworkIsIncompatible() {
         guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeOldSwift.framework", withExtension: nil) else {
             XCTFail("Could not load FakeOldSwift.framework from resources")
