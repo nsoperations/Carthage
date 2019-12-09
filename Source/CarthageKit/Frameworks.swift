@@ -530,56 +530,6 @@ final class Frameworks {
         }
     }
     
-    static let privateSymbolRegex = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([a-zA-Z])\s+(([a-zA-Z0-9]*)\s+)*(([a-zA-Z_\-]+\.))+\((.*)\).*"#, options: [])
-    static let mangledSymbolRegex = try! NSRegularExpression(pattern: #"([0-9a-f]+)\s+([A-Z])\s+(.*)"#, options: [])
-    
-    static func privateSymbols(for frameworkURL: URL) -> Result<[String], CarthageError> {
-        return CarthageResult.catching { () -> [String] in
-            let executableURL = try binaryURL(frameworkURL).get()
-            let mangledSymbolsOutput = try Task("/usr/bin/xcrun", arguments: ["nm", executableURL.path]).getStdOutData().mapError(CarthageError.taskError).get()
-            let mangledSymbolsString = String(data: mangledSymbolsOutput, encoding: .utf8) ?? ""
-            let unmangledSymbolsString =
-                try Task("/usr/bin/xcrun", arguments: ["swift-demangle"]).getStdOutString(input: mangledSymbolsOutput, encoding: .utf8).mapError(CarthageError.taskError).get()
-            
-            let privateSymbolIdentifiers = unmangledSymbolsString.components(separatedBy: .newlines).reduce(into: Set<String>()) { set, line in
-                if let identifier = line.firstMatchGroup(at: 1, regex: privateSymbolRegex) {
-                    set.insert(identifier)
-                }
-            }
-            
-            return mangledSymbolsString.components(separatedBy: .newlines).reduce(into: [String]()) { array, line in
-                if let matches = line.firstMatchGroups(regex: mangledSymbolRegex), matches.count > 3, privateSymbolIdentifiers.contains(matches[1]) {
-                    array.append(matches[3])
-                }
-            }
-        }
-    }
-    
-    static func stripPrivateSymbols(for frameworkURL: URL) -> Result<(), CarthageError> {
-        return CarthageResult.catching {
-            
-            let executableURL = try binaryURL(frameworkURL).get()
-            let symbols = try privateSymbols(for: frameworkURL).get()
-            
-            let tempDir = try FileManager.default.createTemporaryDirectory().get()
-            
-            defer {
-                tempDir.removeIgnoringErrors()
-            }
-            
-            let tempFile = tempDir.appendingPathComponent("private_symbols.txt")
-            
-            do {
-                print("Found private symbols: \(symbols)")
-                try symbols.joined(separator: "\n").write(to: tempFile, atomically: true, encoding: .utf8)
-            } catch {
-                throw CarthageError.writeFailed(tempFile, error as NSError)
-            }
-                        
-            _ = try Task("/usr/bin/xcrun", arguments: ["strip", "-x", "-R", tempFile.path, executableURL.path]).getStdOutData().mapError(CarthageError.taskError).get()
-        }
-    }
-    
     // Returns a map of undefined (external) symbols where the key is the name of the dependency and the value is the symbol.
     static func undefinedSymbols(frameworkURL: URL) -> Result<[String: Set<String>], CarthageError> {
         return CarthageResult.catching {
@@ -588,14 +538,16 @@ final class Frameworks {
             //_$s11
             let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-u", executableURL.path]).getStdOutString().get()
             
-            return output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
+            let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
                 let scanner = Scanner(string: line)
+                scanner.charactersToBeSkipped = CharacterSet()
                 var count = 0
                 if scanner.scanString("_$s", into: nil), scanner.scanInt(&count), let moduleName = scanner.scan(count: count) {
                     map[moduleName, default: Set<String>()].insert(line)
                 }
                 
             }
+            return result
         }
     }
     
@@ -606,9 +558,11 @@ final class Frameworks {
             
             //_$s11
             let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutString().get()
+            let expectedModuleName = executableURL.lastPathComponent
             
-            return output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
+            let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
                 let scanner = Scanner(string: line)
+                scanner.charactersToBeSkipped = CharacterSet()
                 var count = 0
                 
                 /// hex, whitespace, string, whitespace, symbol
@@ -619,12 +573,14 @@ final class Frameworks {
                     let symbolName = scanner.remainingSubstring.map(String.init),
                     scanner.scanString("_$s", into: nil),
                     scanner.scanInt(&count),
-                    let moduleName = scanner.scan(count: count) {
+                    let moduleName = scanner.scan(count: count),
+                    moduleName == expectedModuleName {
                     
                     map[moduleName, default: Set<String>()].insert(symbolName)
                     
                 }
             }
+            return result
         }
     }
 

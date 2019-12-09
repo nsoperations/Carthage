@@ -56,35 +56,30 @@ public class FrameworksTests: XCTestCase {
     }
     #endif
     
-    func testStripPrivateSymbols() throws {
-        guard let kingFisherFrameworkURL = Bundle(for: FrameworksTests.self).url(forResource: "Kingfisher", withExtension: "framework") else {
-            XCTFail("Could not find Kingfisher framework")
-            return
+    func testParseDefinedSymbols() {
+        let string = "00000000000a9190 T _$s11INGStyleKit14IconCharactersC27lineiconMultiplyCrossXCloseSo7UIImageCvau"
+        let scanner = Scanner(string: string)
+        scanner.charactersToBeSkipped = CharacterSet()
+        
+        var scanned: (String, String)?
+        var count = 0
+        
+        /// hex, whitespace, string, whitespace, symbol
+        if scanner.scanHexInt64(nil),
+            scanner.scanCharacters(from: .whitespaces, into: nil),
+            scanner.scanCharacters(from: .alphanumerics, into: nil),
+            scanner.scanCharacters(from: .whitespaces, into: nil),
+            let symbolName = scanner.remainingSubstring.map(String.init),
+            scanner.scanString("_$s", into: nil),
+            scanner.scanInt(&count),
+            let moduleName = scanner.scan(count: count) {
+            
+            scanned = (moduleName, symbolName)
+            
         }
-        
-        let symbols = try Frameworks.privateSymbols(for: kingFisherFrameworkURL).get()
-        XCTAssertFalse(symbols.isEmpty)
-        
-        let tempDir = try FileManager.default.createTemporaryDirectory().get()
-        
-        defer {
-            tempDir.removeIgnoringErrors()
-        }
-        
-        let targetURL = tempDir.appendingPathComponent("Kingfisher.framework")
-        
-        // Copy framework to temp dir
-        try FileManager.default.copyItem(at: kingFisherFrameworkURL, to: targetURL)
-        
-        let start = Date()
-        
-        try Frameworks.stripPrivateSymbols(for: targetURL).get()
-        
-        print("Stripping took \(Date().timeIntervalSince(start)) seconds")
-        
-        let symbolsAfterStrip = try Frameworks.privateSymbols(for: targetURL).get()
-        
-        XCTAssertTrue(symbolsAfterStrip.isEmpty)
+                
+        XCTAssertEqual(scanned?.0, "INGStyleKit")
+        XCTAssertEqual(scanned?.1, "_$s11INGStyleKit14IconCharactersC27lineiconMultiplyCrossXCloseSo7UIImageCvau")
     }
     
     func testShouldDetermineWhenASwiftFrameworkIsIncompatible() {

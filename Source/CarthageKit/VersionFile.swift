@@ -549,10 +549,17 @@ extension VersionFile {
             .flatMap(.concat) { status -> SignalProducer<VersionStatus, CarthageError> in
                 if let externalSymbols = externallyDefinedSymbols, status == .matching {
                     for (platform, frameworkURL) in versionFile.cachedFrameworkURLs(for: platforms, in: rootDirectoryURL) {
+                        print("Cross-referencing external symbols for framework: \(frameworkURL)")
                         switch Frameworks.undefinedSymbols(frameworkURL: frameworkURL) {
                         case let .success(undefinedSymbols):
                             for (name, symbols) in undefinedSymbols {
                                 if let eSymbols = externalSymbols[PlatformFramework(name: name, platform: platform)], !eSymbols.isSuperset(of: symbols) {
+                                    
+                                    let diffSet = symbols.subtracting(eSymbols)
+                                    
+                                    print("Found the following undefined symbols:")
+                                    print(diffSet.joined(separator: "\n"))
+                                    
                                     return SignalProducer(value: .symbolsNotMatching)
                                 }
                             }
