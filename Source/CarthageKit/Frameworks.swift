@@ -49,6 +49,11 @@ public enum FrameworkEvent {
     case copied(String)
 }
 
+public struct PlatformFramework: Hashable {
+    let name: String
+    let platform: Platform
+}
+
 final class Frameworks {
     /// Determines the Swift version of a framework at a given `URL`.
     static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<PinnedVersion?, SwiftVersionError> {
@@ -168,6 +173,43 @@ final class Frameworks {
         }
 
         return .failure(.readFailed(packageURL, nil))
+    }
+    
+    static func frameworksInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> Result<[(Platform, URL)], CarthageError> {
+        return CarthageResult.catching {
+            let binariesURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
+            let subDirectoryURLs = try FileManager.default.contentsOfDirectory(at: binariesURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+            var allFrameworks = [(Platform, URL)]()
+            
+            for subDirectoryURL in subDirectoryURLs {
+                do {
+                    if let isDirectory = try subDirectoryURL.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory,
+                        isDirectory == true,
+                        let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
+                        platforms?.contains(platform) ?? true {
+                        try frameworksInDirectory(subDirectoryURL).collect().getOnly().forEach { url in
+                            allFrameworks.append((platform, url))
+                        }
+                    }
+                } catch {
+                    throw CarthageError.readFailed(subDirectoryURL, error as NSError)
+                }
+            }
+            return allFrameworks
+        }
+    }
+    
+    static func definedSymbolsInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> CarthageResult<[PlatformFramework: Set<String>]> {
+        return CarthageResult.catching {
+            let frameworks = try Frameworks.frameworksInBuildFolder(directoryURL: directoryURL, platforms: platforms).get()
+            var map = [PlatformFramework: Set<String>]()
+            for (platform, url) in frameworks {
+                try self.definedSymbols(frameworkURL: url).get().forEach { (name, symbols) in
+                    map[PlatformFramework(name: name, platform: platform)] = symbols
+                }
+            }
+            return map
+        }
     }
 
     /// Sends the URL to each framework bundle found in the given directory.

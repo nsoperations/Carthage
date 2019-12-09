@@ -115,11 +115,11 @@ struct VersionFile: Codable {
         self = try JSONDecoder().decode(VersionFile.self, from: jsonData)
     }
     
-    private func cachedFrameworkURLs(for platforms: Set<Platform>, in directoryURL: URL) -> Set<URL> {
-        return platforms.reduce(into: Set<URL>()) { frameworks, platform in
+    private func cachedFrameworkURLs(for platforms: Set<Platform>, in directoryURL: URL) -> [(Platform, URL)] {
+        return platforms.reduce(into: [(Platform, URL)]()) { frameworks, platform in
             for cachedFramework in (self[platform] ?? []) {
                 let url = directoryURL.appendingPathComponent(platform.relativePath).appendingPathComponent("\(cachedFramework.name).framework")
-                frameworks.insert(url)
+                frameworks.append((platform, url))
             }
         }
     }
@@ -526,7 +526,7 @@ extension VersionFile {
         rootDirectoryURL: URL,
         toolchain: String?,
         checkSourceHash: Bool,
-        externallyDefinedSymbols: [String: Set<String>]? = nil
+        externallyDefinedSymbols: [PlatformFramework: Set<String>]? = nil
         ) -> SignalProducer<VersionStatus, CarthageError> {
         let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
@@ -548,11 +548,11 @@ extension VersionFile {
             }
             .flatMap(.concat) { status -> SignalProducer<VersionStatus, CarthageError> in
                 if let externalSymbols = externallyDefinedSymbols, status == .matching {
-                    for frameworkURL in versionFile.cachedFrameworkURLs(for: platforms, in: rootDirectoryURL) {
+                    for (platform, frameworkURL) in versionFile.cachedFrameworkURLs(for: platforms, in: rootDirectoryURL) {
                         switch Frameworks.undefinedSymbols(frameworkURL: frameworkURL) {
                         case let .success(undefinedSymbols):
                             for (name, symbols) in undefinedSymbols {
-                                if let eSymbols = externalSymbols[name], !eSymbols.isSuperset(of: symbols) {
+                                if let eSymbols = externalSymbols[PlatformFramework(name: name, platform: platform)], !eSymbols.isSuperset(of: symbols) {
                                     return SignalProducer(value: .symbolsNotMatching)
                                 }
                             }

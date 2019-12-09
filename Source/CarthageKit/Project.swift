@@ -710,6 +710,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             }
             .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+                var externalSymbolsMap: [PlatformFramework: Set<String>]!
                 return SignalProducer(dependencies)
                     .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         switch dependency {
@@ -732,6 +733,21 @@ public final class Project { // swiftlint:disable:this type_body_length
                         return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                             .then(.init(value: (dependency, version)))
                     }
+                    .collect()
+                    .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                        
+                        let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
+                        let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
+                        
+                        switch result {
+                        case let .failure(error):
+                            return SignalProducer(error: error)
+                        case let .success(value):
+                            externalSymbolsMap = value
+                        }
+                        
+                        return SignalProducer(dependencyVersions)
+                    }
                     .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
                         return VersionFile.versionFileMatches(
                             dependency,
@@ -740,7 +756,8 @@ public final class Project { // swiftlint:disable:this type_body_length
                             configuration: options.configuration,
                             rootDirectoryURL: self.directoryURL,
                             toolchain: options.toolchain,
-                            checkSourceHash: options.trackLocalChanges
+                            checkSourceHash: options.trackLocalChanges,
+                            externallyDefinedSymbols: externalSymbolsMap
                             )
                             .map { matches in return (dependency, version, matches) }
                     }
