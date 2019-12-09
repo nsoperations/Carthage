@@ -20,7 +20,7 @@ struct CachedFramework: Codable {
     }
 }
 
-public enum VersionStatus {
+public enum VersionStatus: Equatable {
     case matching
     case versionFileNotFound
     case sourceHashNotEqual
@@ -30,7 +30,7 @@ public enum VersionStatus {
     case swiftVersionNotEqual
     case binaryHashNotEqual
     case binaryHashCalculationFailed
-    case symbolsNotMatching
+    case symbolsNotMatching(symbols: Set<String>)
 }
 
 func &&(lhs: VersionStatus, rhs: VersionStatus) -> VersionStatus {
@@ -549,18 +549,18 @@ extension VersionFile {
             .flatMap(.concat) { status -> SignalProducer<VersionStatus, CarthageError> in
                 if let externalSymbols = externallyDefinedSymbols, status == .matching {
                     for (platform, frameworkURL) in versionFile.cachedFrameworkURLs(for: platforms, in: rootDirectoryURL) {
-                        print("Cross-referencing external symbols for framework: \(frameworkURL)")
                         switch Frameworks.undefinedSymbols(frameworkURL: frameworkURL) {
                         case let .success(undefinedSymbols):
                             for (name, symbols) in undefinedSymbols {
-                                if let eSymbols = externalSymbols[PlatformFramework(name: name, platform: platform)], !eSymbols.isSuperset(of: symbols) {
-                                    
+                                if let eSymbols = externalSymbols[PlatformFramework(name: name, platform: platform)] {
                                     let diffSet = symbols.subtracting(eSymbols)
-                                    
-                                    print("Found the following undefined symbols:")
-                                    print(diffSet.joined(separator: "\n"))
-                                    
-                                    return SignalProducer(value: .symbolsNotMatching)
+                                    if !diffSet.isEmpty {
+                                        #if DEBUG
+                                        print("Found the following undefined symbols:")
+                                        print(diffSet.joined(separator: "\n"))
+                                        #endif
+                                        return SignalProducer(value: .symbolsNotMatching(symbols: diffSet))
+                                    }
                                 }
                             }
                         case let .failure(error):
