@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.41.6+nsoperations
+
+- Removed build flag BUILD_LIBRARY_FOR_DISTRIBUTION=YES which caused problems
+
 ### 0.41.5+nsoperations
 
 - Ensured recompilation happens for cached binaries if the linked symbols do not match. See: https://bugs.swift.org/browse/SR-11906
