@@ -55,7 +55,33 @@ public class FrameworksTests: XCTestCase {
         expect(result?.value) == testSwiftFrameworkURL
     }
     #endif
-
+    
+    func testParseDefinedSymbols() {
+        let string = "00000000000a9190 T _$s11INGStyleKit14IconCharactersC27lineiconMultiplyCrossXCloseSo7UIImageCvau"
+        let scanner = Scanner(string: string)
+        scanner.charactersToBeSkipped = CharacterSet()
+        
+        var scanned: (String, String)?
+        var count = 0
+        
+        /// hex, whitespace, string, whitespace, symbol
+        if scanner.scanHexInt64(nil),
+            scanner.scanCharacters(from: .whitespaces, into: nil),
+            scanner.scanCharacters(from: .alphanumerics, into: nil),
+            scanner.scanCharacters(from: .whitespaces, into: nil),
+            let symbolName = scanner.remainingSubstring.map(String.init),
+            scanner.scanString("_$s", into: nil),
+            scanner.scanInt(&count),
+            let moduleName = scanner.scan(count: count) {
+            
+            scanned = (moduleName, symbolName)
+            
+        }
+                
+        XCTAssertEqual(scanned?.0, "INGStyleKit")
+        XCTAssertEqual(scanned?.1, "_$s11INGStyleKit14IconCharactersC27lineiconMultiplyCrossXCloseSo7UIImageCvau")
+    }
+    
     func testShouldDetermineWhenASwiftFrameworkIsIncompatible() {
         guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeOldSwift.framework", withExtension: nil) else {
             XCTFail("Could not load FakeOldSwift.framework from resources")

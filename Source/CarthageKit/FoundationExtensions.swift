@@ -123,6 +123,43 @@ extension String {
     func character(at: Int) -> Character {
         return self[index(startIndex, offsetBy: at)]
     }
+    
+    func firstMatchGroups(regex: NSRegularExpression) -> [String]? {
+        
+        let fullRange = NSRange(self.startIndex..., in: self)
+        
+        guard let match = regex.firstMatch(in: self, options: [], range: fullRange) else {
+            return nil
+        }
+        
+        var matches = [String]()
+        for i in 0..<match.numberOfRanges {
+            guard let range = Range(match.range(at: i), in: self) else {
+                fatalError("Expected range to not be nil")
+            }
+            let matchGroup = self[range]
+            matches.append(String(matchGroup))
+        }
+        return matches
+    }
+    
+    func firstMatchGroup(at index: Int, regex: NSRegularExpression) -> String? {
+        
+        let fullRange = NSRange(self.startIndex..., in: self)
+        
+        guard let match = regex.firstMatch(in: self, options: [], range: fullRange) else {
+            return nil
+        }
+        
+        guard index < match.numberOfRanges else {
+            return nil
+        }
+        
+        guard let range = Range(match.range(at: index), in: self) else {
+            fatalError("Expected range to not be nil")
+        }
+        return String(self[range])
+    }
 }
 
 extension Data {
@@ -183,6 +220,17 @@ extension Scanner {
             ).map {
                 self.string[$0]
         }
+    }
+    
+    func scan(count: Int) -> String? {
+        let nsString = string as NSString
+        
+        guard scanLocation + count <= nsString.length else {
+            return nil
+        }
+        
+        let scanRange = NSRange(location: scanLocation, length: count)
+        return nsString.substring(with: scanRange)
     }
 }
 

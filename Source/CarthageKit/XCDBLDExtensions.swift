@@ -16,7 +16,7 @@ extension Platform {
     /// be stored.
     public var relativePath: String {
         let subfolderName = rawValue
-        return (Constants.binariesFolderPath as NSString).appendingPathComponent(subfolderName)
+        return Constants.binariesFolderPath.appendingPathComponent(subfolderName)
     }
 
     /// The relative URL at which binaries corresponding to this platform will

@@ -49,6 +49,11 @@ public enum FrameworkEvent {
     case copied(String)
 }
 
+public struct PlatformFramework: Hashable {
+    let name: String
+    let platform: Platform
+}
+
 final class Frameworks {
     /// Determines the Swift version of a framework at a given `URL`.
     static func frameworkSwiftVersionIfIsSwiftFramework(_ frameworkURL: URL) -> SignalProducer<PinnedVersion?, SwiftVersionError> {
@@ -95,6 +100,7 @@ final class Frameworks {
 
         let versions: [PinnedVersion]?  = task.launch(standardInput: nil)
             .ignoreTaskData()
+            .mapError(CarthageError.taskError)
             .map { String(data: $0, encoding: .utf8) ?? "" }
             .filter { !$0.isEmpty }
             .flatMap(.merge) { (output: String) -> SignalProducer<String, NoError> in
@@ -168,6 +174,44 @@ final class Frameworks {
         }
 
         return .failure(.readFailed(packageURL, nil))
+    }
+    
+    static func frameworksInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> Result<[(Platform, URL)], CarthageError> {
+        return CarthageResult.catching {
+            let binariesURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
+            guard binariesURL.isExistingDirectory else {
+                return []
+            }
+            
+            let subDirectoryURLs = try readURL(binariesURL) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) }
+            var allFrameworks = [(Platform, URL)]()
+            
+            for subDirectoryURL in subDirectoryURLs {
+                let isDirectory = try readURL(subDirectoryURL) {  try $0.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory ?? false }
+                if isDirectory,
+                    let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
+                    platforms?.contains(platform) ?? true {
+                    try frameworksInDirectory(subDirectoryURL).collect().getOnly().forEach { url in
+                        allFrameworks.append((platform, url))
+                    }
+                }
+                
+            }
+            return allFrameworks
+        }
+    }
+    
+    static func definedSymbolsInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> CarthageResult<[PlatformFramework: Set<String>]> {
+        return CarthageResult.catching {
+            let frameworks = try Frameworks.frameworksInBuildFolder(directoryURL: directoryURL, platforms: platforms).get()
+            var map = [PlatformFramework: Set<String>]()
+            for (platform, url) in frameworks {
+                try self.definedSymbols(frameworkURL: url).get().forEach { (name, symbols) in
+                    map[PlatformFramework(name: name, platform: platform)] = symbols
+                }
+            }
+            return map
+        }
     }
 
     /// Sends the URL to each framework bundle found in the given directory.
@@ -253,6 +297,7 @@ final class Frameworks {
 
                     let sdkName: String? = task.launch(standardInput: nil)
                         .ignoreTaskData()
+                        .mapError(CarthageError.taskError)
                         .map { String(data: $0, encoding: .utf8) ?? "" }
                         .filter { !$0.isEmpty }
                         .flatMap(.merge) { (output: String) -> SignalProducer<String, NoError> in
@@ -485,6 +530,64 @@ final class Frameworks {
                 return Range(match.range(at: 1), in: value).map { String(value[$0]) }
             }
             return nil
+        }
+    }
+    
+    // Returns a map of undefined (external) symbols where the key is the name of the dependency and the value is the symbol.
+    static func undefinedSymbols(frameworkURL: URL) -> Result<[String: Set<String>], CarthageError> {
+        return CarthageResult.catching {
+            let executableURL = try binaryURL(frameworkURL).get()
+            
+            //_$s11
+            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-u", executableURL.path]).getStdOutString().flatMapError { _ -> Result<String, CarthageError> in
+                return .success("")
+            }.get()
+            
+            let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
+                let scanner = Scanner(string: line)
+                scanner.charactersToBeSkipped = CharacterSet()
+                var count = 0
+                if scanner.scanString("_$s", into: nil), scanner.scanInt(&count), let moduleName = scanner.scan(count: count) {
+                    map[moduleName, default: Set<String>()].insert(line)
+                }
+                
+            }
+            return result
+        }
+    }
+    
+    // Returns a map of undefined (external) symbols where the key is the name of the dependency and the value is the symbol.
+    static func definedSymbols(frameworkURL: URL) -> Result<[String: Set<String>], CarthageError> {
+        return CarthageResult.catching {
+            let executableURL = try binaryURL(frameworkURL).get()
+            
+            //_$s11
+            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutString().flatMapError { _ -> Result<String, CarthageError> in
+                return .success("")
+            }.get()
+            let expectedModuleName = executableURL.lastPathComponent
+            
+            let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
+                let scanner = Scanner(string: line)
+                scanner.charactersToBeSkipped = CharacterSet()
+                var count = 0
+                
+                /// hex, whitespace, string, whitespace, symbol
+                if scanner.scanHexInt64(nil),
+                    scanner.scanCharacters(from: .whitespaces, into: nil),
+                    scanner.scanCharacters(from: .alphanumerics, into: nil),
+                    scanner.scanCharacters(from: .whitespaces, into: nil),
+                    let symbolName = scanner.remainingSubstring.map(String.init),
+                    scanner.scanString("_$s", into: nil),
+                    scanner.scanInt(&count),
+                    let moduleName = scanner.scan(count: count),
+                    moduleName == expectedModuleName {
+                    
+                    map[moduleName, default: Set<String>()].insert(symbolName)
+                    
+                }
+            }
+            return result
         }
     }
 

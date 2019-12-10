@@ -95,16 +95,34 @@ class Digest {
     /**
      Calculates a digest for the directory at the specified URL, recursing into sub directories.
 
-     It will consider every regular non-hidden file for the digest, which is not git ignored, first sorting the relative paths alhpabetically.
+     It will consider every regular non-hidden file for the digest, which is not git ignored, first sorting the relative paths alphabetically.
      */
-    class func digestForDirectoryAtURL(_ directoryURL: URL, parentGitIgnore: GitIgnore? = nil) -> Result<Data, CarthageError> {
+    class func digestForDirectoryAtURL(_ directoryURL: URL, version: String = "", parentGitIgnore: GitIgnore? = nil) -> Result<Data, CarthageError> {
         do {
+            
+            #if DEBUG
+            let lastPathComponent = directoryURL.lastPathComponent
+            let timeStamp = Int64(Date().timeIntervalSince1970)
+            _ = try? FileManager.default.createDirectory(atPath: "/tmp/carthage", withIntermediateDirectories: true, attributes: nil)
+            let logFileURL = URL(fileURLWithPath: "/tmp/carthage/\(lastPathComponent)-\(version)-\(timeStamp)-digest.log")
+            print("Writing digest log to: \(logFileURL.path)")
+            var output = try FileOutputStream(fileURL: logFileURL)
+            print("Calculating digest for directory: \(directoryURL.path)", to: &output)
+            #endif
+            
             let digest = self.init()
             try crawl(directoryURL, relativePath: nil, parentGitIgnore: parentGitIgnore) { fileURL, relativePath in
 
                 guard let inputStream = InputStream(url: fileURL) else {
                     throw CarthageError.readFailed(fileURL, nil)
                 }
+                
+                #if DEBUG
+                let fileDigest = type(of: digest).digestForFileAtURL(fileURL)
+                
+                print("\(relativePath): \(fileDigest.value?.hexString ?? fileDigest.error!.description)", to: &output)
+                #endif
+                
                 //calculate hash
                 do {
                     try digest.update(inputStream: inputStream)
@@ -113,6 +131,10 @@ class Digest {
                 }
             }
             let result = digest.finalize()
+            
+            #if DEBUG
+            print("Final computed digest: \(result)", to: &output)
+            #endif
             return .success(result)
         } catch let error as CarthageError {
             return .failure(error)

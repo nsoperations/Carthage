@@ -20,7 +20,7 @@ struct CachedFramework: Codable {
     }
 }
 
-public enum VersionStatus {
+public enum VersionStatus: Equatable {
     case matching
     case versionFileNotFound
     case sourceHashNotEqual
@@ -30,6 +30,7 @@ public enum VersionStatus {
     case swiftVersionNotEqual
     case binaryHashNotEqual
     case binaryHashCalculationFailed
+    case symbolsNotMatching(symbols: Set<String>)
 }
 
 func &&(lhs: VersionStatus, rhs: VersionStatus) -> VersionStatus {
@@ -112,6 +113,15 @@ struct VersionFile: Codable {
 
     init(jsonData: Data) throws {
         self = try JSONDecoder().decode(VersionFile.self, from: jsonData)
+    }
+    
+    private func cachedFrameworkURLs(for platforms: Set<Platform>, in directoryURL: URL) -> [(Platform, URL)] {
+        return platforms.reduce(into: [(Platform, URL)]()) { frameworks, platform in
+            for cachedFramework in (self[platform] ?? []) {
+                let url = directoryURL.appendingPathComponent(platform.relativePath).appendingPathComponent("\(cachedFramework.name).framework")
+                frameworks.append((platform, url))
+            }
+        }
     }
 
     func frameworkURL(
@@ -487,7 +497,7 @@ extension VersionFile {
     }
 
     static func versionFileRelativePath(dependencyName: String) -> String {
-        return (Constants.binariesFolderPath as NSString).appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
+        return Constants.binariesFolderPath.appendingPathComponent(".\(dependencyName).\(VersionFile.pathExtension)")
     }
 
     /// Returns the URL where the version file for the specified dependency should reside.
@@ -515,7 +525,8 @@ extension VersionFile {
         configuration: String,
         rootDirectoryURL: URL,
         toolchain: String?,
-        checkSourceHash: Bool
+        checkSourceHash: Bool,
+        externallyDefinedSymbols: [PlatformFramework: Set<String>]? = nil
         ) -> SignalProducer<VersionStatus, CarthageError> {
         let versionFileURL = self.versionFileURL(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL)
         guard let versionFile = VersionFile(url: versionFileURL) else {
@@ -526,7 +537,7 @@ extension VersionFile {
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
-            .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
+            .combineLatest(with: checkSourceHash ? self.sourceHash(dependencyName: dependency.name, commitish: commitish, rootDirectoryURL: rootDirectoryURL) : SignalProducer<String?, CarthageError>(value: nil))
             .flatMap(.concat) { localSwiftVersion, sourceHash -> SignalProducer<VersionStatus, CarthageError> in
                 return versionFile.satisfies(platforms: platforms,
                                              commitish: commitish,
@@ -534,7 +545,31 @@ extension VersionFile {
                                              configuration: configuration,
                                              binariesDirectoryURL: rootBinariesURL,
                                              localSwiftVersion: localSwiftVersion)
-        }
+            }
+            .flatMap(.concat) { status -> SignalProducer<VersionStatus, CarthageError> in
+                if let externalSymbols = externallyDefinedSymbols, status == .matching {
+                    for (platform, frameworkURL) in versionFile.cachedFrameworkURLs(for: platforms, in: rootDirectoryURL) {
+                        switch Frameworks.undefinedSymbols(frameworkURL: frameworkURL) {
+                        case let .success(undefinedSymbols):
+                            for (name, symbols) in undefinedSymbols {
+                                if let eSymbols = externalSymbols[PlatformFramework(name: name, platform: platform)] {
+                                    let diffSet = symbols.subtracting(eSymbols)
+                                    if !diffSet.isEmpty {
+                                        #if DEBUG
+                                        print("Found the following undefined symbols:")
+                                        print(diffSet.joined(separator: "\n"))
+                                        #endif
+                                        return SignalProducer(value: .symbolsNotMatching(symbols: diffSet))
+                                    }
+                                }
+                            }
+                        case let .failure(error):
+                            return SignalProducer(error: error)
+                        }
+                    }
+                }
+                return SignalProducer(value: status)
+            }
     }
 
     // MARK: - Private
@@ -547,7 +582,7 @@ extension VersionFile {
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
 
-        return self.sourceHash(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
+        return self.sourceHash(dependencyName: dependencyName, commitish: commitish, rootDirectoryURL: rootDirectoryURL)
             .flatMap(.merge) { sourceHash -> SignalProducer<(), CarthageError> in
                 return SignalProducer<(), CarthageError> { () -> Result<(), CarthageError> in
                     let versionFileURL = self.versionFileURL(dependencyName: dependencyName, rootDirectoryURL: rootDirectoryURL)
@@ -614,7 +649,7 @@ extension VersionFile {
         return GitIgnore(string: defaultIgnoreList)
     }()
 
-    private static func sourceHash(dependencyName: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
+    private static func sourceHash(dependencyName: String, commitish: String, rootDirectoryURL: URL) -> SignalProducer<String?, CarthageError> {
         return SignalProducer<String?, CarthageError> { () -> Result<String?, CarthageError> in
             let dependencyDir = rootDirectoryURL.appendingPathComponent(Dependency.relativePath(dependencyName: dependencyName))
 
@@ -622,12 +657,12 @@ extension VersionFile {
                 // No hash can be calculated if there is no source dir, this is ok, binaries don't contain sources.
                 return .success(nil)
             }
-
+            
             if let cachedHexString = VersionFile.sourceHashCache[dependencyDir] {
                 return .success(cachedHexString)
             }
                     
-            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
+            let result = SHA256Digest.digestForDirectoryAtURL(dependencyDir, version: commitish, parentGitIgnore: defaultGitIgnore).map{ $0.hexString as String? }
             guard let hexString = result.value else {
                 return result
             }

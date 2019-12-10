@@ -133,6 +133,10 @@ extension CarthageError {
     public init(scannableError: ScannableError) {
         self = .parseError(description: "\(scannableError)")
     }
+    
+    static func assertionError(file: String = #file, line: Int = #line, description: String) -> CarthageError {
+        return CarthageError.internalError(description: "Assertion failed in file \(file) line #\(line): \(description)")
+    }
 }
 
 private func == (_ lhs: CarthageError.VersionRequirement, _ rhs: CarthageError.VersionRequirement) -> Bool {
