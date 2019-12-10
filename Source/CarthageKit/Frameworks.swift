@@ -178,22 +178,23 @@ final class Frameworks {
     static func frameworksInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> Result<[(Platform, URL)], CarthageError> {
         return CarthageResult.catching {
             let binariesURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
-            let subDirectoryURLs = try FileManager.default.contentsOfDirectory(at: binariesURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+            guard binariesURL.isExistingDirectory else {
+                return []
+            }
+            
+            let subDirectoryURLs = try readURL(binariesURL) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) }
             var allFrameworks = [(Platform, URL)]()
             
             for subDirectoryURL in subDirectoryURLs {
-                do {
-                    if let isDirectory = try subDirectoryURL.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory,
-                        isDirectory == true,
-                        let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
-                        platforms?.contains(platform) ?? true {
-                        try frameworksInDirectory(subDirectoryURL).collect().getOnly().forEach { url in
-                            allFrameworks.append((platform, url))
-                        }
+                let isDirectory = try readURL(subDirectoryURL) {  try $0.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory ?? false }
+                if isDirectory,
+                    let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
+                    platforms?.contains(platform) ?? true {
+                    try frameworksInDirectory(subDirectoryURL).collect().getOnly().forEach { url in
+                        allFrameworks.append((platform, url))
                     }
-                } catch {
-                    throw CarthageError.readFailed(subDirectoryURL, error as NSError)
                 }
+                
             }
             return allFrameworks
         }

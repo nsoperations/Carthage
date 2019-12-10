@@ -974,6 +974,9 @@ public final class Xcode {
                                     // Disable the "Strip Linked Product" build
                                     // setting so we can later generate a dSYM
                                     "STRIP_INSTALLED_PRODUCT=NO",
+                                    
+                                    // Ensure we build for distribution
+                                    "BUILD_LIBRARY_FOR_DISTRIBUTION=YES"
                                 ]
                             }
                             result.append("SWIFT_COMPILATION_MODE=wholemodule")
