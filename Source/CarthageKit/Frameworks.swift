@@ -100,6 +100,7 @@ final class Frameworks {
 
         let versions: [PinnedVersion]?  = task.launch(standardInput: nil)
             .ignoreTaskData()
+            .mapError(CarthageError.taskError)
             .map { String(data: $0, encoding: .utf8) ?? "" }
             .filter { !$0.isEmpty }
             .flatMap(.merge) { (output: String) -> SignalProducer<String, NoError> in
@@ -296,6 +297,7 @@ final class Frameworks {
 
                     let sdkName: String? = task.launch(standardInput: nil)
                         .ignoreTaskData()
+                        .mapError(CarthageError.taskError)
                         .map { String(data: $0, encoding: .utf8) ?? "" }
                         .filter { !$0.isEmpty }
                         .flatMap(.merge) { (output: String) -> SignalProducer<String, NoError> in
@@ -537,7 +539,9 @@ final class Frameworks {
             let executableURL = try binaryURL(frameworkURL).get()
             
             //_$s11
-            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-u", executableURL.path]).getStdOutString().get()
+            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-u", executableURL.path]).getStdOutString().flatMapError { _ -> Result<String, CarthageError> in
+                return .success("")
+            }.get()
             
             let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
                 let scanner = Scanner(string: line)
@@ -558,7 +562,9 @@ final class Frameworks {
             let executableURL = try binaryURL(frameworkURL).get()
             
             //_$s11
-            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutString().get()
+            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutString().flatMapError { _ -> Result<String, CarthageError> in
+                return .success("")
+            }.get()
             let expectedModuleName = executableURL.lastPathComponent
             
             let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
