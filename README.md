@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.41.5+nsoperations
+
+- Ensured recompilation happens for cached binaries if the linked symbols do not match. See: https://bugs.swift.org/browse/SR-11906
+
 ### 0.41.4+nsoperations
 
 - Fixed bug with the `copy-frameworks --auto` function where watch frameworks would not be discovered
