@@ -722,7 +722,8 @@ public final class Xcode {
             scheme: scheme,
             configuration: options.configuration,
             derivedDataPath: options.derivedDataPath,
-            toolchain: options.toolchain
+            toolchain: options.toolchain,
+            buildForDistribution: options.buildForDistribution
         )
         
         // If the Cartfile.project exists use that instead of trying to auto-discover the SDKs based on the build settings

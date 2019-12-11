@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.42.0+nsoperations
+
+- Added build option `--build-for-distribution` to enforce the flag BUILD_LIBRARY_FOR_DISTRIBUTION=YES to enable the Swift module stability feature.
+
 ### 0.41.6+nsoperations
 
 - Removed build flag BUILD_LIBRARY_FOR_DISTRIBUTION=YES which caused problems

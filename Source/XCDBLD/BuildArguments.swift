@@ -55,6 +55,8 @@ public struct BuildArguments {
 
     /// The build setting whether full bitcode should be embedded in the binary.
     public var bitcodeGenerationMode: BitcodeGenerationMode?
+    
+    private let buildForDistribution: Bool
 
     public init(
         project: ProjectLocator,
@@ -62,7 +64,8 @@ public struct BuildArguments {
         configuration: String? = nil,
         derivedDataPath: String? = nil,
         sdk: SDK? = nil,
-        toolchain: String? = nil
+        toolchain: String? = nil,
+        buildForDistribution: Bool = false
         ) {
         self.project = project
         self.scheme = scheme
@@ -70,6 +73,7 @@ public struct BuildArguments {
         self.derivedDataPath = derivedDataPath
         self.sdk = sdk
         self.toolchain = toolchain
+        self.buildForDistribution = buildForDistribution
     }
 
     /// The `xcodebuild` invocation corresponding to the receiver.
@@ -129,6 +133,10 @@ public struct BuildArguments {
             } else {
                 args += [ "ONLY_ACTIVE_ARCH=NO" ]
             }
+        }
+        
+        if (buildForDistribution) {
+            args += [ "BUILD_LIBRARY_FOR_DISTRIBUTION=YES" ]
         }
 
         // Disable code signing requirement for all builds
