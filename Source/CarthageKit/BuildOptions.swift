@@ -20,6 +20,8 @@ public struct BuildOptions {
     public var trackLocalChanges: Bool
     /// Whether to take ~/.netrc into account for credentials when downloading binaries
     public var useNetrc: Bool
+    /// Whether to enable the swift module stability feature
+    public var buildForDistribution: Bool
 
     public init(
         configuration: String,
@@ -30,6 +32,7 @@ public struct BuildOptions {
         useBinaries: Bool = true,
         customCacheCommand: String? = nil,
         trackLocalChanges: Bool = false,
+        buildForDistribution: Bool = false,
         useNetrc: Bool = false
         ) {
         self.configuration = configuration
@@ -40,6 +43,7 @@ public struct BuildOptions {
         self.useBinaries = useBinaries
         self.customCacheCommand = customCacheCommand
         self.trackLocalChanges = trackLocalChanges
+        self.buildForDistribution = buildForDistribution
         self.useNetrc = useNetrc
     }
 }
