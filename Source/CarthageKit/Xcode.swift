@@ -723,7 +723,8 @@ public final class Xcode {
             configuration: options.configuration,
             derivedDataPath: options.derivedDataPath,
             toolchain: options.toolchain,
-            buildForDistribution: options.buildForDistribution
+            buildForDistribution: options.buildForDistribution,
+            validDestinationIdentifiers: options.validSimulatorIdentifierSet
         )
         
         // If the Cartfile.project exists use that instead of trying to auto-discover the SDKs based on the build settings
@@ -892,7 +893,7 @@ public final class Xcode {
     // simulator on the list, iPad 2 7.1, which is invalid for the target.
     //
     // See https://github.com/Carthage/Carthage/issues/417.
-    private static func fetchDestination(sdk: SDK) -> SignalProducer<String?, CarthageError> {
+    private static func fetchDestination(sdk: SDK, buildArgs: BuildArguments) -> SignalProducer<String?, CarthageError> {
         // Specifying destination seems to be required for building with
         // simulator SDKs since Xcode 7.2.
         if sdk.isSimulator {
@@ -901,7 +902,7 @@ public final class Xcode {
                 .mapError(CarthageError.taskError)
                 .ignoreTaskData()
                 .flatMap(.concat) { (data: Data) -> SignalProducer<Simulator, CarthageError> in
-                    if let selectedSimulator = Simulator.selectAvailableSimulator(of: sdk, from: data) {
+                    if let selectedSimulator = Simulator.selectAvailableSimulator(of: sdk, from: data, validIdentifiers: buildArgs.validDestinationIdentifiers) {
                         return .init(value: selectedSimulator)
                     } else {
                         return .init(error: CarthageError.noAvailableSimulators(platformName: sdk.platform.rawValue))
@@ -923,7 +924,7 @@ public final class Xcode {
         var argsForBuilding = argsForLoading
         argsForBuilding.onlyActiveArchitecture = false
 
-        return fetchDestination(sdk: sdk)
+        return fetchDestination(sdk: sdk, buildArgs: buildArgs)
             .flatMap(.concat) { destination -> SignalProducer<TaskEvent<BuildSettings>, CarthageError> in
                 if let destination = destination {
                     argsForBuilding.destination = destination

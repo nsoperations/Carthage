@@ -34,7 +34,7 @@ internal struct Simulator: Decodable {
 
     /// Select available simulator from output value of `simclt devices list`
     /// If there are multiple OSs for the SDK, the latest one would be selected.
-    static func selectAvailableSimulator(of sdk: SDK, from data: Data) -> Simulator? {
+    static func selectAvailableSimulator(of sdk: SDK, from data: Data, validIdentifiers: Set<String>? = nil) -> Simulator? {
         let decoder = JSONDecoder()
         // simctl returns following JSON:
         // {"devices": {"iOS 12.0": [<simulators...>]}]
@@ -48,7 +48,7 @@ internal struct Simulator: Decodable {
             guard entry.value.contains(where: { $0.isAvailable }) else { return }
             result[platformVersion] = entry.value
         }
-        let allTargetSimulators = devices.reduce(into: [:], reducePlatformNames)
+        var allTargetSimulators = devices.reduce(into: [:], reducePlatformNames)
         func sortedByVersion(_ osNames: [String]) -> [String] {
             return osNames.sorted { lhs, rhs in
                 guard let lhsVersion = PinnedVersion(lhs).semanticVersion,
@@ -58,6 +58,15 @@ internal struct Simulator: Decodable {
                 return lhsVersion < rhsVersion
             }
         }
+        
+        if let validIdentifiers = validIdentifiers {
+            for (key, array) in allTargetSimulators {
+                allTargetSimulators[key] = array.filter { simulator -> Bool in
+                    return validIdentifiers.contains(simulator.udid.description)
+                }
+            }
+        }
+        
         guard let latestOSName = sortedByVersion(Array(allTargetSimulators.keys)).last else {
             return nil
         }

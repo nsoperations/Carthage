@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.43.0+nsoperations
+
+- Added the flag `--valid-simulator-identifiers` to limit the set of simulator identifiers to be considered for building when discovering the simulator destination to build for.
+
 ### 0.42.0+nsoperations
 
 - Added build option `--build-for-distribution` to enforce the flag BUILD_LIBRARY_FOR_DISTRIBUTION=YES to enable the Swift module stability feature.
