@@ -24,6 +24,8 @@ extension BuildOptions: OptionsProtocol {
         let option6 = Option<String?>(key: "cache-command", defaultValue: Environment.getVariable("CARTHAGE_CACHE_COMMAND").value, usage: "custom command to execute to download cached (binary) dependencies from a custom cache store. Five environment variables will be set which can be used by the command if needed: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]. The executable should move the cached file to the targetFilePath when successful. The CARTHAGE_CACHE_COMMAND environment variable is read for a default for this value. If not specified, caching will revert to caching based on the GitHub API which only works for GitHub dependencies.")
         let option7 = Option(key: "track-local-changes", defaultValue: false, usage: "track local changes made to dependencies to determine if a rebuild is necessary in combination with --use-binaries/--cache-builds. By default only the git commit hash is used so a rebuild is triggered only if the dependency commit hash did change.")
         let option8 = Option(key: "build-for-distribution", defaultValue: false, usage: "whether to enable the flag BUILD_LIBRARY_FOR_DISTRIBUTION for all frameworks to enable the Swift module stability feature")
+        
+        let option9 = Option<String?>(key: "valid-simulator-identifiers", defaultValue: nil, usage: "an optional comma-separated list of valid simulator identifiers to choose from (if not specified the first one found for the platform is chosen automatically)")
 
         return curry(self.init)
             <*> mode <| option1
@@ -35,6 +37,7 @@ extension BuildOptions: OptionsProtocol {
             <*> mode <| option6
             <*> mode <| option7
             <*> mode <| option8
+            <*> mode <| option9
             <*> mode <| SharedOptions.netrcOption
     }
 }

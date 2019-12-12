@@ -57,6 +57,8 @@ public struct BuildArguments {
     public var bitcodeGenerationMode: BitcodeGenerationMode?
     
     private let buildForDistribution: Bool
+    
+    public let validDestinationIdentifiers: Set<String>?
 
     public init(
         project: ProjectLocator,
@@ -65,7 +67,8 @@ public struct BuildArguments {
         derivedDataPath: String? = nil,
         sdk: SDK? = nil,
         toolchain: String? = nil,
-        buildForDistribution: Bool = false
+        buildForDistribution: Bool = false,
+        validDestinationIdentifiers: Set<String>? = nil
         ) {
         self.project = project
         self.scheme = scheme
@@ -74,6 +77,7 @@ public struct BuildArguments {
         self.sdk = sdk
         self.toolchain = toolchain
         self.buildForDistribution = buildForDistribution
+        self.validDestinationIdentifiers = validDestinationIdentifiers
     }
 
     /// The `xcodebuild` invocation corresponding to the receiver.

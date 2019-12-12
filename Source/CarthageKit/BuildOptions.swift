@@ -21,7 +21,15 @@ public struct BuildOptions {
     /// Whether to take ~/.netrc into account for credentials when downloading binaries
     public var useNetrc: Bool
     /// Whether to enable the swift module stability feature
-    public var buildForDistribution: Bool
+    public let buildForDistribution: Bool
+    /// The optional valid set of simulator identifiers to choose from
+    public let validSimulatorIdentifiers: String?
+    
+    public var validSimulatorIdentifierSet: Set<String>? {
+        return validSimulatorIdentifiers.map { string -> Set<String> in
+            return Set(string.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) })
+        }
+    }
 
     public init(
         configuration: String,
@@ -33,6 +41,7 @@ public struct BuildOptions {
         customCacheCommand: String? = nil,
         trackLocalChanges: Bool = false,
         buildForDistribution: Bool = false,
+        validSimulatorIdentifiers: String? = nil,
         useNetrc: Bool = false
         ) {
         self.configuration = configuration
@@ -44,6 +53,7 @@ public struct BuildOptions {
         self.customCacheCommand = customCacheCommand
         self.trackLocalChanges = trackLocalChanges
         self.buildForDistribution = buildForDistribution
+        self.validSimulatorIdentifiers = validSimulatorIdentifiers
         self.useNetrc = useNetrc
     }
 }
