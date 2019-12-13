@@ -669,9 +669,22 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         var cartfile: ResolvedCartfile!
         var levelLookupDict = [Dependency: Int]()
+        var externalSymbolsMap = [PlatformFramework: Set<String>]()
         
         return loadResolvedCartfile(useCache: true)
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                if options.cacheBuilds {
+                    // Fill the external symbols map
+                    let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
+                    let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
+                    
+                    switch result {
+                    case let .failure(error):
+                        return SignalProducer(error: error)
+                    case let .success(dict):
+                        externalSymbolsMap.merge(dict) { $1 }
+                    }
+                }
                 cartfile = resolvedCartfile
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild).map { entry in
                     levelLookupDict[entry.0] = entry.2
@@ -683,7 +696,14 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
                     self.dependencyRetriever.dependencySet(for: dependency, version: version, resolvedCartfile: cartfile),
-                    VersionFile.versionFileMatches(dependency, version: version, platforms: options.platforms, configuration: options.configuration, rootDirectoryURL: self.directoryURL, toolchain: options.toolchain, checkSourceHash: options.trackLocalChanges)
+                    VersionFile.versionFileMatches(dependency,
+                                                   version: version,
+                                                   platforms: options.platforms,
+                                                   configuration: options.configuration,
+                                                   rootDirectoryURL: self.directoryURL,
+                                                   toolchain: options.toolchain,
+                                                   checkSourceHash: options.trackLocalChanges,
+                                                   externallyDefinedSymbols: externalSymbolsMap)
                 )
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
@@ -710,7 +730,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             }
             .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
-                var externalSymbolsMap: [PlatformFramework: Set<String>]!
+                
                 return SignalProducer(dependencies)
                     .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         switch dependency {
@@ -735,17 +755,17 @@ public final class Project { // swiftlint:disable:this type_body_length
                     }
                     .collect()
                     .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                        
-                        let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
-                        let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
-                        
-                        switch result {
-                        case let .failure(error):
-                            return SignalProducer(error: error)
-                        case let .success(value):
-                            externalSymbolsMap = value
+                        if !dependencyVersions.isEmpty {
+                            // Add the symbols of the installed binaries to the externalSymbolsMap, after downloading
+                            let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
+                            let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
+                            switch result {
+                            case let .failure(error):
+                                return SignalProducer(error: error)
+                            case let .success(dict):
+                                externalSymbolsMap.merge(dict) { $1 }
+                            }
                         }
-                        
                         return SignalProducer(dependencyVersions)
                     }
                     .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
@@ -857,7 +877,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let rootDirectoryURL = self.directoryURL
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
-                let builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = options.useBinaries ? { builtProductURLs in
+                let builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = (options.useBinaries && options.buildForDistribution) ? { builtProductURLs in
                     let frameworkNames = builtProductURLs.compactMap { url -> String? in
                         guard url.pathExtension == "framework" else {
                             return nil

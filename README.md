@@ -63,6 +63,11 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.43.1+nsoperations
+
+- Ensured only binaries built with the option `--build-for-distribution` are stored in the local binary cache.
+- Ensured symbol map is updated before checking the cached builds in the Carthage/Build folder as well as after downloading any binaries to be completely sure no symbol linking issues will occur.
+
 ### 0.43.0+nsoperations
 
 - Added the flag `--valid-simulator-identifiers` to limit the set of simulator identifiers to be considered for building when discovering the simulator destination to build for.
