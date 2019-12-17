@@ -176,44 +176,45 @@ final class Frameworks {
         return .failure(.readFailed(packageURL, nil))
     }
     
-    static func frameworksInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> Result<[(Platform, URL)], CarthageError> {
-        return CarthageResult.catching {
-            let binariesURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
-            guard binariesURL.isExistingDirectory else {
-                return []
-            }
+    static func frameworksInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> SignalProducer<(Platform, URL), CarthageError> {
+        return SignalProducer<[URL], CarthageError> { () -> Result<[URL], CarthageError> in
             
-            let subDirectoryURLs = try readURL(binariesURL) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) }
-            var allFrameworks = [(Platform, URL)]()
+                let binariesURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
+                guard binariesURL.isExistingDirectory else {
+                    return .success([])
+                }
             
-            for subDirectoryURL in subDirectoryURLs {
-                let isDirectory = try readURL(subDirectoryURL) {  try $0.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory ?? false }
-                if isDirectory,
-                    let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
-                    platforms?.contains(platform) ?? true {
-                    try frameworksInDirectory(subDirectoryURL).collect().getOnly().forEach { url in
-                        allFrameworks.append((platform, url))
+                return CarthageResult.catching { () -> [URL] in
+                    let subDirectoryURLs = try readURL(binariesURL) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) }
+                    return try subDirectoryURLs.filter {
+                        try $0.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory ?? false
                     }
                 }
-                
             }
-            return allFrameworks
-        }
+            .flatten()
+            .flatMap(.merge) { subDirectoryURL -> SignalProducer<(Platform, URL), CarthageError> in
+                if let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
+                    platforms?.contains(platform) ?? true {
+                    return self.frameworksInDirectory(subDirectoryURL).map {
+                        (platform, $0)
+                    }
+                }
+                return SignalProducer.empty
+            }
     }
     
-    static func definedSymbolsInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> CarthageResult<[PlatformFramework: Set<String>]> {
-        return CarthageResult.catching {
-            let frameworks = try Frameworks.frameworksInBuildFolder(directoryURL: directoryURL, platforms: platforms).get()
-            var map = [PlatformFramework: Set<String>]()
-            for (platform, url) in frameworks {
-                try self.definedSymbols(frameworkURL: url).get().forEach { (name, symbols) in
-                    map[PlatformFramework(name: name, platform: platform)] = symbols
-                }
+    static func definedSymbolsInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> SignalProducer<(PlatformFramework, Set<String>), CarthageError> {
+        return Frameworks.frameworksInBuildFolder(directoryURL: directoryURL, platforms: platforms)
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { platformURL -> SignalProducer<(PlatformFramework, Set<String>), CarthageError> in
+                let (platform, url) = platformURL
+                return self.definedSymbols(frameworkURL: url)
+                    .map { name, set in
+                        return (PlatformFramework(name: name, platform: platform), set)
+                    }
+                    .startOnQueue(globalConcurrentProducerQueue)
             }
-            return map
-        }
     }
-
+    
     /// Sends the URL to each framework bundle found in the given directory.
     static func frameworksInDirectory(_ directoryURL: URL) -> SignalProducer<URL, CarthageError> {
         return filesInDirectory(directoryURL, kUTTypeFramework as String)
@@ -539,55 +540,89 @@ final class Frameworks {
             let executableURL = try binaryURL(frameworkURL).get()
             
             //_$s11
-            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-u", executableURL.path]).getStdOutString().flatMapError { _ -> Result<String, CarthageError> in
-                return .success("")
+            let outputData = try Task("/usr/bin/xcrun", arguments: ["nm", "-u", executableURL.path]).getStdOutData().flatMapError { _ -> Result<Data, CarthageError> in
+                return .success(Data())
             }.get()
             
-            let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+            let demangledOutput = try Task("/usr/bin/xcrun", arguments: ["swift-demangle"]).getStdOutString(input: outputData).mapError(CarthageError.taskError).get()
+            let symbolLines = output.components(separatedBy: .newlines)
+            let demangledSymbolLines = demangledOutput.components(separatedBy: .newlines)
+            var lineNumber = 0
+            
+            let result = symbolLines.reduce(into: [String: Set<String>]()) { map, line in
                 let scanner = Scanner(string: line)
                 scanner.charactersToBeSkipped = CharacterSet()
                 var count = 0
                 if scanner.scanString("_$s", into: nil), scanner.scanInt(&count), let moduleName = scanner.scan(count: count) {
-                    map[moduleName, default: Set<String>()].insert(line)
+                    let effectiveModuleName = extensionDefiningModule(demangledSymbol: demangledSymbolLines[lineNumber]) ?? moduleName
+                    map[effectiveModuleName, default: Set<String>()].insert(line)
                 }
-                
+                lineNumber += 1
             }
             return result
         }
     }
     
-    // Returns a map of undefined (external) symbols where the key is the name of the dependency and the value is the symbol.
-    static func definedSymbols(frameworkURL: URL) -> Result<[String: Set<String>], CarthageError> {
-        return CarthageResult.catching {
-            let executableURL = try binaryURL(frameworkURL).get()
-            
-            //_$s11
-            let output = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutString().flatMapError { _ -> Result<String, CarthageError> in
-                return .success("")
-            }.get()
-            let expectedModuleName = executableURL.lastPathComponent
-            
-            let result = output.components(separatedBy: .newlines).reduce(into: [String: Set<String>]()) { map, line in
-                let scanner = Scanner(string: line)
-                scanner.charactersToBeSkipped = CharacterSet()
-                var count = 0
-                
-                /// hex, whitespace, string, whitespace, symbol
-                if scanner.scanHexInt64(nil),
-                    scanner.scanCharacters(from: .whitespaces, into: nil),
-                    scanner.scanCharacters(from: .alphanumerics, into: nil),
-                    scanner.scanCharacters(from: .whitespaces, into: nil),
-                    let symbolName = scanner.remainingSubstring.map(String.init),
-                    scanner.scanString("_$s", into: nil),
-                    scanner.scanInt(&count),
-                    let moduleName = scanner.scan(count: count),
-                    moduleName == expectedModuleName {
-                    
-                    map[moduleName, default: Set<String>()].insert(symbolName)
-                    
+    private static func extensionDefiningModule(demangledSymbol: String) -> String? {
+        if let extensionRange = demangledSymbol.range(of: "(extension in ") {
+            var definingModule = String()
+            for c in demangledSymbol[extensionRange.upperBound..<demangledSymbol.endIndex] {
+                if c == ")" {
+                    break
                 }
+                definingModule.append(c)
             }
-            return result
+            return definingModule
+        }
+        return nil
+    }
+    
+    // Returns a map of defined symbols where the key is the name of the module and the value is the set of symbols.
+    static func definedSymbols(frameworkURL: URL) -> SignalProducer<(String, Set<String>), CarthageError> {
+        return SignalProducer.init { () -> Result<(String, Set<String>), CarthageError> in
+            return CarthageResult.catching {
+                                
+                let executableURL = try binaryURL(frameworkURL).get()
+                
+                //_$s11
+                let outputData = try Task("/usr/bin/xcrun", arguments: ["nm", "-U", executableURL.path]).getStdOutData().flatMapError { _ -> Result<Data, CarthageError> in
+                    return .success(Data())
+                }.get()
+                
+                let output = String(data: outputData, encoding: .utf8) ?? ""
+                let demangledOutput = try Task("/usr/bin/xcrun", arguments: ["swift-demangle"]).getStdOutString(input: outputData).mapError(CarthageError.taskError).get()
+                let expectedModuleName = executableURL.lastPathComponent
+                
+                let symbolLines = output.components(separatedBy: .newlines)
+                let demangledSymbolLines = demangledOutput.components(separatedBy: .newlines)
+                
+                var lineNumber = 0
+                
+                let result = symbolLines.reduce(into: Set<String>()) { set, line in
+                    let scanner = Scanner(string: line)
+                    scanner.charactersToBeSkipped = CharacterSet()
+                    var count = 0
+                    
+                    /// hex, whitespace, string, whitespace, symbol
+                    if scanner.scanHexInt64(nil),
+                        scanner.scanCharacters(from: .whitespaces, into: nil),
+                        scanner.scanCharacters(from: .alphanumerics, into: nil),
+                        scanner.scanCharacters(from: .whitespaces, into: nil),
+                        let symbolName = scanner.remainingSubstring.map(String.init),
+                        scanner.scanString("_$s", into: nil),
+                        scanner.scanInt(&count),
+                        let moduleName = scanner.scan(count: count) {
+                        
+                        let effectiveModuleName = extensionDefiningModule(demangledSymbol: demangledSymbolLines[lineNumber]) ?? moduleName
+                        if effectiveModuleName == expectedModuleName {
+                            set.insert(symbolName)
+                        }
+                    }
+                    lineNumber += 1
+                }
+                return (expectedModuleName, result)
+            }
         }
     }
 

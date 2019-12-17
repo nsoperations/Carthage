@@ -138,7 +138,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     let directoryURL: URL
 
     /// Limits the number of concurrent clones/fetches
-    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit", limit: 4)
+    private let cloneOrFetchQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit.cloneOrFetchQueue", limit: 4)
 
     public init(directoryURL: URL, projectEventsObserver: Signal<ProjectEvent, NoError>.Observer? = nil) {
         self.directoryURL = directoryURL
@@ -497,7 +497,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                             }
                         })
                         .on(terminated: { lock?.unlock() })
-            }
+                }
+                .startOnQueue(globalConcurrentProducerQueue)
         } else {
             return SignalProducer(value: false)
         }
@@ -557,6 +558,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     })
                     .on(terminated: { lock?.unlock() })
             })
+            .startOnQueue(globalConcurrentProducerQueue)
     }
 
     // MARK: - Private methods

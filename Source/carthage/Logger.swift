@@ -74,6 +74,9 @@ final class ProjectEventLogger {
             
         case let .warning(message):
             carthage.printOut(formatting.warning("warning: ") + message)
+            
+        case .crossReferencingSymbols:
+            carthage.printOut(formatting.bullets + "Cross-referencing symbols for pre-built binaries")
         }
     }
 }

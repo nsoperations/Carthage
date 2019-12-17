@@ -62,6 +62,8 @@ public enum ProjectEvent {
     
     /// Generic warning message
     case warning(String)
+    
+    case crossReferencingSymbols
 }
 
 extension ProjectEvent: Equatable {
@@ -93,6 +95,9 @@ extension ProjectEvent: Equatable {
             
         case let (.warning(left), .warning(right)):
             return left == right
+        
+        case (.crossReferencingSymbols, .crossReferencingSymbols):
+            return true
 
         default:
             return false
@@ -673,25 +678,13 @@ public final class Project { // swiftlint:disable:this type_body_length
         
         return loadResolvedCartfile(useCache: true)
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                if options.cacheBuilds {
-                    // Fill the external symbols map
-                    let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
-                    let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
-                    
-                    switch result {
-                    case let .failure(error):
-                        return SignalProducer(error: error)
-                    case let .success(dict):
-                        externalSymbolsMap.merge(dict) { $1 }
-                    }
-                }
                 cartfile = resolvedCartfile
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild).map { entry in
                     levelLookupDict[entry.0] = entry.2
                     return (entry.0, entry.1)
                 }
             }
-            .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, VersionStatus), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, VersionStatus), CarthageError> in
                 let (dependency, version) = arg
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version)),
@@ -702,9 +695,9 @@ public final class Project { // swiftlint:disable:this type_body_length
                                                    configuration: options.configuration,
                                                    rootDirectoryURL: self.directoryURL,
                                                    toolchain: options.toolchain,
-                                                   checkSourceHash: options.trackLocalChanges,
-                                                   externallyDefinedSymbols: externalSymbolsMap)
+                                                   checkSourceHash: options.trackLocalChanges)
                 )
+                .startOnQueue(globalConcurrentProducerQueue)
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
                 let (nextDependency, projects, versionStatus) = nextGroup
@@ -729,7 +722,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return dependenciesIncludingNext
                 }
             }
-            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+            .flatMap(.merge) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
                 
                 return SignalProducer(dependencies)
                     .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
@@ -754,17 +747,17 @@ public final class Project { // swiftlint:disable:this type_body_length
                             .then(.init(value: (dependency, version)))
                     }
                     .collect()
-                    .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                    .flatMap(.merge) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         if !dependencyVersions.isEmpty {
+                            self.projectEventsObserver.send(value: .crossReferencingSymbols)
                             // Add the symbols of the installed binaries to the externalSymbolsMap, after downloading
                             let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
-                            let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
-                            switch result {
-                            case let .failure(error):
-                                return SignalProducer(error: error)
-                            case let .success(dict):
-                                externalSymbolsMap.merge(dict) { $1 }
-                            }
+                            
+                            return Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
+                                .reduce(into: externalSymbolsMap) { map, entry in
+                                    map[entry.0] = entry.1
+                                }
+                                .then(SignalProducer(dependencyVersions))
                         }
                         return SignalProducer(dependencyVersions)
                     }
@@ -796,7 +789,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                             !installedDependencies.contains { $0 == dependency }
                         }
                     }
-                    .flatMap(.merge) { dependencies -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+                    .flatMap(.concat) { dependencies -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
                         var leveledDependencies: [[(Dependency, PinnedVersion)]] = []
                         var currentLevel = -1
                         for versionedDependency in dependencies {
@@ -889,6 +882,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                     .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
+                    .startOnQueue(globalConcurrentProducerQueue)
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:
