@@ -48,6 +48,7 @@ struct VersionFile: Codable {
     enum CodingKeys: String, CodingKey {
         case commitish = "commitish"
         case sourceHash = "sourceHash"
+        case resolvedDependenciesHash = "resolvedDependenciesHash"
         case configuration = "configuration"
         case macOS = "Mac"
         case iOS = "iOS"
@@ -57,6 +58,7 @@ struct VersionFile: Codable {
 
     let commitish: String
     let sourceHash: String?
+    let resolvedDependenciesHash: String?
     let configuration: String
 
     let macOS: [CachedFramework]?
@@ -86,6 +88,7 @@ struct VersionFile: Codable {
     init(
         commitish: String,
         sourceHash: String?,
+        resolvedDependenciesHash: String?,
         configuration: String,
         macOS: [CachedFramework]?,
         iOS: [CachedFramework]?,
@@ -94,6 +97,7 @@ struct VersionFile: Codable {
         ) {
         self.commitish = commitish
         self.sourceHash = sourceHash
+        self.resolvedDependenciesHash = resolvedDependenciesHash
         self.configuration = configuration
         self.macOS = macOS
         self.iOS = iOS
@@ -357,6 +361,7 @@ extension VersionFile {
         commitish: String?,
         platforms: Set<Platform>,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -389,6 +394,7 @@ extension VersionFile {
                     dependencyName: currentProjectNameString,
                     platforms: platforms,
                     configuration: configuration,
+                    resolvedDependencySet: resolvedDependencySet,
                     buildProducts: buildProducts,
                     rootDirectoryURL: rootDirectoryURL
                 )
@@ -406,6 +412,7 @@ extension VersionFile {
         version: PinnedVersion,
         platforms: Set<Platform>,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -414,6 +421,7 @@ extension VersionFile {
             dependencyName: dependency.name,
             platforms: platforms,
             configuration: configuration,
+            resolvedDependencySet: resolvedDependencySet,
             buildProducts: buildProducts,
             rootDirectoryURL: rootDirectoryURL
         )
@@ -430,6 +438,7 @@ extension VersionFile {
         dependencyName: String,
         platforms: Set<Platform> = Set(Platform.supportedPlatforms),
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -523,6 +532,7 @@ extension VersionFile {
         version: PinnedVersion,
         platforms: Set<Platform>,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         rootDirectoryURL: URL,
         toolchain: String?,
         checkSourceHash: Bool,
@@ -589,6 +599,7 @@ extension VersionFile {
                     let versionFile = VersionFile(
                         commitish: commitish,
                         sourceHash: sourceHash,
+                        resolvedDependenciesHash: nil,
                         configuration: configuration,
                         macOS: platformCaches[Platform.macOS.rawValue],
                         iOS: platformCaches[Platform.iOS.rawValue],

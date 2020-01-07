@@ -170,6 +170,17 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 set.insert(effectiveDependency)
             })
     }
+    
+    func resolvedRecursiveDependencySet(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<Set<PinnedDependency>, CarthageError> {
+        return self.recursiveDependencySet(for: dependency, version: version, resolvedCartfile: resolvedCartfile)
+            .map { dependencySet -> Set<PinnedDependency> in
+                return dependencySet.reduce(into: Set()) { (set, dep) in
+                    if let pinnedVersion = resolvedCartfile.dependencies[dep] {
+                        set.insert(PinnedDependency(dependency: dep, pinnedVersion: pinnedVersion))
+                    }
+                }
+            }
+    }
 
     public func recursiveDependencySet(for dependency: Dependency, version: PinnedVersion, resolvedCartfile: ResolvedCartfile) -> SignalProducer<Set<Dependency>, CarthageError> {
         return SignalProducer<Set<Dependency>, CarthageError>.init { () -> Result<Set<Dependency>, CarthageError> in
@@ -459,7 +470,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     /// Installs binaries and debug symbols for the given project, if available.
     ///
     /// Sends a boolean indicating whether binaries were installed.
-    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, platforms: Set<Platform>, toolchain: String?, customCacheCommand: String?) -> SignalProducer<Bool, CarthageError> {
+    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, resolvedDependencySet: Set<PinnedDependency>, platforms: Set<Platform>, toolchain: String?, customCacheCommand: String?) -> SignalProducer<Bool, CarthageError> {
         if let cache = self.binariesCache(for: dependency, customCacheCommand: customCacheCommand) {
             return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
                 .mapError { error in CarthageError.internalError(description: error.description) }
@@ -479,7 +490,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                             lock = urlLock
                             if let url = urlLock?.url {
                                 self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
-                                return self.unarchiveAndCopyBinaryFrameworks(zipFile: url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                                return self.unarchiveAndCopyBinaryFrameworks(zipFile: url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependencySet: resolvedDependencySet, swiftVersion: localSwiftVersion)
                                     .then(SignalProducer<Bool, CarthageError>(value: true))
                             } else {
                                 return SignalProducer<Bool, CarthageError>(value: false)
@@ -532,6 +543,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         platforms: Set<Platform>,
         toolchain: String?
         ) -> SignalProducer<(), CarthageError> {
@@ -549,7 +561,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
                         lock = urlLock
                         self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
-                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, swiftVersion: localSwiftVersion)
+                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependencySet: resolvedDependencySet, swiftVersion: localSwiftVersion)
                     }
                     .on(failed: { error in
                         if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
@@ -735,6 +747,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         dependency: Dependency,
         pinnedVersion: PinnedVersion,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         swiftVersion: PinnedVersion
         ) -> SignalProducer<(), CarthageError> {
 
@@ -745,6 +758,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                                                   dependency: dependency,
                                                   pinnedVersion: pinnedVersion,
                                                   configuration: configuration,
+                                                  resolvedDependencySet: resolvedDependencySet,
                                                   swiftVersion: swiftVersion)
                 .on(terminated: { tempDirectoryURL.removeIgnoringErrors() })
         }
@@ -755,6 +769,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         dependency: Dependency,
         pinnedVersion: PinnedVersion,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         swiftVersion: PinnedVersion
         ) -> SignalProducer<(), CarthageError> {
         // Helper type
@@ -891,7 +906,8 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         frameworkURLs,
                         projectName: dependency.name,
                         commitish: pinnedVersion.commitish,
-                        configuration: configuration
+                        configuration: configuration,
+                        resolvedDependencySet: resolvedDependencySet
                     )
                 }
             }
@@ -938,11 +954,13 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         _ frameworkURLs: [URL],
         projectName: String,
         commitish: String,
-        configuration: String
+        configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>
         ) -> SignalProducer<(), CarthageError> {
         return VersionFile.createVersionFileForCommitish(commitish,
                                                          dependencyName: projectName,
                                                          configuration: configuration,
+                                                         resolvedDependencySet: resolvedDependencySet,
                                                          buildProducts: frameworkURLs,
                                                          rootDirectoryURL: self.directoryURL)
     }

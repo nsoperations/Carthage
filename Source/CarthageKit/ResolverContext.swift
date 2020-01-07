@@ -186,7 +186,7 @@ final class DependencyConflict {
     }
 }
 
-private struct PinnedDependency: Hashable {
+public struct PinnedDependency: Hashable {
     public let dependency: Dependency
     public let pinnedVersion: PinnedVersion
     private let hash: Int
