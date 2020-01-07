@@ -264,7 +264,6 @@ public final class Xcode {
                 return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
                     .filter { $0 }
                     .map { _ in (scheme, project) }
-                    .startOnQueue(globalConcurrentProducerQueue)
             }
             .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { scheme, project -> SignalProducer<(Scheme, ProjectLocator), CarthageError> in
                 return locator
@@ -279,7 +278,6 @@ public final class Xcode {
                             return shouldBuildScheme(buildArguments, forPlatforms: platforms, schemeMatcher: schemeMatcher)
                                 .filter { $0 }
                                 .map { _ in project }
-                                .startOnQueue(globalConcurrentProducerQueue)
                             
                         default:
                             return .empty
@@ -600,6 +598,7 @@ public final class Xcode {
             // Otherwise, nope.
             .concat(value: false)
             .take(first: 1)
+            .startOnQueue(globalConcurrentProducerQueue)
     }
 
     /// Aggregates all of the build settings sent on the given signal, associating

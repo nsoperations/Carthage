@@ -722,7 +722,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return dependenciesIncludingNext
                 }
             }
-            .flatMap(.merge) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
                 
                 return SignalProducer(dependencies)
                     .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
@@ -747,21 +747,22 @@ public final class Project { // swiftlint:disable:this type_body_length
                             .then(.init(value: (dependency, version)))
                     }
                     .collect()
-                    .flatMap(.merge) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
+                    .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                         if !dependencyVersions.isEmpty {
                             self.projectEventsObserver.send(value: .crossReferencingSymbols)
                             // Add the symbols of the installed binaries to the externalSymbolsMap, after downloading
                             let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
                             
                             return Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
-                                .reduce(into: externalSymbolsMap) { map, entry in
-                                    map[entry.0] = entry.1
+                                .filterMap { entry in
+                                    externalSymbolsMap[entry.0] = entry.1
+                                    return nil
                                 }
                                 .then(SignalProducer(dependencyVersions))
                         }
                         return SignalProducer(dependencyVersions)
                     }
-                    .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
+                    .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
                         return VersionFile.versionFileMatches(
                             dependency,
                             version: version,
@@ -773,6 +774,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                             externallyDefinedSymbols: externalSymbolsMap
                             )
                             .map { matches in return (dependency, version, matches) }
+                            .startOnQueue(globalConcurrentProducerQueue)
                     }
                     .filterMap { dependency, version, versionStatus -> (Dependency, PinnedVersion)? in
                         guard versionStatus == .matching else {

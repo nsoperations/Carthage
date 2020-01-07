@@ -177,30 +177,30 @@ final class Frameworks {
     }
     
     static func frameworksInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> SignalProducer<(Platform, URL), CarthageError> {
-        return SignalProducer<[URL], CarthageError> { () -> Result<[URL], CarthageError> in
-            
+        return SignalProducer<[(Platform, URL)], CarthageError> { () -> Result<[(Platform, URL)], CarthageError> in
+            return CarthageResult.catching {
                 let binariesURL = directoryURL.appendingPathComponent(Constants.binariesFolderPath)
                 guard binariesURL.isExistingDirectory else {
-                    return .success([])
+                    return []
                 }
-            
-                return CarthageResult.catching { () -> [URL] in
-                    let subDirectoryURLs = try readURL(binariesURL) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) }
-                    return try subDirectoryURLs.filter {
-                        try $0.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory ?? false
+                
+                let subDirectoryURLs = try readURL(binariesURL) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) }
+                var allFrameworks = [(Platform, URL)]()
+                
+                for subDirectoryURL in subDirectoryURLs {
+                    let isDirectory = try readURL(subDirectoryURL) {  try $0.resourceValues(forKeys: Set([.isDirectoryKey])).isDirectory ?? false }
+                    if isDirectory,
+                        let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
+                        platforms?.contains(platform) ?? true {
+                        try frameworksInDirectory(subDirectoryURL).collect().getOnly().forEach { url in
+                            allFrameworks.append((platform, url))
+                        }
                     }
+                    
                 }
+                return allFrameworks
             }
-            .flatten()
-            .flatMap(.merge) { subDirectoryURL -> SignalProducer<(Platform, URL), CarthageError> in
-                if let platform = Platform(rawValue: subDirectoryURL.lastPathComponent),
-                    platforms?.contains(platform) ?? true {
-                    return self.frameworksInDirectory(subDirectoryURL).map {
-                        (platform, $0)
-                    }
-                }
-                return SignalProducer.empty
-            }
+        }.flatten()
     }
     
     static func definedSymbolsInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> SignalProducer<(PlatformFramework, Set<String>), CarthageError> {
