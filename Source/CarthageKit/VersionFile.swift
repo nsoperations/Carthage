@@ -465,7 +465,7 @@ extension VersionFile {
             let frameworkSwiftVersion: String?
         }
         
-        let resolvedDependenciesHash: String = self.hashForResolvedDependencySet(resolvedDependencySet)
+        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
 
         if !buildProducts.isEmpty {
             return SignalProducer<URL, CarthageError>(buildProducts)
@@ -558,7 +558,7 @@ extension VersionFile {
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
         let commitish = version.commitish
-        let resolvedDependenciesHash = self.hashForResolvedDependencySet(resolvedDependencySet)
+        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
@@ -599,20 +599,12 @@ extension VersionFile {
     }
 
     // MARK: - Private
-
-    private static func hashForResolvedDependencySet(_ set: Set<PinnedDependency>) -> String {
-        let digest = set.sorted().reduce(into: SHA256Digest()) { digest, pinnedDependency in
-            let string = "\(pinnedDependency.dependency.urlString)==\(pinnedDependency.pinnedVersion)"
-            digest.update(data: string.data(using: .utf8)!)
-        }
-        return digest.finalize().hexString
-    }
     
     private static func createVersionFile(
         _ commitish: String,
         dependencyName: String,
         configuration: String,
-        resolvedDependenciesHash: String,
+        resolvedDependenciesHash: String?,
         rootDirectoryURL: URL,
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {

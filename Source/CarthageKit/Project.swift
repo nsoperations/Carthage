@@ -727,7 +727,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 guard options.cacheBuilds && projects.isDisjoint(with: projectsToBeBuilt) else {
                     return dependenciesIncludingNext
                 }
-
+                
                 if versionStatus == .versionFileNotFound {
                     self.projectEventsObserver.send(value: .buildingUncached(nextDependency.0))
                     return dependenciesIncludingNext
@@ -763,7 +763,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         return installed ? (dependency, version, resolvedDependencySet) : nil
                 }
             case let .binary(binary):
-                return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, platforms: options.platforms, toolchain: options.toolchain)
+                return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, platforms: options.platforms, toolchain: options.toolchain)
                     .then(.init(value: (dependency, version, resolvedDependencySet)))
             }
         }
@@ -820,9 +820,9 @@ public final class Project { // swiftlint:disable:this type_body_length
             // but preserves the build order
             return dependencies.compactMap { dependency, pinnedVersion, resolvedDependencySet -> (Dependency, PinnedVersion)? in
                 guard installedDependencies.contains(where: { $0.0 == dependency }) else {
-                    return nil
+                    return (dependency, pinnedVersion)
                 }
-                return (dependency, pinnedVersion)
+                return nil
             }
         }
         .flatMap(.concat) { dependencies -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
@@ -907,7 +907,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         }
                         return url.deletingPathExtension().lastPathComponent
                     }
-                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain).map { _ in }
+                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, toolchain: options.toolchain).map { _ in }
                     } : nil
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)

@@ -476,10 +476,12 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 .mapError { error in CarthageError.internalError(description: error.description) }
                 .flatMap(.concat) { localSwiftVersion -> SignalProducer<Bool, CarthageError> in
                     var lock: URLLock?
+                    let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
                     return cache.matchingBinary(
                         for: dependency,
                         pinnedVersion: pinnedVersion,
                         configuration: configuration,
+                        resolvedDependenciesHash: resolvedDependenciesHash,
                         platforms: platforms,
                         swiftVersion: localSwiftVersion,
                         eventObserver: self.projectEventsObserver,
@@ -515,7 +517,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         }
     }
 
-    public func storeBinaries(for dependency: Dependency, frameworkNames: [String], pinnedVersion: PinnedVersion, configuration: String, toolchain: String?) -> SignalProducer<URL, CarthageError> {
+    public func storeBinaries(for dependency: Dependency, frameworkNames: [String], pinnedVersion: PinnedVersion, configuration: String, resolvedDependencySet: Set<PinnedDependency>, toolchain: String?) -> SignalProducer<URL, CarthageError> {
         if frameworkNames.isEmpty {
             return SignalProducer<URL, CarthageError>.empty
         }
@@ -527,11 +529,12 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 return Archive.archiveFrameworks(frameworkNames: frameworkNames, dependencyName: dependency.name, directoryURL: self.directoryURL, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
             }
             .flatMap(.merge) { archiveURL -> SignalProducer<URL, CarthageError> in
+                let hash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
                 return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
                     .mapError { error in CarthageError.internalError(description: error.description) }
                     .flatMap(.merge) { swiftVersion -> SignalProducer<URL, CarthageError> in
                         self.projectEventsObserver?.send(value: .storingBinaries(dependency, pinnedVersion.description))
-                        return AbstractBinariesCache.storeFile(at: archiveURL, for: dependency, version: pinnedVersion, configuration: configuration, swiftVersion: swiftVersion, lockTimeout: self.lockTimeout, deleteSource: true)
+                        return AbstractBinariesCache.storeFile(at: archiveURL, for: dependency, version: pinnedVersion, configuration: configuration, resolvedDependenciesHash: hash, swiftVersion: swiftVersion, lockTimeout: self.lockTimeout, deleteSource: true)
                 }
             }
             .on(terminated: {
@@ -543,7 +546,6 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
         platforms: Set<Platform>,
         toolchain: String?
         ) -> SignalProducer<(), CarthageError> {
@@ -561,7 +563,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
                         lock = urlLock
                         self.projectEventsObserver?.send(value: .installingBinaries(dependency, pinnedVersion.description))
-                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependencySet: resolvedDependencySet, swiftVersion: localSwiftVersion)
+                        return self.unarchiveAndCopyBinaryFrameworks(zipFile: urlLock.url, dependency: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependencySet: Set(), swiftVersion: localSwiftVersion)
                     }
                     .on(failed: { error in
                         if case .incompatibleFrameworkSwiftVersion = error, let url = lock?.url {
@@ -727,7 +729,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     /// less temporary location.
     private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout, netrc: self.netrc)
+        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependenciesHash: nil, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout, netrc: self.netrc)
             .attemptMap({ urlLock -> Result<URLLock, CarthageError> in
                 if let lock = urlLock {
                     return .success(lock)

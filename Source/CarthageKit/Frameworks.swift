@@ -203,6 +203,19 @@ final class Frameworks {
         }.flatten()
     }
     
+    static func hashForResolvedDependencySet(_ set: Set<PinnedDependency>) -> String? {
+        if set.isEmpty {
+            return nil
+        }
+        
+        let digest = set.sorted().reduce(into: SHA256Digest()) { digest, pinnedDependency in
+            let string = "\(pinnedDependency.dependency.urlString)==\(pinnedDependency.pinnedVersion)"
+            digest.update(data: string.data(using: .utf8)!)
+        }
+        let result = digest.finalize().hexString
+        return result
+    }
+    
     static func definedSymbolsInBuildFolder(directoryURL: URL, platforms: Set<Platform>?) -> SignalProducer<(PlatformFramework, Set<String>), CarthageError> {
         return Frameworks.frameworksInBuildFolder(directoryURL: directoryURL, platforms: platforms)
             .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { platformURL -> SignalProducer<(PlatformFramework, Set<String>), CarthageError> in
