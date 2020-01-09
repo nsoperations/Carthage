@@ -24,6 +24,7 @@ public enum VersionStatus: Equatable {
     case matching
     case versionFileNotFound
     case sourceHashNotEqual
+    case dependenciesHashNotEqual
     case configurationNotEqual
     case commitishNotEqual
     case platformNotFound
@@ -225,6 +226,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
+        resolvedDependenciesHash: String?,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -236,6 +238,7 @@ struct VersionFile: Codable {
                     commitish: commitish,
                     sourceHash: sourceHash,
                     configuration: configuration,
+                    resolvedDependenciesHash: resolvedDependenciesHash,
                     binariesDirectoryURL: binariesDirectoryURL,
                     localSwiftVersion: localSwiftVersion
                 )
@@ -248,6 +251,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
+        resolvedDependenciesHash: String?,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -276,6 +280,7 @@ struct VersionFile: Codable {
                     commitish: commitish,
                     sourceHash: sourceHash,
                     configuration: configuration,
+                    resolvedDependenciesHash: resolvedDependenciesHash,
                     hashes: hashes,
                     swiftVersionMatches: swiftVersionMatches
                 )
@@ -287,12 +292,17 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
+        resolvedDependenciesHash: String?,
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<VersionStatus, CarthageError> {
         
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
             return SignalProducer(value: .sourceHashNotEqual)
+        }
+        
+        if let definedDependenciesHash = self.resolvedDependenciesHash, let suppliedDependenciesHash = resolvedDependenciesHash, definedDependenciesHash != suppliedDependenciesHash {
+            return SignalProducer(value: .dependenciesHashNotEqual)
         }
         
         guard let cachedFrameworks = self[platform] else {
@@ -454,6 +464,8 @@ extension VersionFile {
             let frameworkName: String
             let frameworkSwiftVersion: String?
         }
+        
+        let resolvedDependenciesHash: String = self.hashForResolvedDependencySet(resolvedDependencySet)
 
         if !buildProducts.isEmpty {
             return SignalProducer<URL, CarthageError>(buildProducts)
@@ -488,6 +500,7 @@ extension VersionFile {
                         commitish,
                         dependencyName: dependencyName,
                         configuration: configuration,
+                        resolvedDependenciesHash: resolvedDependenciesHash,
                         rootDirectoryURL: rootDirectoryURL,
                         platformCaches: platformCaches
                     )
@@ -499,6 +512,7 @@ extension VersionFile {
                 commitish,
                 dependencyName: dependencyName,
                 configuration: configuration,
+                resolvedDependenciesHash: resolvedDependenciesHash,
                 rootDirectoryURL: rootDirectoryURL,
                 platformCaches: platformCaches
             )
@@ -544,6 +558,7 @@ extension VersionFile {
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
         let commitish = version.commitish
+        let resolvedDependenciesHash = self.hashForResolvedDependencySet(resolvedDependencySet)
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
@@ -553,6 +568,7 @@ extension VersionFile {
                                              commitish: commitish,
                                              sourceHash: sourceHash,
                                              configuration: configuration,
+                                             resolvedDependenciesHash: resolvedDependenciesHash,
                                              binariesDirectoryURL: rootBinariesURL,
                                              localSwiftVersion: localSwiftVersion)
             }
@@ -584,10 +600,19 @@ extension VersionFile {
 
     // MARK: - Private
 
+    private static func hashForResolvedDependencySet(_ set: Set<PinnedDependency>) -> String {
+        let digest = set.sorted().reduce(into: SHA256Digest()) { digest, pinnedDependency in
+            let string = "\(pinnedDependency.dependency.urlString)==\(pinnedDependency.pinnedVersion)"
+            digest.update(data: string.data(using: .utf8)!)
+        }
+        return digest.finalize().hexString
+    }
+    
     private static func createVersionFile(
         _ commitish: String,
         dependencyName: String,
         configuration: String,
+        resolvedDependenciesHash: String,
         rootDirectoryURL: URL,
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
@@ -599,7 +624,7 @@ extension VersionFile {
                     let versionFile = VersionFile(
                         commitish: commitish,
                         sourceHash: sourceHash,
-                        resolvedDependenciesHash: nil,
+                        resolvedDependenciesHash: resolvedDependenciesHash,
                         configuration: configuration,
                         macOS: platformCaches[Platform.macOS.rawValue],
                         iOS: platformCaches[Platform.iOS.rawValue],

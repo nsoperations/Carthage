@@ -129,6 +129,8 @@ extension VersionStatus {
             return "one of the requested platforms was not found"
         case .sourceHashNotEqual:
             return "the source hash did not match"
+        case .dependenciesHashNotEqual:
+            return "the resolved dependencies hash did not match"
         case .swiftVersionNotEqual:
             return "the swift version did not match the current toolchain"
         case .versionFileNotFound:

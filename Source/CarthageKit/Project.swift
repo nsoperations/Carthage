@@ -740,7 +740,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             }
             .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
-                return self.bla(dependencies: dependencies, cartfile: cartfile, options: options)
+                return self.installBinaries(dependencies: dependencies, levelLookupDict: levelLookupDict, cartfile: cartfile, options: options)
             }
             .flatMap(.concat) { (sameLevelDependencies: [(Dependency, PinnedVersion)]) -> BuildSchemeProducer in
                 return self.buildSameLevelDependencies(sameLevelDependencies: sameLevelDependencies, options: options, cartfile: cartfile, sdkFilter: sdkFilter)
@@ -749,9 +749,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     // MARK: - Private
     
-    private func bla(dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>)], cartfile: ResolvedCartfile, options: BuildOptions) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> {
-        
-        var externalSymbolsMap = [PlatformFramework: Set<String>]()
+    private func installBinaries(dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>)], levelLookupDict: [Dependency: Int], cartfile: ResolvedCartfile, options: BuildOptions) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> {
         
         return SignalProducer(dependencies)
             .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { (dependency: Dependency, version: PinnedVersion, resolvedDependencySet: Set<PinnedDependency>) -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
@@ -776,22 +774,25 @@ public final class Project { // swiftlint:disable:this type_body_length
                 .then(.init(value: (dependency, version, resolvedDependencySet)))
         }
         .collect()
-        .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
+        .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>, [PlatformFramework: Set<String>]), CarthageError> in
             if !dependencyVersions.isEmpty {
                 self.projectEventsObserver.send(value: .crossReferencingSymbols)
                 // Add the symbols of the installed binaries to the externalSymbolsMap, after downloading
                 let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
                 
                 return Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
-                    .filterMap { entry in
-                        externalSymbolsMap[entry.0] = entry.1
-                        return nil
+                    .reduce(into: [:], { (map, entry) in
+                        map[entry.0] = entry.1
+                    })
+                    .flatMap(.concat) { externalSymbolsMap -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>, [PlatformFramework: Set<String>]), CarthageError> in
+                        return SignalProducer(dependencyVersions).map { ($0, $1, $2, externalSymbolsMap) }
                     }
-                    .then(SignalProducer(dependencyVersions))
             }
-            return SignalProducer(dependencyVersions)
+            return SignalProducer(dependencyVersions).map { dependency, version, resolvedDependencySet in
+                return (dependency, version, resolvedDependencySet, [:])
+            }
         }
-        .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version, resolvedDependencySet -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
+        .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version, resolvedDependencySet, externalSymbolsMap -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
             return VersionFile.versionFileMatches(
                 dependency,
                 version: version,
@@ -869,10 +870,8 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     private func buildSameLevelDependencies(sameLevelDependencies: [(Dependency, PinnedVersion)], options: BuildOptions, cartfile: ResolvedCartfile, sdkFilter: @escaping SDKFilterCallback) -> BuildSchemeProducer {
         
-        let concurrencyLimit: UInt = min(UInt(sameLevelDependencies.count), Constants.concurrencyLimit)
+        let concurrencyLimit: UInt = min(max(1, UInt(sameLevelDependencies.count)), Constants.concurrencyLimit)
         let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
-        
-        
         
         return SignalProducer(sameLevelDependencies)
             .flatMap(.concat) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in

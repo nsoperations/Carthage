@@ -5,7 +5,7 @@ import Result
 public struct Constants {
     
     public static var concurrencyLimit: UInt {
-        return UInt(ProcessInfo.processInfo.activeProcessorCount)
+        return max(1, UInt(ProcessInfo.processInfo.activeProcessorCount))
     }
 
     /// Carthage's bundle identifier.
