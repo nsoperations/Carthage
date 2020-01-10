@@ -293,30 +293,39 @@ public final class Project { // swiftlint:disable:this type_body_length
         if !includingSelf {
             return buildProducer
         } else {
-            let currentProducers = self.loadResolvedCartfile(useCache: true).map { resolvedCartfile -> Set<PinnedDependency> in
-                return resolvedCartfile.dependencies.reduce(into: Set<PinnedDependency>()) { set, entry in
-                    set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
+            let currentProducers = self.loadResolvedCartfile(useCache: true)
+                .map { resolvedCartfile -> Set<PinnedDependency> in
+                    return resolvedCartfile.dependencies.reduce(into: Set<PinnedDependency>()) { set, entry in
+                        set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
+                    }
                 }
-            }.flatMap(.concat) { resolvedDependencySet -> BuildSchemeProducer in
-                Xcode.buildInDirectory(self.directoryURL,
-                                       withOptions: buildOptions,
-                                       rootDirectoryURL: self.directoryURL,
-                                       resolvedDependencySet: resolvedDependencySet,
-                                       lockTimeout: self.lockTimeout,
-                                       customProjectName: customProjectName,
-                                       customCommitish: customCommitish)
-                    .flatMapError { error -> BuildSchemeProducer in
-                        switch error {
-                        case let .noSharedFrameworkSchemes(project, _):
-                            // Log that building the current project is being skipped.
-                            self.projectEventsObserver.send(value: .skippedBuilding(project, error.description))
-                            return .empty
+                .flatMapError { error -> SignalProducer<Set<PinnedDependency>, CarthageError> in
+                    if (!self.resolvedCartfileURL.isExistingFile) {
+                        return SignalProducer(value: Set<PinnedDependency>())
+                    } else {
+                        return SignalProducer(error: error)
+                    }
+                }
+                .flatMap(.concat) { resolvedDependencySet -> BuildSchemeProducer in
+                    Xcode.buildInDirectory(self.directoryURL,
+                                           withOptions: buildOptions,
+                                           rootDirectoryURL: self.directoryURL,
+                                           resolvedDependencySet: resolvedDependencySet,
+                                           lockTimeout: self.lockTimeout,
+                                           customProjectName: customProjectName,
+                                           customCommitish: customCommitish)
+                        .flatMapError { error -> BuildSchemeProducer in
+                            switch error {
+                            case let .noSharedFrameworkSchemes(project, _):
+                                // Log that building the current project is being skipped.
+                                self.projectEventsObserver.send(value: .skippedBuilding(project, error.description))
+                                return .empty
 
-                        default:
-                            return SignalProducer(error: error)
-                        }
+                            default:
+                                return SignalProducer(error: error)
+                            }
+                    }
                 }
-            }
             return buildProducer.concat(currentProducers)
         }
     }
