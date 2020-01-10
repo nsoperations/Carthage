@@ -546,6 +546,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         platforms: Set<Platform>,
         toolchain: String?
         ) -> SignalProducer<(), CarthageError> {
@@ -558,7 +559,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 var lock: URLLock?
                 return self.downloadBinaryFrameworkDefinition(binary: binary)
                     .flatMap(.concat) { binaryProject in
-                        return self.downloadBinary(dependency: dependency, pinnedVersion: pinnedVersion, binaryProject: binaryProject, configuration: configuration, platforms: platforms, swiftVersion: localSwiftVersion)
+                        return self.downloadBinary(dependency: dependency, pinnedVersion: pinnedVersion, binaryProject: binaryProject, configuration: configuration, resolvedDependencySet: resolvedDependencySet, platforms: platforms, swiftVersion: localSwiftVersion)
                     }
                     .flatMap(.concat) { urlLock -> SignalProducer<(), CarthageError> in
                         lock = urlLock
@@ -727,9 +728,10 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
-    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
+    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, resolvedDependencySet: Set<PinnedDependency>, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependenciesHash: nil, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout, netrc: self.netrc)
+        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
+        return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependenciesHash: resolvedDependenciesHash, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout, netrc: self.netrc)
             .attemptMap({ urlLock -> Result<URLLock, CarthageError> in
                 if let lock = urlLock {
                     return .success(lock)
