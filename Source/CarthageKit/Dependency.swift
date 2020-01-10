@@ -195,6 +195,16 @@ extension Dependency {
             return nil
         }
     }
+    
+    var urlString: String {
+        if let gitURL = self.gitURL(preferHTTPS: true) {
+            return gitURL.urlString
+        } else if case let .binary(binaryURL) = self {
+            return binaryURL.url.absoluteString
+        } else {
+            fatalError("Unsupported dependency")
+        }
+    }
 }
 
 extension BinaryURL: Equatable {

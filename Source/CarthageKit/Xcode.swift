@@ -30,6 +30,7 @@ public final class Xcode {
         version: PinnedVersion,
         rootDirectoryURL: URL,
         withOptions options: BuildOptions,
+        resolvedDependencySet: Set<PinnedDependency>,
         lockTimeout: Int? = nil,
         sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) },
         builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = nil
@@ -41,6 +42,7 @@ public final class Xcode {
                                 withOptions: options,
                                 dependency: (dependency, version),
                                 rootDirectoryURL: rootDirectoryURL,
+                                resolvedDependencySet: resolvedDependencySet,
                                 lockTimeout: lockTimeout,
                                 sdkFilter: sdkFilter,
                                 builtProductsHandler: builtProductsHandler
@@ -66,6 +68,7 @@ public final class Xcode {
         withOptions options: BuildOptions,
         dependency: (dependency: Dependency, version: PinnedVersion)? = nil,
         rootDirectoryURL: URL,
+        resolvedDependencySet: Set<PinnedDependency>,
         lockTimeout: Int? = nil,
         customProjectName: String? = nil,
         customCommitish: String? = nil,
@@ -124,6 +127,7 @@ public final class Xcode {
                                     version: dependency.version,
                                     platforms: options.platforms,
                                     configuration: options.configuration,
+                                    resolvedDependencySet: resolvedDependencySet,
                                     buildProducts: urls,
                                     rootDirectoryURL: rootDirectoryURL
                                     ).then(builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty)
@@ -135,6 +139,7 @@ public final class Xcode {
                                         commitish: customCommitish,
                                         platforms: options.platforms,
                                         configuration: options.configuration,
+                                        resolvedDependencySet: resolvedDependencySet,
                                         buildProducts: urls,
                                         rootDirectoryURL: rootDirectoryURL
                                         ).then(builtProductsHandler?(urls) ?? SignalProducer<(), CarthageError>.empty)
@@ -598,6 +603,7 @@ public final class Xcode {
             // Otherwise, nope.
             .concat(value: false)
             .take(first: 1)
+            .startOnQueue(globalConcurrentProducerQueue)
     }
 
     /// Aggregates all of the build settings sent on the given signal, associating

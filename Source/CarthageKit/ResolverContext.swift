@@ -186,7 +186,7 @@ final class DependencyConflict {
     }
 }
 
-private struct PinnedDependency: Hashable {
+public struct PinnedDependency: Hashable, Comparable {
     public let dependency: Dependency
     public let pinnedVersion: PinnedVersion
     private let hash: Int
@@ -203,6 +203,16 @@ private struct PinnedDependency: Hashable {
 
     public static func == (lhs: PinnedDependency, rhs: PinnedDependency) -> Bool {
         return lhs.pinnedVersion == rhs.pinnedVersion && lhs.dependency == rhs.dependency
+    }
+    
+    public static func < (lhs: PinnedDependency, rhs: PinnedDependency) -> Bool {
+        let lhsUrl = lhs.dependency.urlString
+        let rhsUrl = rhs.dependency.urlString
+        if (lhsUrl == rhsUrl) {
+            return lhs.pinnedVersion.commitish < rhs.pinnedVersion.commitish
+        } else {
+            return lhsUrl < rhsUrl
+        }
     }
 }
 

@@ -180,16 +180,6 @@ public final class DependencyCrawler {
     }
 }
 
-private struct PinnedDependency: Hashable {
-    public let dependency: Dependency
-    public let pinnedVersion: PinnedVersion
-
-    init(dependency: Dependency, pinnedVersion: PinnedVersion) {
-        self.dependency = dependency
-        self.pinnedVersion = pinnedVersion
-    }
-}
-
 extension Sequence where Element == PinnedDependency {
     fileprivate var dictionaryRepresentation: [Dependency: Set<PinnedVersion>] {
         return self.reduce(into: [Dependency: Set<PinnedVersion>]()) { dict, pinnedDependency in

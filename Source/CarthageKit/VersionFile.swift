@@ -24,6 +24,7 @@ public enum VersionStatus: Equatable {
     case matching
     case versionFileNotFound
     case sourceHashNotEqual
+    case dependenciesHashNotEqual
     case configurationNotEqual
     case commitishNotEqual
     case platformNotFound
@@ -48,6 +49,7 @@ struct VersionFile: Codable {
     enum CodingKeys: String, CodingKey {
         case commitish = "commitish"
         case sourceHash = "sourceHash"
+        case resolvedDependenciesHash = "resolvedDependenciesHash"
         case configuration = "configuration"
         case macOS = "Mac"
         case iOS = "iOS"
@@ -57,6 +59,7 @@ struct VersionFile: Codable {
 
     let commitish: String
     let sourceHash: String?
+    let resolvedDependenciesHash: String?
     let configuration: String
 
     let macOS: [CachedFramework]?
@@ -86,6 +89,7 @@ struct VersionFile: Codable {
     init(
         commitish: String,
         sourceHash: String?,
+        resolvedDependenciesHash: String?,
         configuration: String,
         macOS: [CachedFramework]?,
         iOS: [CachedFramework]?,
@@ -94,6 +98,7 @@ struct VersionFile: Codable {
         ) {
         self.commitish = commitish
         self.sourceHash = sourceHash
+        self.resolvedDependenciesHash = resolvedDependenciesHash
         self.configuration = configuration
         self.macOS = macOS
         self.iOS = iOS
@@ -221,6 +226,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
+        resolvedDependenciesHash: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -232,6 +238,7 @@ struct VersionFile: Codable {
                     commitish: commitish,
                     sourceHash: sourceHash,
                     configuration: configuration,
+                    resolvedDependenciesHash: resolvedDependenciesHash,
                     binariesDirectoryURL: binariesDirectoryURL,
                     localSwiftVersion: localSwiftVersion
                 )
@@ -244,6 +251,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
+        resolvedDependenciesHash: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -272,6 +280,7 @@ struct VersionFile: Codable {
                     commitish: commitish,
                     sourceHash: sourceHash,
                     configuration: configuration,
+                    resolvedDependenciesHash: resolvedDependenciesHash,
                     hashes: hashes,
                     swiftVersionMatches: swiftVersionMatches
                 )
@@ -283,12 +292,17 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
+        resolvedDependenciesHash: String?,
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<VersionStatus, CarthageError> {
         
         if let definedSourceHash = self.sourceHash, let suppliedSourceHash = sourceHash, definedSourceHash != suppliedSourceHash {
             return SignalProducer(value: .sourceHashNotEqual)
+        }
+        
+        if let suppliedDependenciesHash = resolvedDependenciesHash, suppliedDependenciesHash != self.resolvedDependenciesHash {
+            return SignalProducer(value: .dependenciesHashNotEqual)
         }
         
         guard let cachedFrameworks = self[platform] else {
@@ -357,6 +371,7 @@ extension VersionFile {
         commitish: String?,
         platforms: Set<Platform>,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -389,6 +404,7 @@ extension VersionFile {
                     dependencyName: currentProjectNameString,
                     platforms: platforms,
                     configuration: configuration,
+                    resolvedDependencySet: resolvedDependencySet,
                     buildProducts: buildProducts,
                     rootDirectoryURL: rootDirectoryURL
                 )
@@ -406,6 +422,7 @@ extension VersionFile {
         version: PinnedVersion,
         platforms: Set<Platform>,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -414,6 +431,7 @@ extension VersionFile {
             dependencyName: dependency.name,
             platforms: platforms,
             configuration: configuration,
+            resolvedDependencySet: resolvedDependencySet,
             buildProducts: buildProducts,
             rootDirectoryURL: rootDirectoryURL
         )
@@ -430,6 +448,7 @@ extension VersionFile {
         dependencyName: String,
         platforms: Set<Platform> = Set(Platform.supportedPlatforms),
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -445,6 +464,8 @@ extension VersionFile {
             let frameworkName: String
             let frameworkSwiftVersion: String?
         }
+        
+        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
 
         if !buildProducts.isEmpty {
             return SignalProducer<URL, CarthageError>(buildProducts)
@@ -479,6 +500,7 @@ extension VersionFile {
                         commitish,
                         dependencyName: dependencyName,
                         configuration: configuration,
+                        resolvedDependenciesHash: resolvedDependenciesHash,
                         rootDirectoryURL: rootDirectoryURL,
                         platformCaches: platformCaches
                     )
@@ -490,6 +512,7 @@ extension VersionFile {
                 commitish,
                 dependencyName: dependencyName,
                 configuration: configuration,
+                resolvedDependenciesHash: resolvedDependenciesHash,
                 rootDirectoryURL: rootDirectoryURL,
                 platformCaches: platformCaches
             )
@@ -523,6 +546,7 @@ extension VersionFile {
         version: PinnedVersion,
         platforms: Set<Platform>,
         configuration: String,
+        resolvedDependencySet: Set<PinnedDependency>,
         rootDirectoryURL: URL,
         toolchain: String?,
         checkSourceHash: Bool,
@@ -534,6 +558,7 @@ extension VersionFile {
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
         let commitish = version.commitish
+        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
@@ -543,6 +568,7 @@ extension VersionFile {
                                              commitish: commitish,
                                              sourceHash: sourceHash,
                                              configuration: configuration,
+                                             resolvedDependenciesHash: resolvedDependenciesHash,
                                              binariesDirectoryURL: rootBinariesURL,
                                              localSwiftVersion: localSwiftVersion)
             }
@@ -573,11 +599,12 @@ extension VersionFile {
     }
 
     // MARK: - Private
-
+    
     private static func createVersionFile(
         _ commitish: String,
         dependencyName: String,
         configuration: String,
+        resolvedDependenciesHash: String?,
         rootDirectoryURL: URL,
         platformCaches: [String: [CachedFramework]]
         ) -> SignalProducer<(), CarthageError> {
@@ -589,6 +616,7 @@ extension VersionFile {
                     let versionFile = VersionFile(
                         commitish: commitish,
                         sourceHash: sourceHash,
+                        resolvedDependenciesHash: resolvedDependenciesHash,
                         configuration: configuration,
                         macOS: platformCaches[Platform.macOS.rawValue],
                         iOS: platformCaches[Platform.iOS.rawValue],
