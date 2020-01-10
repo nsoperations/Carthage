@@ -522,6 +522,15 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return incompatibilities.isEmpty ? .init(value: ()) : .init(error: .invalidResolvedCartfile(incompatibilities))
         }
     }
+    
+    public func hashForResolvedDependencies() -> SignalProducer<String, CarthageError> {
+        return self.loadResolvedCartfile().map { cartfile in
+            let dependencySet = cartfile.dependencies.reduce(into: Set()) { (set, entry) in
+                set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
+            }
+            return Frameworks.hashForResolvedDependencySet(dependencySet)
+        }
+    }
 
     /// Reads the project's Cartfile.resolved.
     func loadResolvedCartfile(useCache: Bool = false) -> SignalProducer<ResolvedCartfile, CarthageError> {

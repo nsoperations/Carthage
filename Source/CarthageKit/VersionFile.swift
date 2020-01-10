@@ -226,7 +226,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
-        resolvedDependenciesHash: String?,
+        resolvedDependenciesHash: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -251,7 +251,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
-        resolvedDependenciesHash: String?,
+        resolvedDependenciesHash: String,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -292,7 +292,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
-        resolvedDependenciesHash: String?,
+        resolvedDependenciesHash: String,
         hashes: [String?],
         swiftVersionMatches: [Bool]
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -301,7 +301,7 @@ struct VersionFile: Codable {
             return SignalProducer(value: .sourceHashNotEqual)
         }
         
-        if let definedDependenciesHash = self.resolvedDependenciesHash, let suppliedDependenciesHash = resolvedDependenciesHash, definedDependenciesHash != suppliedDependenciesHash {
+        if resolvedDependenciesHash != self.resolvedDependenciesHash {
             return SignalProducer(value: .dependenciesHashNotEqual)
         }
         

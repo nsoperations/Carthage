@@ -247,7 +247,7 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
     }
 
     override func downloadBinary(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, resolvedDependenciesHash: String?, swiftVersion: PinnedVersion, destinationURL: URL, netrc: Netrc?, eventObserver: Signal<ProjectEvent, NoError>.Observer?) -> SignalProducer<(), CarthageError> {
-        guard let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, swiftVersion: swiftVersion.description, targetFilePath: destinationURL.path) else {
+        guard let task = self.task(dependencyName: dependency.name, dependencyVersion: pinnedVersion.description, buildConfiguration: configuration, resolvedDependenciesHash: resolvedDependenciesHash, swiftVersion: swiftVersion.description, targetFilePath: destinationURL.path) else {
             return SignalProducer<(), CarthageError>.empty
         }
         let versionString = pinnedVersion.description
@@ -259,7 +259,7 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
-    private func task(dependencyName: String, dependencyVersion: String, buildConfiguration: String, resolvedDependencyHash: String?, swiftVersion: String, targetFilePath: String) -> Task? {
+    private func task(dependencyName: String, dependencyVersion: String, buildConfiguration: String, resolvedDependenciesHash: String?, swiftVersion: String, targetFilePath: String) -> Task? {
 
         guard !taskCommand.isEmpty else {
             return nil
@@ -267,7 +267,7 @@ class ExternalTaskBinariesCache: AbstractBinariesCache {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CARTHAGE_CACHE_DEPENDENCY_NAME"] = dependencyName
-        environment["CARTHAGE_CACHE_DEPENDENCY_HASH"] = dependencyName
+        environment["CARTHAGE_CACHE_DEPENDENCY_HASH"] = resolvedDependenciesHash
         environment["CARTHAGE_CACHE_DEPENDENCY_VERSION"] = dependencyVersion
         environment["CARTHAGE_CACHE_BUILD_CONFIGURATION"] = buildConfiguration
         environment["CARTHAGE_CACHE_SWIFT_VERSION"] = swiftVersion
