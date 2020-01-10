@@ -205,7 +205,7 @@ public struct PinnedDependency: Hashable, Comparable {
         return lhs.pinnedVersion == rhs.pinnedVersion && lhs.dependency == rhs.dependency
     }
     
-    public static func < (lhs: Self, rhs: Self) -> Bool {
+    public static func < (lhs: PinnedDependency, rhs: PinnedDependency) -> Bool {
         let lhsUrl = lhs.dependency.urlString
         let rhsUrl = rhs.dependency.urlString
         if (lhsUrl == rhsUrl) {
