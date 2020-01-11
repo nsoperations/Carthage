@@ -220,7 +220,6 @@ final class Frameworks {
                     .map { name, set in
                         return (PlatformFramework(name: name, platform: platform), set)
                     }
-                    .startOnQueue(globalConcurrentProducerQueue)
             }
     }
     
