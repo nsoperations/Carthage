@@ -73,7 +73,7 @@ class XcodeTests: XCTestCase {
 		let version = PinnedVersion("0.1")
 		
 		for dependency in dependencies {
-            let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug"))
+            let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug"), resolvedDependencySet: Set())
 				.ignoreTaskData()
 				.on(value: { project, scheme in // swiftlint:disable:this end_closure
 					NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -83,7 +83,7 @@ class XcodeTests: XCTestCase {
 			expect(result.error).to(beNil())
 		}
 		
-		let result = Xcode.buildInDirectory(directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this closure_params_parantheses
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -185,7 +185,7 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		
-		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -215,7 +215,7 @@ class XcodeTests: XCTestCase {
 		}
 
         var builtSchemes = [String]()
-		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -243,7 +243,7 @@ class XcodeTests: XCTestCase {
         }
 
         var builtSchemes = [String]()
-        let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL)
+        let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug"), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
             .ignoreTaskData()
             .on(value: { project, scheme in // swiftlint:disable:this end_closure
                 NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -268,7 +268,7 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		
-		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -289,7 +289,7 @@ class XcodeTests: XCTestCase {
 			return
 		}
 		
-		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL)
+		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [.macOS]), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -312,7 +312,7 @@ class XcodeTests: XCTestCase {
 	func testShouldBuildForOnePlatform() {
 		let dependency = Dependency.gitHub(.dotCom, Repository(owner: "github", name: "Archimedes"))
 		let version = PinnedVersion("0.1")
-		let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS ]))
+		let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS ]), resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -338,7 +338,7 @@ class XcodeTests: XCTestCase {
 	func testShouldBuildForMultiplePlatforms() {
 		let dependency = Dependency.gitHub(.dotCom, Repository(owner: "github", name: "Archimedes"))
 		let version = PinnedVersion("0.1")
-		let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS, .iOS ]))
+		let result = Xcode.build(dependency: dependency, version: version, rootDirectoryURL: directoryURL, withOptions: BuildOptions(configuration: "Debug", platforms: [ .macOS, .iOS ]), resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -387,7 +387,7 @@ class XcodeTests: XCTestCase {
 		
 		let result = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug",
 																			   platforms: [.iOS],
-																			   derivedDataPath: Constants.Dependency.derivedDataURL.appendingPathComponent("TestFramework-o2nfjkdsajhwenrjle").path), rootDirectoryURL: directoryURL)
+																			   derivedDataPath: Constants.Dependency.derivedDataURL.appendingPathComponent("TestFramework-o2nfjkdsajhwenrjle").path), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")
@@ -408,7 +408,7 @@ class XcodeTests: XCTestCase {
 		
 		let result2 = Xcode.buildInDirectory(_directoryURL, withOptions: BuildOptions(configuration: "Debug",
 																				platforms: [.iOS],
-																				derivedDataPath: Constants.Dependency.derivedDataURL.appendingPathComponent("TestFramework-o2nfjkdsajhwenrjle").path), rootDirectoryURL: directoryURL)
+																				derivedDataPath: Constants.Dependency.derivedDataURL.appendingPathComponent("TestFramework-o2nfjkdsajhwenrjle").path), rootDirectoryURL: directoryURL, resolvedDependencySet: Set())
 			.ignoreTaskData()
 			.on(value: { project, scheme in // swiftlint:disable:this end_closure
 				NSLog("Building scheme \"\(scheme)\" in \(project)")

@@ -62,6 +62,8 @@ public enum ProjectEvent {
     
     /// Generic warning message
     case warning(String)
+    
+    case crossReferencingSymbols
 }
 
 extension ProjectEvent: Equatable {
@@ -93,6 +95,9 @@ extension ProjectEvent: Equatable {
             
         case let (.warning(left), .warning(right)):
             return left == right
+        
+        case (.crossReferencingSymbols, .crossReferencingSymbols):
+            return true
 
         default:
             return false
@@ -288,18 +293,39 @@ public final class Project { // swiftlint:disable:this type_body_length
         if !includingSelf {
             return buildProducer
         } else {
-            let currentProducers = Xcode.buildInDirectory(directoryURL, withOptions: buildOptions, rootDirectoryURL: directoryURL, lockTimeout: self.lockTimeout, customProjectName: customProjectName, customCommitish: customCommitish)
-                .flatMapError { error -> BuildSchemeProducer in
-                    switch error {
-                    case let .noSharedFrameworkSchemes(project, _):
-                        // Log that building the current project is being skipped.
-                        self.projectEventsObserver.send(value: .skippedBuilding(project, error.description))
-                        return .empty
-
-                    default:
+            let currentProducers = self.loadResolvedCartfile(useCache: true)
+                .map { resolvedCartfile -> Set<PinnedDependency> in
+                    return resolvedCartfile.dependencies.reduce(into: Set<PinnedDependency>()) { set, entry in
+                        set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
+                    }
+                }
+                .flatMapError { error -> SignalProducer<Set<PinnedDependency>, CarthageError> in
+                    if (!self.resolvedCartfileURL.isExistingFile) {
+                        return SignalProducer(value: Set<PinnedDependency>())
+                    } else {
                         return SignalProducer(error: error)
                     }
-            }
+                }
+                .flatMap(.concat) { resolvedDependencySet -> BuildSchemeProducer in
+                    Xcode.buildInDirectory(self.directoryURL,
+                                           withOptions: buildOptions,
+                                           rootDirectoryURL: self.directoryURL,
+                                           resolvedDependencySet: resolvedDependencySet,
+                                           lockTimeout: self.lockTimeout,
+                                           customProjectName: customProjectName,
+                                           customCommitish: customCommitish)
+                        .flatMapError { error -> BuildSchemeProducer in
+                            switch error {
+                            case let .noSharedFrameworkSchemes(project, _):
+                                // Log that building the current project is being skipped.
+                                self.projectEventsObserver.send(value: .skippedBuilding(project, error.description))
+                                return .empty
+
+                            default:
+                                return SignalProducer(error: error)
+                            }
+                    }
+                }
             return buildProducer.concat(currentProducers)
         }
     }
@@ -505,6 +531,15 @@ public final class Project { // swiftlint:disable:this type_body_length
                 return incompatibilities.isEmpty ? .init(value: ()) : .init(error: .invalidResolvedCartfile(incompatibilities))
         }
     }
+    
+    public func hashForResolvedDependencies() -> SignalProducer<String, CarthageError> {
+        return self.loadResolvedCartfile().map { cartfile in
+            let dependencySet = cartfile.dependencies.reduce(into: Set()) { (set, entry) in
+                set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
+            }
+            return Frameworks.hashForResolvedDependencySet(dependencySet)
+        }
+    }
 
     /// Reads the project's Cartfile.resolved.
     func loadResolvedCartfile(useCache: Bool = false) -> SignalProducer<ResolvedCartfile, CarthageError> {
@@ -669,44 +704,37 @@ public final class Project { // swiftlint:disable:this type_body_length
 
         var cartfile: ResolvedCartfile!
         var levelLookupDict = [Dependency: Int]()
-        var externalSymbolsMap = [PlatformFramework: Set<String>]()
         
         return loadResolvedCartfile(useCache: true)
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                if options.cacheBuilds {
-                    // Fill the external symbols map
-                    let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
-                    let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
-                    
-                    switch result {
-                    case let .failure(error):
-                        return SignalProducer(error: error)
-                    case let .success(dict):
-                        externalSymbolsMap.merge(dict) { $1 }
-                    }
-                }
                 cartfile = resolvedCartfile
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild).map { entry in
                     levelLookupDict[entry.0] = entry.2
                     return (entry.0, entry.1)
                 }
             }
-            .flatMap(.concat) { arg -> SignalProducer<((Dependency, PinnedVersion), Set<Dependency>, VersionStatus), CarthageError> in
-                let (dependency, version) = arg
+            .flatMap(.concat) { dependency, pinnedVersion -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
+                self.dependencyRetriever.resolvedRecursiveDependencySet(for: dependency, version: pinnedVersion, resolvedCartfile: cartfile)
+                    .map { set -> (Dependency, PinnedVersion, Set<PinnedDependency>) in
+                        return (dependency, pinnedVersion, set)
+                    }
+            }
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version, resolvedDependencySet -> SignalProducer<((Dependency, PinnedVersion, Set<PinnedDependency>), Set<Dependency>, VersionStatus), CarthageError> in
                 return SignalProducer.combineLatest(
-                    SignalProducer(value: (dependency, version)),
+                    SignalProducer(value: (dependency, version, resolvedDependencySet)),
                     self.dependencyRetriever.dependencySet(for: dependency, version: version, resolvedCartfile: cartfile),
                     VersionFile.versionFileMatches(dependency,
                                                    version: version,
                                                    platforms: options.platforms,
                                                    configuration: options.configuration,
+                                                   resolvedDependencySet: resolvedDependencySet,
                                                    rootDirectoryURL: self.directoryURL,
                                                    toolchain: options.toolchain,
-                                                   checkSourceHash: options.trackLocalChanges,
-                                                   externallyDefinedSymbols: externalSymbolsMap)
+                                                   checkSourceHash: options.trackLocalChanges)
                 )
+                .startOnQueue(globalConcurrentProducerQueue)
             }
-            .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion)] in
+            .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion, Set<PinnedDependency>)] in
                 let (nextDependency, projects, versionStatus) = nextGroup
 
                 var dependenciesIncludingNext = includedDependencies
@@ -717,7 +745,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 guard options.cacheBuilds && projects.isDisjoint(with: projectsToBeBuilt) else {
                     return dependenciesIncludingNext
                 }
-
+                
                 if versionStatus == .versionFileNotFound {
                     self.projectEventsObserver.send(value: .buildingUncached(nextDependency.0))
                     return dependenciesIncludingNext
@@ -729,91 +757,8 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return dependenciesIncludingNext
                 }
             }
-            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
-                
-                return SignalProducer(dependencies)
-                    .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                        switch dependency {
-                        case .git, .gitHub:
-                            guard options.useBinaries else {
-                                return .empty
-                            }
-                            return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, platforms: options.platforms, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
-                                .filterMap { installed -> (Dependency, PinnedVersion)? in
-                                    return installed ? (dependency, version) : nil
-                            }
-                        case let .binary(binary):
-                            return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, platforms: options.platforms, toolchain: options.toolchain)
-                                .then(.init(value: (dependency, version)))
-                        }
-                    }
-                    .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                        // Symlink the build folder of binary downloads for consistency with regular checkouts
-                        // (even though it's not necessary since binary downloads aren't built by Carthage)
-                        return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
-                            .then(.init(value: (dependency, version)))
-                    }
-                    .collect()
-                    .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
-                        if !dependencyVersions.isEmpty {
-                            // Add the symbols of the installed binaries to the externalSymbolsMap, after downloading
-                            let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
-                            let result = Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
-                            switch result {
-                            case let .failure(error):
-                                return SignalProducer(error: error)
-                            case let .success(dict):
-                                externalSymbolsMap.merge(dict) { $1 }
-                            }
-                        }
-                        return SignalProducer(dependencyVersions)
-                    }
-                    .flatMap(.merge) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
-                        return VersionFile.versionFileMatches(
-                            dependency,
-                            version: version,
-                            platforms: options.platforms,
-                            configuration: options.configuration,
-                            rootDirectoryURL: self.directoryURL,
-                            toolchain: options.toolchain,
-                            checkSourceHash: options.trackLocalChanges,
-                            externallyDefinedSymbols: externalSymbolsMap
-                            )
-                            .map { matches in return (dependency, version, matches) }
-                    }
-                    .filterMap { dependency, version, versionStatus -> (Dependency, PinnedVersion)? in
-                        guard versionStatus == .matching else {
-                            self.projectEventsObserver.send(value: .rebuildingBinary(dependency, versionStatus))
-                            return nil
-                        }
-                        return (dependency, version)
-                    }
-                    .collect()
-                    .map { installedDependencies -> [(Dependency, PinnedVersion)] in
-                        // Filters out dependencies that we've downloaded binaries for
-                        // but preserves the build order
-                        return dependencies.filter { dependency -> Bool in
-                            !installedDependencies.contains { $0 == dependency }
-                        }
-                    }
-                    .flatMap(.merge) { dependencies -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
-                        var leveledDependencies: [[(Dependency, PinnedVersion)]] = []
-                        var currentLevel = -1
-                        for versionedDependency in dependencies {
-                            if let level = levelLookupDict[versionedDependency.0] {
-                                assert(level >= 0)
-                                if level != currentLevel {
-                                    assert(level > currentLevel)
-                                    currentLevel = level
-                                    leveledDependencies.append([(Dependency, PinnedVersion)]())
-                                }
-                                leveledDependencies[leveledDependencies.count - 1].append(versionedDependency)
-                            } else {
-                                return SignalProducer(error: CarthageError.internalError(description: "Could not find dependency \(versionedDependency.0) in build list"))
-                            }
-                        }
-                        return SignalProducer(leveledDependencies)
-                    }
+            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+                return self.installBinaries(dependencies: dependencies, levelLookupDict: levelLookupDict, cartfile: cartfile, options: options)
             }
             .flatMap(.concat) { (sameLevelDependencies: [(Dependency, PinnedVersion)]) -> BuildSchemeProducer in
                 return self.buildSameLevelDependencies(sameLevelDependencies: sameLevelDependencies, options: options, cartfile: cartfile, sdkFilter: sdkFilter)
@@ -821,6 +766,96 @@ public final class Project { // swiftlint:disable:this type_body_length
     }
 
     // MARK: - Private
+    
+    private func installBinaries(dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>)], levelLookupDict: [Dependency: Int], cartfile: ResolvedCartfile, options: BuildOptions) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> {
+        
+        return SignalProducer(dependencies)
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { (dependency: Dependency, version: PinnedVersion, resolvedDependencySet: Set<PinnedDependency>) -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
+            switch dependency {
+            case .git, .gitHub:
+                guard options.useBinaries else {
+                    return .empty
+                }
+                return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, platforms: options.platforms, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
+                    .filterMap { installed -> (Dependency, PinnedVersion, Set<PinnedDependency>)? in
+                        return installed ? (dependency, version, resolvedDependencySet) : nil
+                }
+            case let .binary(binary):
+                return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, platforms: options.platforms, toolchain: options.toolchain)
+                    .then(.init(value: (dependency, version, resolvedDependencySet)))
+            }
+        }
+        .flatMap(.merge) { dependency, version, resolvedDependencySet -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
+            // Symlink the build folder of binary downloads for consistency with regular checkouts
+            // (even though it's not necessary since binary downloads aren't built by Carthage)
+            return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
+                .then(.init(value: (dependency, version, resolvedDependencySet)))
+        }
+        .collect()
+        .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>, [PlatformFramework: Set<String>]), CarthageError> in
+            if !dependencyVersions.isEmpty {
+                self.projectEventsObserver.send(value: .crossReferencingSymbols)
+                // Add the symbols of the installed binaries to the externalSymbolsMap, after downloading
+                let platforms: Set<Platform>? = options.platforms.isEmpty ? nil : options.platforms
+                
+                return Frameworks.definedSymbolsInBuildFolder(directoryURL: self.directoryURL, platforms: platforms)
+                    .reduce(into: [:], { (map, entry) in
+                        map[entry.0] = entry.1
+                    })
+                    .flatMap(.concat) { externalSymbolsMap -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>, [PlatformFramework: Set<String>]), CarthageError> in
+                        return SignalProducer(dependencyVersions).map { ($0, $1, $2, externalSymbolsMap) }
+                    }
+            }
+            return SignalProducer(dependencyVersions).map { dependency, version, resolvedDependencySet in
+                return (dependency, version, resolvedDependencySet, [:])
+            }
+        }
+        .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version, resolvedDependencySet, externalSymbolsMap -> SignalProducer<(Dependency, PinnedVersion, VersionStatus), CarthageError> in
+            return VersionFile.versionFileMatches(
+                dependency,
+                version: version,
+                platforms: options.platforms,
+                configuration: options.configuration,
+                resolvedDependencySet: resolvedDependencySet,
+                rootDirectoryURL: self.directoryURL,
+                toolchain: options.toolchain,
+                checkSourceHash: options.trackLocalChanges,
+                externallyDefinedSymbols: externalSymbolsMap
+                )
+                .map { matches in return (dependency, version, matches) }
+                .startOnQueue(globalConcurrentProducerQueue)
+        }
+        .filterMap { dependency, version, versionStatus -> (Dependency, PinnedVersion)? in
+            guard versionStatus == .matching else {
+                self.projectEventsObserver.send(value: .rebuildingBinary(dependency, versionStatus))
+                return nil
+            }
+            return (dependency, version)
+        }
+        .collect()
+        .map { installedDependencies -> [(Dependency, PinnedVersion)] in
+            // Filters out dependencies that we've downloaded binaries for
+            // but preserves the build order
+            return dependencies.compactMap { dependency, pinnedVersion, resolvedDependencySet -> (Dependency, PinnedVersion)? in
+                guard installedDependencies.contains(where: { $0.0 == dependency }) else {
+                    return (dependency, pinnedVersion)
+                }
+                return nil
+            }
+        }
+        .flatMap(.concat) { dependencies -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+            let maxLevel = levelLookupDict.values.max() ?? -1
+            var leveledDependencies: [[(Dependency, PinnedVersion)]] = Array(repeating: [], count: maxLevel + 1)
+            for versionedDependency in dependencies {
+                if let level = levelLookupDict[versionedDependency.0] {
+                    leveledDependencies[level].append(versionedDependency)
+                } else {
+                    return SignalProducer(error: CarthageError.internalError(description: "Could not find dependency \(versionedDependency.0) in build list"))
+                }
+            }
+            return SignalProducer(leveledDependencies)
+        }
+    }
     
     private func removeNonExistingDependencyDirectories() -> SignalProducer<(), CarthageError> {
         return SignalProducer { () -> Result<(), CarthageError> in
@@ -853,11 +888,17 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     private func buildSameLevelDependencies(sameLevelDependencies: [(Dependency, PinnedVersion)], options: BuildOptions, cartfile: ResolvedCartfile, sdkFilter: @escaping SDKFilterCallback) -> BuildSchemeProducer {
         
-        let concurrencyLimit: UInt = min(UInt(sameLevelDependencies.count), Constants.concurrencyLimit)
+        let concurrencyLimit: UInt = min(max(1, UInt(sameLevelDependencies.count)), Constants.concurrencyLimit)
         let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
         
         return SignalProducer(sameLevelDependencies)
-            .flatMap(.concurrent(limit: concurrencyLimit)) { dependency, version -> BuildSchemeProducer in
+            .flatMap(.concat) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
+                return self.dependencyRetriever.resolvedRecursiveDependencySet(for: dependency, version: version, resolvedCartfile: cartfile)
+                    .map { set in
+                        return (dependency, version, set)
+                    }
+            }
+            .flatMap(.concurrent(limit: concurrencyLimit)) { dependency, version, resolvedDependencySet -> BuildSchemeProducer in
                 let dependencyURL = self.directoryURL.appendingPathComponent(dependency.relativePath, isDirectory: true)
                 if !FileManager.default.fileExists(atPath: dependencyURL.path) {
                     self.projectEventsObserver.send(value: .warning("No checkout found for \(dependency.name), skipping build"))
@@ -877,18 +918,19 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let rootDirectoryURL = self.directoryURL
                 options.derivedDataPath = derivedDataVersioned.resolvingSymlinksInPath().path
 
-                let builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = (options.useBinaries && options.buildForDistribution) ? { builtProductURLs in
+                let builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = (options.useBinaries) ? { builtProductURLs in
                     let frameworkNames = builtProductURLs.compactMap { url -> String? in
                         guard url.pathExtension == "framework" else {
                             return nil
                         }
                         return url.deletingPathExtension().lastPathComponent
                     }
-                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, toolchain: options.toolchain).map { _ in }
+                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, toolchain: options.toolchain).map { _ in }
                     } : nil
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
-                    .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
+                    .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, resolvedDependencySet: resolvedDependencySet, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
+                    .startOnQueue(globalConcurrentProducerQueue)
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:
@@ -904,6 +946,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                                                                  dependencyName: dependency.name,
                                                                                  platforms: options.platforms,
                                                                                  configuration: options.configuration,
+                                                                                 resolvedDependencySet: resolvedDependencySet,
                                                                                  buildProducts: [],
                                                                                  rootDirectoryURL: self.directoryURL)
                                     .then(BuildSchemeProducer.empty)

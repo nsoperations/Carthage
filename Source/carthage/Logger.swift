@@ -74,6 +74,9 @@ final class ProjectEventLogger {
             
         case let .warning(message):
             carthage.printOut(formatting.warning("warning: ") + message)
+            
+        case .crossReferencingSymbols:
+            carthage.printOut(formatting.bullets + "Cross-referencing symbols for pre-built binaries")
         }
     }
 }
@@ -126,6 +129,8 @@ extension VersionStatus {
             return "one of the requested platforms was not found"
         case .sourceHashNotEqual:
             return "the source hash did not match"
+        case .dependenciesHashNotEqual:
+            return "the resolved dependencies hash did not match"
         case .swiftVersionNotEqual:
             return "the swift version did not match the current toolchain"
         case .versionFileNotFound:

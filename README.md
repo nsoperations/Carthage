@@ -65,6 +65,13 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.44.0+nsoperations
+
+- Ensured binary caching takes the combination of concrete versioned dependencies at build time into account, because of issues with module instability in none xcframeworks.
+- Optimized the performance by greatly improving the parallelization of tasks.
+- Added command `dependencies-hash` to show the hash of the Cartfile.resolved which is cross-referenced for caching.
+- Improved binary symbol cross-reference to be sure no missing symbols exist when installing pre-built binaries.
+
 ### 0.43.1+nsoperations
 
 - Ensured only binaries built with the option `--build-for-distribution` are stored in the local binary cache.
