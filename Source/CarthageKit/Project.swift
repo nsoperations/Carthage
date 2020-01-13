@@ -732,7 +732,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                                    toolchain: options.toolchain,
                                                    checkSourceHash: options.trackLocalChanges)
                 )
-                //.startOnQueue(globalConcurrentProducerQueue)
+                .startOnQueue(globalConcurrentProducerQueue)
             }
             .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion, Set<PinnedDependency>)] in
                 let (nextDependency, projects, versionStatus) = nextGroup
@@ -823,7 +823,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 externallyDefinedSymbols: externalSymbolsMap
                 )
                 .map { matches in return (dependency, version, matches) }
-                //.startOnQueue(globalConcurrentProducerQueue)
+                .startOnQueue(globalConcurrentProducerQueue)
         }
         .filterMap { dependency, version, versionStatus -> (Dependency, PinnedVersion)? in
             guard versionStatus == .matching else {
@@ -930,7 +930,7 @@ public final class Project { // swiftlint:disable:this type_body_length
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                     .then(Xcode.build(dependency: dependency, version: version, rootDirectoryURL: rootDirectoryURL, withOptions: options, resolvedDependencySet: resolvedDependencySet, lockTimeout: self.lockTimeout, sdkFilter: sdkFilter, builtProductsHandler: builtProductsHandler))
-                    //.startOnQueue(globalConcurrentProducerQueue)
+                    .startOnQueue(globalConcurrentProducerQueue)
                     .flatMapError { error -> BuildSchemeProducer in
                         switch error {
                         case .noSharedFrameworkSchemes:
