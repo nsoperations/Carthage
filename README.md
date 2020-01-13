@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.44.1+nsoperations
+
+- Fixed deadlock issue which occurred sometimes during build
+
 ### 0.44.0+nsoperations
 
 - Ensured binary caching takes the combination of concrete versioned dependencies at build time into account, because of issues with module instability in none xcframeworks.
@@ -446,9 +450,9 @@ The option `--use-binaries` (which is true by default, specify `--no-use-binarie
 Binaries will be resolved from the local shared cache or, if not available there, will be downloaded from a remote location.
 
 By default Carthage will use remote binary caching based on releases published in GitHub. However there is a plugable caching mechanism exposed via the `--cache-command` option which can be supplied to all commands which execute carthage build (update, bootstrap, build). Specify a custom executable with this `--cache-command` option to implement caching in a custom way or specify the environment variable CARTHAGE_CACHE_COMMAND to achieve the same.
-The executable will receive five environment variables from Carthage: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]
+The executable will receive six environment variables from Carthage: [CARTHAGE_CACHE_DEPENDENCY_NAME, CARTHAGE_CACHE_DEPENDENCY_HASH, CARTHAGE_CACHE_DEPENDENCY_VERSION, CARTHAGE_CACHE_BUILD_CONFIGURATION, CARTHAGE_CACHE_SWIFT_VERSION, CARTHAGE_CACHE_TARGET_FILE_PATH]
 
-The executable should resolve a binary zip file as produced via the carthage archive command (or carthage build --archive) compatible with the specified dependency options (name, version, build config, swift toolchain version) and should move the file to the file path denoted by the CARTHAGE_CACHE_TARGET_FILE_PATH environment variable.
+The executable should resolve a binary zip file as produced via the carthage archive command (or carthage build --archive) compatible with the specified dependency options (name, hash, version, build config, swift toolchain version) and should move the file to the file path denoted by the CARTHAGE_CACHE_TARGET_FILE_PATH environment variable.
 
 ### HTTP authentication for binaries
 
