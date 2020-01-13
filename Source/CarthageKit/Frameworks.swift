@@ -204,7 +204,7 @@ final class Frameworks {
     }
     
     static func hashForResolvedDependencySet(_ set: Set<PinnedDependency>) -> String {
-        let digest = set.sorted().reduce(into: SHA256Digest()) { digest, pinnedDependency in
+        let digest = set.sorted().reduce(into: MD5Digest()) { digest, pinnedDependency in
             let string = "\(pinnedDependency.dependency.urlString)==\(pinnedDependency.pinnedVersion)"
             digest.update(data: string.data(using: .utf8)!)
         }
