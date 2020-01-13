@@ -511,7 +511,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                         })
                         .on(terminated: { lock?.unlock() })
                 }
-                .startOnQueue(globalConcurrentProducerQueue)
+                //.startOnQueue(globalConcurrentProducerQueue)
         } else {
             return SignalProducer(value: false)
         }
@@ -573,7 +573,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                     })
                     .on(terminated: { lock?.unlock() })
             })
-            .startOnQueue(globalConcurrentProducerQueue)
+            //.startOnQueue(globalConcurrentProducerQueue)
     }
 
     // MARK: - Private methods

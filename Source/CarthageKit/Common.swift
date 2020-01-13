@@ -17,4 +17,4 @@ func writeURL<T>(_ url: URL, block: (URL) throws -> T) rethrows -> T {
     return try tryMapError(mapError: { CarthageError.writeFailed(url, $0 as NSError) }, perform: { try block(url) })
 }
 
-let globalConcurrentProducerQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit.globalConcurrentQueue", limit: Constants.concurrencyLimit)
+//let globalConcurrentProducerQueue = ConcurrentProducerQueue(name: "org.carthage.CarthageKit.globalConcurrentQueue", limit: Constants.concurrencyLimit)
