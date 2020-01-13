@@ -603,7 +603,7 @@ public final class Xcode {
             // Otherwise, nope.
             .concat(value: false)
             .take(first: 1)
-            //.startOnQueue(globalConcurrentProducerQueue)
+            .startOnQueue(globalConcurrentProducerQueue)
     }
 
     /// Aggregates all of the build settings sent on the given signal, associating
