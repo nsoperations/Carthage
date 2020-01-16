@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.44.2+nsoperations
+
+- Fixed IRGen error during debugging for locally made builds because derived data folder was split between sdks
+
 ### 0.44.1+nsoperations
 
 - Fixed deadlock issue which occurred sometimes during build
