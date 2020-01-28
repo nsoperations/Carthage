@@ -848,6 +848,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                                 if dependencySourceURL.isExistingDirectory {
                                     return DebugSymbolsMapper.mapSymbolLocations(frameworkURL: frameworkSourceURL, dsymURL: dsymURL, sourceURL: dependencySourceURL, urlPrefixMapping: (sourceDirectoryURL, destinationDirectoryURL))
                                         .map { _ in dsymURL }
+                                        .recover(with: .success(dsymURL))
                                 } else {
                                     return .success(dsymURL)
                                 }
