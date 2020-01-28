@@ -30,7 +30,7 @@ public final class Xcode {
         version: PinnedVersion,
         rootDirectoryURL: URL,
         withOptions options: BuildOptions,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         lockTimeout: Int? = nil,
         sdkFilter: @escaping SDKFilterCallback = { sdks, _, _, _ in .success(sdks) },
         builtProductsHandler: (([URL]) -> SignalProducer<(), CarthageError>)? = nil
@@ -68,7 +68,7 @@ public final class Xcode {
         withOptions options: BuildOptions,
         dependency: (dependency: Dependency, version: PinnedVersion)? = nil,
         rootDirectoryURL: URL,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         lockTimeout: Int? = nil,
         customProjectName: String? = nil,
         customCommitish: String? = nil,

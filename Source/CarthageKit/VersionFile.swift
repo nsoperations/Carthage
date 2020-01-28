@@ -226,7 +226,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
-        resolvedDependenciesHash: String,
+        resolvedDependenciesHash: String?,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -251,7 +251,7 @@ struct VersionFile: Codable {
         commitish: String,
         sourceHash: String?,
         configuration: String,
-        resolvedDependenciesHash: String,
+        resolvedDependenciesHash: String?,
         binariesDirectoryURL: URL,
         localSwiftVersion: PinnedVersion
         ) -> SignalProducer<VersionStatus, CarthageError> {
@@ -371,7 +371,7 @@ extension VersionFile {
         commitish: String?,
         platforms: Set<Platform>,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -422,7 +422,7 @@ extension VersionFile {
         version: PinnedVersion,
         platforms: Set<Platform>,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -448,7 +448,7 @@ extension VersionFile {
         dependencyName: String,
         platforms: Set<Platform> = Set(Platform.supportedPlatforms),
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         buildProducts: [URL],
         rootDirectoryURL: URL
         ) -> SignalProducer<(), CarthageError> {
@@ -465,7 +465,7 @@ extension VersionFile {
             let frameworkSwiftVersion: String?
         }
         
-        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
+        let resolvedDependenciesHash = resolvedDependencySet.map { Frameworks.hashForResolvedDependencySet($0) }
 
         if !buildProducts.isEmpty {
             return SignalProducer<URL, CarthageError>(buildProducts)
@@ -546,7 +546,7 @@ extension VersionFile {
         version: PinnedVersion,
         platforms: Set<Platform>,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         rootDirectoryURL: URL,
         toolchain: String?,
         checkSourceHash: Bool,
@@ -558,7 +558,7 @@ extension VersionFile {
         }
         let rootBinariesURL = versionFileURL.deletingLastPathComponent()
         let commitish = version.commitish
-        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
+        let resolvedDependenciesHash = resolvedDependencySet.map { Frameworks.hashForResolvedDependencySet($0) }
 
         return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
             .mapError { error in CarthageError.internalError(description: error.description) }
