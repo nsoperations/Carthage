@@ -45,7 +45,7 @@ public struct DiagnoseCommand: CommandProtocol {
         /// Attempts to load the project referenced by the options
         public func loadProject() -> SignalProducer<Project, CarthageError> {
             let directoryURL = URL(fileURLWithPath: self.directoryPath, isDirectory: true)
-            let project: Project = Project(directoryURL: directoryURL, useNetrc: self.useNetrc)
+            let project: Project = Project(directoryURL: directoryURL, useNetrc: self.useNetrc, verifyResolvedHash: true)
 
             let eventSink = ProjectEventLogger(colorOptions: self.colorOptions)
             project.projectEvents.observeValues { eventSink.log(event: $0) }

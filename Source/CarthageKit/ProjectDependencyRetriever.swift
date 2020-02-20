@@ -470,13 +470,13 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
     /// Installs binaries and debug symbols for the given project, if available.
     ///
     /// Sends a boolean indicating whether binaries were installed.
-    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, resolvedDependencySet: Set<PinnedDependency>, platforms: Set<Platform>, toolchain: String?, customCacheCommand: String?) -> SignalProducer<Bool, CarthageError> {
+    public func installBinaries(for dependency: Dependency, pinnedVersion: PinnedVersion, configuration: String, resolvedDependencySet: Set<PinnedDependency>?, platforms: Set<Platform>, toolchain: String?, customCacheCommand: String?) -> SignalProducer<Bool, CarthageError> {
         if let cache = self.binariesCache(for: dependency, customCacheCommand: customCacheCommand) {
             return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
                 .mapError { error in CarthageError.internalError(description: error.description) }
                 .flatMap(.concat) { localSwiftVersion -> SignalProducer<Bool, CarthageError> in
                     var lock: URLLock?
-                    let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
+                    let resolvedDependenciesHash = resolvedDependencySet.map { Frameworks.hashForResolvedDependencySet($0) }
                     return cache.matchingBinary(
                         for: dependency,
                         pinnedVersion: pinnedVersion,
@@ -517,7 +517,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         }
     }
 
-    public func storeBinaries(for dependency: Dependency, frameworkNames: [String], pinnedVersion: PinnedVersion, configuration: String, resolvedDependencySet: Set<PinnedDependency>, toolchain: String?) -> SignalProducer<URL, CarthageError> {
+    public func storeBinaries(for dependency: Dependency, frameworkNames: [String], pinnedVersion: PinnedVersion, configuration: String, resolvedDependencySet: Set<PinnedDependency>?, toolchain: String?) -> SignalProducer<URL, CarthageError> {
         if frameworkNames.isEmpty {
             return SignalProducer<URL, CarthageError>.empty
         }
@@ -529,7 +529,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
                 return Archive.archiveFrameworks(frameworkNames: frameworkNames, dependencyName: dependency.name, directoryURL: self.directoryURL, customOutputPath: tempDirectoryURL.appendingPathComponent(dependency.name + ".framework.zip").path)
             }
             .flatMap(.merge) { archiveURL -> SignalProducer<URL, CarthageError> in
-                let hash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
+                let hash = resolvedDependencySet.map { Frameworks.hashForResolvedDependencySet($0) }
                 return SwiftToolchain.swiftVersion(usingToolchain: toolchain)
                     .mapError { error in CarthageError.internalError(description: error.description) }
                     .flatMap(.merge) { swiftVersion -> SignalProducer<URL, CarthageError> in
@@ -546,7 +546,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         binary: BinaryURL,
         pinnedVersion: PinnedVersion,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         platforms: Set<Platform>,
         toolchain: String?
         ) -> SignalProducer<(), CarthageError> {
@@ -728,9 +728,9 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
 
     /// Downloads the binary only framework file. Sends the URL to each downloaded zip, after it has been moved to a
     /// less temporary location.
-    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, resolvedDependencySet: Set<PinnedDependency>, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
+    private func downloadBinary(dependency: Dependency, pinnedVersion: PinnedVersion, binaryProject: BinaryProject, configuration: String, resolvedDependencySet: Set<PinnedDependency>?, platforms: Set<Platform>, swiftVersion: PinnedVersion) -> SignalProducer<URLLock, CarthageError> {
         let binariesCache: BinariesCache = BinaryProjectCache(binaryProjectDefinitions: [dependency: binaryProject])
-        let resolvedDependenciesHash = Frameworks.hashForResolvedDependencySet(resolvedDependencySet)
+        let resolvedDependenciesHash = resolvedDependencySet.map { Frameworks.hashForResolvedDependencySet($0) }
         return binariesCache.matchingBinary(for: dependency, pinnedVersion: pinnedVersion, configuration: configuration, resolvedDependenciesHash: resolvedDependenciesHash, platforms: platforms, swiftVersion: swiftVersion, eventObserver: self.projectEventsObserver, lockTimeout: self.lockTimeout, netrc: self.netrc)
             .attemptMap({ urlLock -> Result<URLLock, CarthageError> in
                 if let lock = urlLock {
@@ -751,7 +751,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         dependency: Dependency,
         pinnedVersion: PinnedVersion,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         swiftVersion: PinnedVersion
         ) -> SignalProducer<(), CarthageError> {
 
@@ -773,7 +773,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         dependency: Dependency,
         pinnedVersion: PinnedVersion,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>,
+        resolvedDependencySet: Set<PinnedDependency>?,
         swiftVersion: PinnedVersion
         ) -> SignalProducer<(), CarthageError> {
         // Helper type
@@ -959,7 +959,7 @@ public final class ProjectDependencyRetriever: DependencyRetrieverProtocol {
         projectName: String,
         commitish: String,
         configuration: String,
-        resolvedDependencySet: Set<PinnedDependency>
+        resolvedDependencySet: Set<PinnedDependency>?
         ) -> SignalProducer<(), CarthageError> {
         return VersionFile.createVersionFileForCommitish(commitish,
                                                          dependencyName: projectName,

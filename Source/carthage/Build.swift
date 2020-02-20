@@ -26,6 +26,8 @@ extension BuildOptions: OptionsProtocol {
         let option8 = Option(key: "build-for-distribution", defaultValue: false, usage: "whether to enable the flag BUILD_LIBRARY_FOR_DISTRIBUTION for all frameworks to enable the Swift module stability feature")
         
         let option9 = Option<String?>(key: "valid-simulator-identifiers", defaultValue: nil, usage: "an optional comma-separated list of valid simulator identifiers to choose from (if not specified the first one found for the platform is chosen automatically)")
+        
+        let option10 = Option<Bool>(key: "dependencies-hash", defaultValue: false, usage: "Calculate a hash for the transitive dependencies to ensure the linked symbols are unique. This will ensure a separate cached version exists for every permutation of Cartfile.resolved of a dependency")
 
         return curry(self.init)
             <*> mode <| option1
@@ -38,6 +40,7 @@ extension BuildOptions: OptionsProtocol {
             <*> mode <| option7
             <*> mode <| option8
             <*> mode <| option9
+            <*> mode <| option10
             <*> mode <| SharedOptions.netrcOption
     }
 }
@@ -115,7 +118,7 @@ public struct BuildCommand: CommandProtocol {
     /// Builds a project with the given options.
     public func buildWithOptions(_ options: Options) -> SignalProducer<(), CarthageError> {
         let directoryURL = URL(fileURLWithPath: options.directoryPath, isDirectory: true)
-        let project = Project(directoryURL: directoryURL, useNetrc: options.buildOptions.useNetrc)
+        let project = Project(directoryURL: directoryURL, useNetrc: options.buildOptions.useNetrc, verifyResolvedHash: true)
         let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
         project.projectEvents.observeValues { eventSink.log(event: $0) }
         

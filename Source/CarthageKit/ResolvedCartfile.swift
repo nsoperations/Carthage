@@ -28,6 +28,12 @@ public struct ResolvedCartfile {
             return nil
         }
     }
+    
+    public func resolvedDependenciesSet() -> Set<PinnedDependency> {
+        return self.dependencies.reduce(into: Set<PinnedDependency>()) { set, entry in
+            set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
+        }
+    }
 }
 
 extension ResolvedCartfile: CartfileProtocol {
