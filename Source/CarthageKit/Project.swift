@@ -539,10 +539,7 @@ public final class Project { // swiftlint:disable:this type_body_length
     
     public func hashForResolvedDependencies() -> SignalProducer<String, CarthageError> {
         return self.loadResolvedCartfile().map { cartfile in
-            let dependencySet = cartfile.dependencies.reduce(into: Set()) { (set, entry) in
-                set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
-            }
-            return Frameworks.hashForResolvedDependencySet(dependencySet)
+            return Frameworks.hashForResolvedDependencySet(cartfile.resolvedDependenciesSet())
         }
     }
 
@@ -908,6 +905,10 @@ public final class Project { // swiftlint:disable:this type_body_length
                 let fileURL: URL = self.directoryURL.appendingPathComponent(Constants.Project.resolvedCartfileHashPath)
                 
                 do {
+                    let dirURL = fileURL.deletingLastPathComponent()
+                    if !dirURL.isExistingDirectory {
+                        try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true, attributes: nil)
+                    }
                     try hash.write(to: fileURL, atomically: true, encoding: .utf8)
                 } catch {
                     throw CarthageError.writeFailed(fileURL, error as NSError)
