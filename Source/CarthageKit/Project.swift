@@ -298,12 +298,12 @@ public final class Project { // swiftlint:disable:this type_body_length
             return buildProducer
         } else {
             let currentProducers = self.loadResolvedCartfile(useCache: true)
-                .map { resolvedCartfile -> Set<PinnedDependency>? in
+                .map { resolvedCartfile -> Set<PinnedDependency> in
                     return resolvedCartfile.resolvedDependenciesSet()
                 }
-                .flatMapError { error -> SignalProducer<Set<PinnedDependency>?, CarthageError> in
+                .flatMapError { error -> SignalProducer<Set<PinnedDependency>, CarthageError> in
                     if (!self.resolvedCartfileURL.isExistingFile) {
-                        return SignalProducer(value: nil)
+                        return SignalProducer(value: Set())
                     } else {
                         return SignalProducer(error: error)
                     }
@@ -712,13 +712,13 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return (entry.0, entry.1)
                 }
             }
-            .flatMap(.concat) { dependency, pinnedVersion -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?), CarthageError> in
+            .flatMap(.concat) { dependency, pinnedVersion -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
                 return self.dependencyRetriever.resolvedRecursiveDependencySet(for: dependency, version: pinnedVersion, resolvedCartfile: cartfile)
-                    .map { set -> (Dependency, PinnedVersion, Set<PinnedDependency>?) in
+                    .map { set -> (Dependency, PinnedVersion, Set<PinnedDependency>) in
                         return (dependency, pinnedVersion, set)
                     }
             }
-            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version, resolvedDependencySet -> SignalProducer<((Dependency, PinnedVersion, Set<PinnedDependency>?), Set<Dependency>, VersionStatus), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { dependency, version, resolvedDependencySet -> SignalProducer<((Dependency, PinnedVersion, Set<PinnedDependency>), Set<Dependency>, VersionStatus), CarthageError> in
                 return SignalProducer.combineLatest(
                     SignalProducer(value: (dependency, version, resolvedDependencySet)),
                     self.dependencyRetriever.dependencySet(for: dependency, version: version, resolvedCartfile: cartfile),
@@ -733,7 +733,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 )
                 .startOnQueue(globalConcurrentProducerQueue)
             }
-            .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion, Set<PinnedDependency>?)] in
+            .reduce([]) { includedDependencies, nextGroup -> [(Dependency, PinnedVersion, Set<PinnedDependency>)] in
                 let (nextDependency, projects, versionStatus) = nextGroup
 
                 var dependenciesIncludingNext = includedDependencies
@@ -756,7 +756,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     return dependenciesIncludingNext
                 }
             }
-            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>?)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
+            .flatMap(.concat) { (dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>)]) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> in
                 return self.installBinaries(dependencies: dependencies, levelLookupDict: levelLookupDict, cartfile: cartfile, options: options)
             }
             .flatMap(.concat) { (sameLevelDependencies: [(Dependency, PinnedVersion)]) -> BuildSchemeProducer in
@@ -768,32 +768,32 @@ public final class Project { // swiftlint:disable:this type_body_length
 
     // MARK: - Private
     
-    private func installBinaries(dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>?)], levelLookupDict: [Dependency: Int], cartfile: ResolvedCartfile, options: BuildOptions) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> {
+    private func installBinaries(dependencies: [(Dependency, PinnedVersion, Set<PinnedDependency>)], levelLookupDict: [Dependency: Int], cartfile: ResolvedCartfile, options: BuildOptions) -> SignalProducer<[(Dependency, PinnedVersion)], CarthageError> {
         
         return SignalProducer(dependencies)
-            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { (dependency: Dependency, version: PinnedVersion, resolvedDependencySet: Set<PinnedDependency>?) -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?), CarthageError> in
+            .flatMap(.concurrent(limit: Constants.concurrencyLimit)) { (dependency: Dependency, version: PinnedVersion, resolvedDependencySet: Set<PinnedDependency>) -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
             switch dependency {
             case .git, .gitHub:
                 guard options.useBinaries else {
                     return .empty
                 }
-                return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: options.matchResolvedDependenciesHash ? resolvedDependencySet : nil, platforms: options.platforms, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
-                    .filterMap { installed -> (Dependency, PinnedVersion, Set<PinnedDependency>?)? in
+                return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, strictMatch: options.matchResolvedDependenciesHash, platforms: options.platforms, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
+                    .filterMap { installed -> (Dependency, PinnedVersion, Set<PinnedDependency>)? in
                         return installed ? (dependency, version, resolvedDependencySet) : nil
                 }
             case let .binary(binary):
-                return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: options.matchResolvedDependenciesHash ? resolvedDependencySet : nil, platforms: options.platforms, toolchain: options.toolchain)
+                return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, strictMatch: options.matchResolvedDependenciesHash, platforms: options.platforms, toolchain: options.toolchain)
                     .then(.init(value: (dependency, version, resolvedDependencySet)))
             }
         }
-        .flatMap(.merge) { dependency, version, resolvedDependencySet -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?), CarthageError> in
+        .flatMap(.merge) { dependency, version, resolvedDependencySet -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
             // Symlink the build folder of binary downloads for consistency with regular checkouts
             // (even though it's not necessary since binary downloads aren't built by Carthage)
             return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)
                 .then(.init(value: (dependency, version, resolvedDependencySet)))
         }
         .collect()
-        .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?, [PlatformFramework: Set<String>]), CarthageError> in
+        .flatMap(.concat) { dependencyVersions -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>, [PlatformFramework: Set<String>]), CarthageError> in
             if !dependencyVersions.isEmpty {
                 self.projectEventsObserver.send(value: .crossReferencingSymbols)
                 // Add the symbols of the installed binaries to the externalSymbolsMap, after downloading
@@ -803,7 +803,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     .reduce(into: [:], { (map, entry) in
                         map[entry.0] = entry.1
                     })
-                    .flatMap(.concat) { externalSymbolsMap -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?, [PlatformFramework: Set<String>]), CarthageError> in
+                    .flatMap(.concat) { externalSymbolsMap -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>, [PlatformFramework: Set<String>]), CarthageError> in
                         return SignalProducer(dependencyVersions).map { ($0, $1, $2, externalSymbolsMap) }
                     }
             }
@@ -939,7 +939,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         let swiftVersion = SwiftToolchain.swiftVersion(usingToolchain: options.toolchain).first()!.value?.commitish ?? "Unknown"
         
         return SignalProducer(sameLevelDependencies)
-            .flatMap(.concat) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?), CarthageError> in
+            .flatMap(.concat) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>), CarthageError> in
                 return self.dependencyRetriever.resolvedRecursiveDependencySet(for: dependency, version: version, resolvedCartfile: cartfile)
                     .map { set in
                         return (dependency, version, set)
