@@ -920,6 +920,10 @@ public final class Project { // swiftlint:disable:this type_body_length
         return SignalProducer { () -> Result<(), CarthageError> in
             return Result<(), CarthageError>(catching: { () -> () in
                 
+                guard self.verifyResolvedHash else {
+                    return
+                }
+                
                 let resolvedCartfile = try self.loadResolvedCartfile(useCache: true).single()!.get()
                 let set = resolvedCartfile.resolvedDependenciesSet()
                 let hash: String = Frameworks.hashForResolvedDependencySet(set)
