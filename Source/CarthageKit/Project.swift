@@ -299,9 +299,6 @@ public final class Project { // swiftlint:disable:this type_body_length
         } else {
             let currentProducers = self.loadResolvedCartfile(useCache: true)
                 .map { resolvedCartfile -> Set<PinnedDependency>? in
-                    guard buildOptions.calculateResolvedDependenciesHash else {
-                        return nil
-                    }
                     return resolvedCartfile.resolvedDependenciesSet()
                 }
                 .flatMapError { error -> SignalProducer<Set<PinnedDependency>?, CarthageError> in
@@ -716,11 +713,6 @@ public final class Project { // swiftlint:disable:this type_body_length
                 }
             }
             .flatMap(.concat) { dependency, pinnedVersion -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?), CarthageError> in
-                
-                guard options.calculateResolvedDependenciesHash else {
-                    return SignalProducer(value: (dependency, pinnedVersion, nil))
-                }
-                
                 return self.dependencyRetriever.resolvedRecursiveDependencySet(for: dependency, version: pinnedVersion, resolvedCartfile: cartfile)
                     .map { set -> (Dependency, PinnedVersion, Set<PinnedDependency>?) in
                         return (dependency, pinnedVersion, set)
@@ -734,7 +726,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                                                    version: version,
                                                    platforms: options.platforms,
                                                    configuration: options.configuration,
-                                                   resolvedDependencySet: resolvedDependencySet,
+                                                   resolvedDependencySet: options.matchResolvedDependenciesHash ? resolvedDependencySet : nil,
                                                    rootDirectoryURL: self.directoryURL,
                                                    toolchain: options.toolchain,
                                                    checkSourceHash: options.trackLocalChanges)
@@ -825,7 +817,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                 version: version,
                 platforms: options.platforms,
                 configuration: options.configuration,
-                resolvedDependencySet: resolvedDependencySet,
+                resolvedDependencySet: options.matchResolvedDependenciesHash ? resolvedDependencySet : nil,
                 rootDirectoryURL: self.directoryURL,
                 toolchain: options.toolchain,
                 checkSourceHash: options.trackLocalChanges,
@@ -948,10 +940,6 @@ public final class Project { // swiftlint:disable:this type_body_length
         
         return SignalProducer(sameLevelDependencies)
             .flatMap(.concat) { dependency, version -> SignalProducer<(Dependency, PinnedVersion, Set<PinnedDependency>?), CarthageError> in
-                guard options.calculateResolvedDependenciesHash else {
-                    return SignalProducer(value: (dependency, version, nil))
-                }
-                
                 return self.dependencyRetriever.resolvedRecursiveDependencySet(for: dependency, version: version, resolvedCartfile: cartfile)
                     .map { set in
                         return (dependency, version, set)

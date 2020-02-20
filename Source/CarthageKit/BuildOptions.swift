@@ -24,8 +24,8 @@ public struct BuildOptions {
     public let buildForDistribution: Bool
     /// The optional valid set of simulator identifiers to choose from
     public let validSimulatorIdentifiers: String?
-    /// Whether a hash is calculated for the resolved dependencies of a dependency to ensure all linked symbols are exactly the same
-    public let calculateResolvedDependenciesHash: Bool
+    /// Whether a hash is matched for the resolved dependencies of a dependency to ensure all linked symbols are exactly the same
+    public let matchResolvedDependenciesHash: Bool
     
     public var validSimulatorIdentifierSet: Set<String>? {
         return validSimulatorIdentifiers.map { string -> Set<String> in
@@ -57,7 +57,7 @@ public struct BuildOptions {
         self.trackLocalChanges = trackLocalChanges
         self.buildForDistribution = buildForDistribution
         self.validSimulatorIdentifiers = validSimulatorIdentifiers
-        self.calculateResolvedDependenciesHash = calculateResolvedDependenciesHash
+        self.matchResolvedDependenciesHash = calculateResolvedDependenciesHash
         self.useNetrc = useNetrc
     }
 }
