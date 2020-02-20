@@ -24,7 +24,7 @@ public struct DependenciesHashCommand: CommandProtocol {
         /// accordingly.
         public func loadProject() -> SignalProducer<Project, CarthageError> {
             let directoryURL = URL(fileURLWithPath: self.directoryPath, isDirectory: true)
-            let project = Project(directoryURL: directoryURL, useNetrc: false)
+            let project = Project(directoryURL: directoryURL, useNetrc: false, verifyResolvedHash: true)
             return SignalProducer(value: project)
         }
     }

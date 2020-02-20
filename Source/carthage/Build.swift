@@ -118,7 +118,7 @@ public struct BuildCommand: CommandProtocol {
     /// Builds a project with the given options.
     public func buildWithOptions(_ options: Options) -> SignalProducer<(), CarthageError> {
         let directoryURL = URL(fileURLWithPath: options.directoryPath, isDirectory: true)
-        let project = Project(directoryURL: directoryURL, useNetrc: options.buildOptions.useNetrc)
+        let project = Project(directoryURL: directoryURL, useNetrc: options.buildOptions.useNetrc, verifyResolvedHash: true)
         let eventSink = ProjectEventLogger(colorOptions: options.colorOptions)
         project.projectEvents.observeValues { eventSink.log(event: $0) }
         

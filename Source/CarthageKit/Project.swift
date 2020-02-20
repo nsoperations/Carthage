@@ -164,10 +164,12 @@ public final class Project { // swiftlint:disable:this type_body_length
     let dependencyRetriever: ProjectDependencyRetriever
     
     private let cachedResolvedCartfile = Atomic<ResolvedCartfile?>(nil)
+    
+    private let verifyResolvedHash: Bool
 
     // MARK: - Public
 
-    public init(directoryURL: URL, useNetrc: Bool = false) {
+    public init(directoryURL: URL, useNetrc: Bool = false, verifyResolvedHash: Bool = false) {
         precondition(directoryURL.isFileURL)
 
         let (signal, observer) = Signal<ProjectEvent, NoError>.pipe()
@@ -175,6 +177,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         projectEventsObserver = observer
 
         self.directoryURL = directoryURL
+        self.verifyResolvedHash = verifyResolvedHash
 
         self.dependencyRetriever = ProjectDependencyRetriever(directoryURL: directoryURL, projectEventsObserver: projectEventsObserver)
 

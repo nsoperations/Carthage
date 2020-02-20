@@ -48,7 +48,7 @@ public struct CheckoutCommand: CommandProtocol {
         /// accordingly.
         public func loadProject(useNetrc: Bool) -> SignalProducer<Project, CarthageError> {
             let directoryURL = URL(fileURLWithPath: self.directoryPath, isDirectory: true)
-            let project = Project(directoryURL: directoryURL, useNetrc: useNetrc)
+            let project = Project(directoryURL: directoryURL, useNetrc: useNetrc, verifyResolvedHash: true)
             project.preferHTTPS = !self.useSSH
             project.useSubmodules = self.useSubmodules
             project.lockTimeout = self.lockTimeout
