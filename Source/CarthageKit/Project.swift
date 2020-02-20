@@ -777,12 +777,12 @@ public final class Project { // swiftlint:disable:this type_body_length
                 guard options.useBinaries else {
                     return .empty
                 }
-                return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, platforms: options.platforms, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
+                return self.dependencyRetriever.installBinaries(for: dependency, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: options.matchResolvedDependenciesHash ? resolvedDependencySet : nil, platforms: options.platforms, toolchain: options.toolchain, customCacheCommand: options.customCacheCommand)
                     .filterMap { installed -> (Dependency, PinnedVersion, Set<PinnedDependency>?)? in
                         return installed ? (dependency, version, resolvedDependencySet) : nil
                 }
             case let .binary(binary):
-                return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, platforms: options.platforms, toolchain: options.toolchain)
+                return self.dependencyRetriever.installBinariesForBinaryProject(binary: binary, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: options.matchResolvedDependenciesHash ? resolvedDependencySet : nil, platforms: options.platforms, toolchain: options.toolchain)
                     .then(.init(value: (dependency, version, resolvedDependencySet)))
             }
         }
@@ -972,7 +972,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         }
                         return url.deletingPathExtension().lastPathComponent
                     }
-                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: resolvedDependencySet, toolchain: options.toolchain).map { _ in }
+                    return self.dependencyRetriever.storeBinaries(for: dependency, frameworkNames: frameworkNames, pinnedVersion: version, configuration: options.configuration, resolvedDependencySet: options.matchResolvedDependenciesHash ? resolvedDependencySet : nil, toolchain: options.toolchain).map { _ in }
                     } : nil
 
                 return self.symlinkBuildPathIfNeeded(for: dependency, version: version, resolvedCartfile: cartfile)

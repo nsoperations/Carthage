@@ -63,6 +63,15 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.45.1+nsoperations
+
+- Fixed bug with `--dependencies-hash` where the hash would not be stored in the version file if the flag was not supplied.
+
+### 0.45.0+nsoperations
+
+- Added writing of a file called Carthage/.resolved.md5 which is used to cross-reference if the current Carthage/Checkouts are up-to-date with the Cartfile.resolved. If not `build` will fail with an error.
+- Added build flag `--dependencies-hash` which if supplied enforces the cross-reference of the hash of transitive dependencies for binary caches. This is to avoid issues with a mismatch of transitive dependencies at build time vs. run time for non-module stable builds. There is also a cross-reference of symbol tables which is always performed (irrespective of this flag) as fallback. Specify this flag to be absolutely sure that the cached build corresponds to the exact same set of pinned dependency versions. In Debug mode on developer machines this flag should most of the time not be supplied for speed purposes (alows for more cache hits), but on the CI it does make sense. 0.44.* versions implicitly enabled this mode always.
+
 ### 0.44.2+nsoperations
 
 - Fixed IRGen error during debugging for locally made builds because derived data folder was split between sdks
