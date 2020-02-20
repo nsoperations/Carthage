@@ -127,6 +127,8 @@ public enum CarthageError: Error {
 
     /// HTTP error occured, non-successful status code
     case httpError(statusCode: Int)
+    
+    case bootstrapNeeded
 }
 
 extension CarthageError {
@@ -241,6 +243,9 @@ extension CarthageError: Equatable {
 
         case let (.httpError(leftStatusCode), .httpError(rightStatusCode)):
             return leftStatusCode == rightStatusCode
+            
+        case (.bootstrapNeeded, .bootstrapNeeded):
+            return true
 
         default:
             return false
@@ -439,6 +444,9 @@ extension CarthageError: CustomStringConvertible {
 
         case let .httpError(statusCode):
             return "Server returned a non-successful HTTP status: \(statusCode)"
+        
+        case .bootstrapNeeded:
+            return "Bootstrap not yet performed or the checkouts are not up to date with the current Cartfile.resolved. Please run `carthage bootstrap` first."
         }
     }
 }

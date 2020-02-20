@@ -271,6 +271,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                         }
             })
             .then(self.removeNonExistingDependencyDirectories())
+            .then(self.writeCartfileResolvedHash())
             .then(SignalProducer<(), CarthageError>.empty)
     }
 
@@ -298,9 +299,7 @@ public final class Project { // swiftlint:disable:this type_body_length
                     guard buildOptions.calculateResolvedDependenciesHash else {
                         return nil
                     }
-                    return resolvedCartfile.dependencies.reduce(into: Set<PinnedDependency>()) { set, entry in
-                        set.insert(PinnedDependency(dependency: entry.0, pinnedVersion: entry.1))
-                    }
+                    return resolvedCartfile.resolvedDependenciesSet()
                 }
                 .flatMapError { error -> SignalProducer<Set<PinnedDependency>?, CarthageError> in
                     if (!self.resolvedCartfileURL.isExistingFile) {
@@ -708,7 +707,7 @@ public final class Project { // swiftlint:disable:this type_body_length
         var cartfile: ResolvedCartfile!
         var levelLookupDict = [Dependency: Int]()
         
-        return loadResolvedCartfile(useCache: true)
+        let build = loadResolvedCartfile(useCache: true)
             .flatMap(.concat) { resolvedCartfile -> SignalProducer<(Dependency, PinnedVersion), CarthageError> in
                 cartfile = resolvedCartfile
                 return self.buildOrderForResolvedCartfile(resolvedCartfile, dependenciesToInclude: dependenciesToBuild).map { entry in
@@ -771,6 +770,8 @@ public final class Project { // swiftlint:disable:this type_body_length
             .flatMap(.concat) { (sameLevelDependencies: [(Dependency, PinnedVersion)]) -> BuildSchemeProducer in
                 return self.buildSameLevelDependencies(sameLevelDependencies: sameLevelDependencies, options: options, cartfile: cartfile, sdkFilter: sdkFilter)
             }
+        
+        return self.verifyCartfileResolvedHash().then(build)
     }
 
     // MARK: - Private
@@ -890,6 +891,44 @@ public final class Project { // swiftlint:disable:this type_body_length
                         throw CarthageError.internalError(description: "Could not remove directory at URL: \(url)")
                     }
                 }
+            })
+        }
+    }
+    
+    private func writeCartfileResolvedHash() -> SignalProducer<(), CarthageError> {
+        return SignalProducer { () -> Result<(), CarthageError> in
+            return Result<(), CarthageError>(catching: { () -> () in
+                
+                let resolvedCartfile = try self.loadResolvedCartfile(useCache: true).single()!.get()
+                let set = resolvedCartfile.resolvedDependenciesSet()
+                let hash: String = Frameworks.hashForResolvedDependencySet(set)
+                let fileURL: URL = self.directoryURL.appendingPathComponent(Constants.Project.resolvedCartfileHashPath)
+                
+                do {
+                    try hash.write(to: fileURL, atomically: true, encoding: .utf8)
+                } catch {
+                    throw CarthageError.writeFailed(fileURL, error as NSError)
+                }
+            })
+        }
+    }
+    
+    private func verifyCartfileResolvedHash() -> SignalProducer<(), CarthageError> {
+        return SignalProducer { () -> Result<(), CarthageError> in
+            return Result<(), CarthageError>(catching: { () -> () in
+                
+                let resolvedCartfile = try self.loadResolvedCartfile(useCache: true).single()!.get()
+                let set = resolvedCartfile.resolvedDependenciesSet()
+                let hash: String = Frameworks.hashForResolvedDependencySet(set)
+                let fileURL: URL = self.directoryURL.appendingPathComponent(Constants.Project.resolvedCartfileHashPath)
+                
+                if fileURL.isExistingFile {
+                    let existingHash = try? String(contentsOf: fileURL)
+                    if hash == existingHash {
+                        return
+                    }
+                }
+                throw CarthageError.bootstrapNeeded
             })
         }
     }

@@ -105,6 +105,9 @@ public struct Constants {
         
         /// The relative path to the Cartfile.project
         public static let projectCartfilePath = "Cartfile.project"
+        
+        /// Path to the file used to check consistency between Cartfile.resolved and the last bootstrap
+        public static let resolvedCartfileHashPath = "Carthage/.resolved.md5"
 
         /// The text that needs to exist in a GitHub Release asset's name, for it to be
         /// tried as a binary framework.
