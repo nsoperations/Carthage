@@ -214,7 +214,7 @@ struct VersionFile: Codable {
                     return Frameworks.frameworkSwiftVersion(frameworkURL)
                         .flatMapError { _ in Frameworks.dSYMSwiftVersion(frameworkURL.appendingPathExtension("dSYM")) }
                         .map { swiftVersion -> Bool in
-                            return swiftVersion == localSwiftVersion
+                            return swiftVersion == localSwiftVersion || Frameworks.isModuleStableAPI(localSwiftVersion.semanticVersion, swiftVersion.semanticVersion, frameworkURL)
                         }
                         .flatMapError { _ in SignalProducer<Bool, CarthageError>(value: false) }
                 }
