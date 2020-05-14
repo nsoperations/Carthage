@@ -63,6 +63,10 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.46.0+nsoperations
+
+- Added support for frameworks built with module stability in combination binary caching
+
 ### 0.45.1+nsoperations
 
 - Fixed bug with `--dependencies-hash` where the hash would not be stored in the version file if the flag was not supplied.
