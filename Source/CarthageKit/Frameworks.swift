@@ -416,7 +416,7 @@ final class Frameworks {
     static func checkSwiftFrameworkCompatibility(_ frameworkURL: URL, swiftVersion: PinnedVersion) -> SignalProducer<URL, SwiftVersionError> {
         return frameworkSwiftVersion(frameworkURL)
             .attemptMap({ frameworkSwiftVersion -> Result<URL, SwiftVersionError> in
-                return swiftVersion == frameworkSwiftVersion
+                return swiftVersion == frameworkSwiftVersion || isModuleStableAPI(swiftVersion.semanticVersion, frameworkSwiftVersion.semanticVersion, frameworkURL)
                     ? .success(frameworkURL)
                     : .failure(.incompatibleFrameworkSwiftVersions(local: swiftVersion, framework: frameworkSwiftVersion))
             })
@@ -438,6 +438,24 @@ final class Frameworks {
         } else {
             return SignalProducer(value: frameworkURL)
         }
+    }
+
+    /// Determines whether a local swift version and a framework combination are considered module stable
+    static func isModuleStableAPI(_ localSwiftVersion: SemanticVersion?, _ frameworkSwiftVersion: SemanticVersion?, _ frameworkURL: URL) -> Bool {
+        guard let localSwiftVersion = localSwiftVersion, let frameworkSwiftVersion = frameworkSwiftVersion else { return false }
+
+        let moduleStableSwiftVersion = SemanticVersion(5, 1, 0)
+        return localSwiftVersion >= moduleStableSwiftVersion && frameworkSwiftVersion >= moduleStableSwiftVersion && hasSwiftInterfaceFile(frameworkURL)
+    }
+
+    static func hasSwiftInterfaceFile(_ frameworkURL: URL) -> Bool {
+        guard
+            let swiftModuleURL = frameworkURL.swiftmoduleURL(),
+            let swiftModuleContents = try? FileManager.default.contentsOfDirectory(at: swiftModuleURL, includingPropertiesForKeys: nil, options: [])
+        else { return false }
+
+        let hasSwiftInterfaceFile = swiftModuleContents.contains { $0.lastPathComponent.contains("swiftinterface") }
+        return hasSwiftInterfaceFile
     }
 
     /// Returns a signal of all architectures present in a given package.

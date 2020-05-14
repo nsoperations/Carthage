@@ -104,6 +104,71 @@ public class FrameworksTests: XCTestCase {
         XCTAssertEqual(result?.error, .incompatibleFrameworkSwiftVersions(local: currentSwiftVersion, framework: frameworkVersion))
     }
 
+    func testShouldDetermineWhenAModuleStableSwiftFrameworkIsIncompatible() {
+        guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "ModuleStableBuiltWithSwift5.1.2.framework", withExtension: nil) else {
+            XCTFail("Could not load ModuleStableBuiltWithSwift5.1.2.framework from resources")
+            return
+        }
+
+        guard let localSwiftVersion = SwiftToolchain.swiftVersion(from: "Apple Swift version 5.0 (swiftlang-1001.0.69.5 clang-1001.0.46.3)") else {
+            XCTFail("Could not parse local swift version")
+            return
+        }
+
+        guard let frameworkVersion = Frameworks.frameworkSwiftVersion(frameworkURL).single()?.value else {
+            XCTFail("Could not get framework swift version")
+            return
+        }
+
+        let result = Frameworks.checkSwiftFrameworkCompatibility(frameworkURL, swiftVersion: localSwiftVersion).single()
+
+        XCTAssertNil(result?.value)
+        XCTAssertEqual(result?.error, .incompatibleFrameworkSwiftVersions(local: localSwiftVersion, framework: frameworkVersion))
+    }
+
+    func testShouldDetermineWhenANonModuleStableSwiftFrameworkIsIncompatible() {
+        guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "NonModuleStableBuiltWithSwift5.1.2.framework", withExtension: nil) else {
+            XCTFail("Could not load NonModuleStableBuiltWithSwift5.1.2.framework from resources")
+            return
+        }
+
+        guard let localSwiftVersion = SwiftToolchain.swiftVersion(from: "Apple Swift version 5.1 (swiftlang-1100.0.270.13 clang-1100.0.33.7)") else {
+            XCTFail("Could not parse local swift version")
+            return
+        }
+
+        guard let frameworkVersion = Frameworks.frameworkSwiftVersion(frameworkURL).single()?.value else {
+            XCTFail("Could not get framework swift version")
+            return
+        }
+
+        let result = Frameworks.checkSwiftFrameworkCompatibility(frameworkURL, swiftVersion: localSwiftVersion).single()
+
+        XCTAssertNil(result?.value)
+        XCTAssertEqual(result?.error, .incompatibleFrameworkSwiftVersions(local: localSwiftVersion, framework: frameworkVersion))
+    }
+
+    func testShouldDetermineWhenAModuleStableSwiftFrameworkIsCompatible() {
+        guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "ModuleStableBuiltWithSwift5.1.2.framework", withExtension: nil) else {
+            XCTFail("Could not load ModuleStableBuiltWithSwift5.1.2.framework from resources")
+            return
+        }
+
+        guard let localSwiftVersion = SwiftToolchain.swiftVersion(from: "Apple Swift version 5.1 (swiftlang-1100.0.270.13 clang-1100.0.33.7)") else {
+            XCTFail("Could not parse local swift version")
+            return
+        }
+
+        guard let frameworkVersion = Frameworks.frameworkSwiftVersion(frameworkURL).single()?.value else {
+            XCTFail("Could not get framework swift version")
+            return
+        }
+
+        let result = Frameworks.checkSwiftFrameworkCompatibility(frameworkURL, swiftVersion: localSwiftVersion).single()
+
+        XCTAssertEqual(result?.value, frameworkURL)
+    }
+
     func testShouldDetermineAFrameworksSwiftVersionForOssToolchainsFromSwiftOrg() {
         guard let frameworkURL = Bundle(for: type(of: self)).url(forResource: "FakeOSSSwift.framework", withExtension: nil) else {
             XCTFail("Could not load FakeOSSSwift.framework from resources")
