@@ -609,11 +609,22 @@ extension Task {
                                 }
                                 try process.run()
                             } catch {
-                                let launchError = TaskError.launchFailed(self, reason: error.localizedDescription)
-                                #if DEBUG
-                                Task.debugEventsObserver.send(value: .launchFailure(self, error))
-                                #endif
-                                observer.send(error: launchError)
+                                // Wait for stdout to finish, then pass
+                                // through stderr.
+                                lifetime += stdoutAggregated
+                                    .then(stderrAggregated)
+                                    .flatMap(.concat) { data -> SignalProducer<TaskEvent<Data>, TaskError> in
+                                        let launchError = TaskError.launchFailed(self, reason: error.localizedDescription)
+                                        #if DEBUG
+                                        Task.debugEventsObserver.send(value: .launchFailure(self, error))
+                                        #endif
+                                        observer.send(error: launchError)
+                                        return SignalProducer(error: launchError)
+                                    }
+                                    .on(terminated: {
+                                        group.leave()
+                                    })
+                                    .start(observer)
                                 return
                             }
                         } else {
