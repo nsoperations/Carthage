@@ -153,6 +153,15 @@ final class BinaryProjectCache: AbstractBinariesCache {
                 let response = result.1
                 if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
                     return SignalProducer(error: CarthageError.httpError(statusCode: httpResponse.statusCode))
+                } else if Archive.hasTarExtension(fileURL: sourceURL) {
+                    let tempURL = destinationURL.deletingLastPathComponent().appendingPathComponent(sourceURL.lastPathComponent)
+                    return Files.moveFile(from: downloadURL, to: tempURL)
+                        .flatMap(.concat) { url -> SignalProducer<URL, CarthageError> in
+                            return Archive.unarchive(archive: url)
+                        }
+                        .flatMap(.concat) { archiveURL -> SignalProducer<URL, CarthageError> in
+                            return Archive.zip(paths: [archiveURL.path], into: destinationURL, workingDirectoryURL: archiveURL.deletingLastPathComponent())
+                        }
                 } else {
                     return Files.moveFile(from: downloadURL, to: destinationURL)
                 }
