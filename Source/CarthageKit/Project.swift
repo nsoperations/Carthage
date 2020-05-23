@@ -269,8 +269,13 @@ public final class Project { // swiftlint:disable:this type_body_length
                             }
                         }
                         .flatMap(.concat) { dependency, version -> SignalProducer<(), CarthageError> in
-                           // symlink the checkout paths for every dependency
-                           return self.symlinkCheckoutPaths(for: dependency, version: version, resolvedCartfile: cartfile)
+                            switch dependency {
+                            case .git, .gitHub:
+                                // symlink the checkout paths for checked-out dependencies
+                                return self.symlinkCheckoutPaths(for: dependency, version: version, resolvedCartfile: cartfile)
+                            case .binary:
+                                return .empty
+                            }
                         }
             })
             .then(self.removeNonExistingDependencyDirectories())
