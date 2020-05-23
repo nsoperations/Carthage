@@ -154,10 +154,29 @@ final class BinaryProjectCache: AbstractBinariesCache {
                 if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
                     return SignalProducer(error: CarthageError.httpError(statusCode: httpResponse.statusCode))
                 } else {
-                    return Files.moveFile(from: downloadURL, to: destinationURL)
+                    return self.rezipIfNeeded(sourceURL: sourceURL, downloadURL: downloadURL)
+                        .flatMap(.concat) { archiveURL -> SignalProducer<URL, CarthageError> in
+                            return Files.moveFile(from: archiveURL, to: destinationURL)
+                        }
                 }
             }
             .then(SignalProducer<(), CarthageError>.empty)
+    }
+
+    private func rezipIfNeeded(sourceURL: URL, downloadURL: URL) -> SignalProducer<URL, CarthageError> {
+        guard Archive.hasTarExtension(fileURL: sourceURL) else {
+            return SignalProducer<URL, CarthageError>(value: downloadURL)
+        }
+
+        // Untar and zip again
+        let tempURL = downloadURL.deletingLastPathComponent().appendingPathComponent(sourceURL.lastPathComponent)
+        return Files.moveFile(from: downloadURL, to: tempURL)
+            .flatMap(.concat) { Archive.unarchive(archive: $0) }
+            .flatMap(.concat) { directoryURL -> SignalProducer<URL, CarthageError> in
+                let zipArchiveFileName = "archive.zip"
+                let zipArchiveURL = directoryURL.appendingPathComponent(zipArchiveFileName)
+                return Archive.zip(paths: ["."], into: zipArchiveURL, workingDirectoryURL: directoryURL)
+            }
     }
 }
 

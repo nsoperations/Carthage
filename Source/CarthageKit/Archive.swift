@@ -104,13 +104,16 @@ public final class Archive {
 
     // MARK: - Internal
 
+    static func hasTarExtension(fileURL: URL) -> Bool {
+        return ["gz", "tgz", "bz2", "xz"].contains(fileURL.pathExtension)
+    }
+
     /// Unarchives the given file URL into a temporary directory, using its
     /// extension to detect archive type, then sends the file URL to that directory.
     static func unarchive(archive fileURL: URL) -> SignalProducer<URL, CarthageError> {
-        switch fileURL.pathExtension {
-        case "gz", "tgz", "bz2", "xz":
+        if hasTarExtension(fileURL: fileURL) {
             return untar(archive: fileURL)
-        default:
+        } else {
             return unzip(archive: fileURL)
         }
     }
