@@ -63,6 +63,11 @@ See [Installing Carthage](#installing-carthage)
 
 ## Change Log
 
+### 0.46.1+nsoperations
+
+- Fixed bug where binary dependency in tar (gz) format could not be installed
+- Fixed deadlock in case a binary dependency referenced another binary dependency
+
 ### 0.46.0+nsoperations
 
 - Added support for frameworks built with module stability in combination binary caching
