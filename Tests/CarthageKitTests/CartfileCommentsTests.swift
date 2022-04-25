@@ -15,7 +15,7 @@ class CarfileCommentTests: XCTestCase {
 			"I say \"hello\" you say \"goodbye\"!"
 			]
 			.forEach {
-				expect($0.strippingTrailingCartfileComment) == $0
+                expect($0.strippingTrailingCartfileComment) == $0 as String
 		}
 	}
 	
@@ -26,7 +26,7 @@ class CarfileCommentTests: XCTestCase {
 			"\"#\""
 			]
 			.forEach {
-				expect($0.strippingTrailingCartfileComment) == $0
+				expect($0.strippingTrailingCartfileComment) == $0 as String
 		}
 	}
 	
